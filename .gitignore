@@ -38,6 +38,9 @@ screenshots/
 mcp-add-command.txt
 docs/why-notebooklm.md
 
+# Internal go-live planning (not for public)
+golive.md
+
 # Python (from old version)
 __pycache__/
 *.py[cod]
