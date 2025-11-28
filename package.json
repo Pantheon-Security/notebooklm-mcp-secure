@@ -1,10 +1,10 @@
 {
-  "name": "notebooklm-mcp-secure",
-  "version": "1.4.0-secure",
+  "name": "@pan-sec/notebooklm-mcp",
+  "version": "1.4.0",
   "description": "Security-hardened MCP server for NotebookLM API with input validation, rate limiting, and log sanitization",
   "type": "module",
   "bin": {
-    "notebooklm-mcp-secure": "dist/index.js"
+    "notebooklm-mcp": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
