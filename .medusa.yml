@@ -1,0 +1,61 @@
+# MEDUSA Security Scanner Configuration
+# NotebookLM MCP Server (Security-Hardened)
+# https://docs.medusa-security.dev
+
+version: 0.8.0
+
+# Scanner settings
+scanners:
+  enabled: []  # Empty = all enabled
+  disabled: []  # List scanners to disable
+
+# Fail CI/CD on this severity or higher
+fail_on: high
+
+# Paths and files to exclude
+exclude:
+  paths:
+    - node_modules/
+    - .venv/
+    - dist/
+    - build/
+    - coverage/
+    - .git/
+    - "*.log"
+  files:
+    - "*.min.js"
+    - "*.map"
+    - package-lock.json
+
+# Worker threads (null = auto-detect CPU cores)
+workers: null
+
+# Enable caching for faster repeated scans
+cache_enabled: true
+
+# Output settings
+output:
+  format: json
+  directory: .medusa/reports
+
+# TypeScript/JavaScript specific
+typescript:
+  enabled: true
+  config: tsconfig.json
+
+# Custom rules for this project
+rules:
+  # Ensure encryption uses approved algorithms
+  - id: crypto-approved-algorithms
+    severity: high
+    message: "Use approved cryptographic algorithms (ChaCha20-Poly1305, ML-KEM-768)"
+
+  # Prevent hardcoded credentials
+  - id: no-hardcoded-secrets
+    severity: critical
+    message: "No hardcoded credentials allowed"
+
+  # Memory safety checks
+  - id: memory-wipe-required
+    severity: medium
+    message: "Sensitive data should be wiped after use"

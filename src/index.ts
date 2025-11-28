@@ -47,6 +47,9 @@ import { SettingsManager } from "./utils/settings-manager.js";
 import { CliHandler } from "./utils/cli-handler.js";
 import { CONFIG } from "./config.js";
 import { log } from "./utils/logger.js";
+import { audit, getAuditLogger } from "./utils/audit-logger.js";
+import { checkSecurityContext } from "./utils/security.js";
+import { getMCPAuthenticator, authenticateMCPRequest } from "./auth/mcp-auth.js";
 
 /**
  * Main MCP Server Class
@@ -128,10 +131,28 @@ class NotebookLMMCPServer {
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
       const progressToken = (args as any)?._meta?.progressToken;
+      const authToken = (args as any)?._meta?.authToken || process.env.NLMCP_AUTH_TOKEN;
 
       log.info(`🔧 [MCP] Tool call: ${name}`);
       if (progressToken) {
         log.info(`  📊 Progress token: ${progressToken}`);
+      }
+
+      // === SECURITY: MCP Authentication ===
+      const authResult = await authenticateMCPRequest(authToken, name);
+      if (!authResult.authenticated) {
+        log.warning(`🔒 [MCP] Authentication failed for tool: ${name}`);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                success: false,
+                error: authResult.error || "Authentication required",
+              }),
+            },
+          ],
+        };
       }
 
       // Create progress callback function
@@ -373,8 +394,37 @@ class NotebookLMMCPServer {
    * Start the MCP server
    */
   async start(): Promise<void> {
-    log.info("🎯 Starting NotebookLM MCP Server...");
+    log.info("🎯 Starting NotebookLM MCP Server (Security Hardened)...");
     log.info("");
+
+    // Security: Check security context and warn about issues
+    const securityCheck = checkSecurityContext();
+    if (!securityCheck.secure) {
+      log.warning("⚠️  Security warnings detected:");
+      for (const warning of securityCheck.warnings) {
+        log.warning(`    - ${warning}`);
+      }
+      log.info("");
+    }
+
+    // Security: Initialize MCP authentication
+    const mcpAuth = getMCPAuthenticator();
+    await mcpAuth.initialize();
+    const authStatus = mcpAuth.getStatus();
+
+    // Audit: Log server startup
+    await audit.system("server_start", {
+      version: "1.2.0-secure.1",
+      security_warnings: securityCheck.warnings,
+      mcp_auth_enabled: authStatus.enabled,
+      config: {
+        headless: CONFIG.headless,
+        max_sessions: CONFIG.maxSessions,
+        session_timeout: CONFIG.sessionTimeout,
+        stealth_enabled: CONFIG.stealthEnabled,
+      },
+    });
+
     log.info("📝 Configuration:");
     log.info(`  Config Dir: ${CONFIG.configDir}`);
     log.info(`  Data Dir: ${CONFIG.dataDir}`);
@@ -382,6 +432,8 @@ class NotebookLMMCPServer {
     log.info(`  Max Sessions: ${CONFIG.maxSessions}`);
     log.info(`  Session Timeout: ${CONFIG.sessionTimeout}s`);
     log.info(`  Stealth: ${CONFIG.stealthEnabled}`);
+    log.info(`  Audit Logging: ${getAuditLogger().getStats().totalEvents >= 0 ? 'enabled' : 'disabled'}`);
+    log.info(`  MCP Authentication: ${authStatus.enabled ? 'enabled' : 'disabled'}`);
     log.info("");
 
     // Create stdio transport

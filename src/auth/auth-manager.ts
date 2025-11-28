@@ -25,6 +25,8 @@ import {
   randomMouseMovement,
 } from "../utils/stealth-utils.js";
 import type { ProgressCallback } from "../types.js";
+import { maskEmail } from "../utils/security.js";
+import { getSecureStorage } from "../utils/crypto.js";
 
 /**
  * Critical cookie names for Google authentication
@@ -56,11 +58,17 @@ export class AuthManager {
 
   /**
    * Save entire browser state (cookies + localStorage)
+   * Uses post-quantum encrypted storage for sensitive auth data
    */
   async saveBrowserState(context: BrowserContext, page?: Page): Promise<boolean> {
     try {
-      // Save storage state (cookies + localStorage + IndexedDB)
-      await context.storageState({ path: this.stateFilePath });
+      const secureStorage = getSecureStorage();
+
+      // Get storage state as JSON string (cookies + localStorage + IndexedDB)
+      const storageState = await context.storageState();
+
+      // Save encrypted state using post-quantum encryption
+      await secureStorage.save(this.stateFilePath, storageState);
 
       // Also save sessionStorage if page is provided
       if (page) {
@@ -80,17 +88,20 @@ export class AuthManager {
             return JSON.stringify(storage);
           });
 
-          await fs.writeFile(this.sessionFilePath, sessionStorageData, {
-            encoding: "utf-8",
-          });
+          // Save sessionStorage with encryption
+          await secureStorage.save(this.sessionFilePath, sessionStorageData);
 
           const entries = Object.keys(JSON.parse(sessionStorageData)).length;
-          log.success(`✅ Browser state saved (incl. sessionStorage: ${entries} entries)`);
+          const status = secureStorage.getStatus();
+          const encType = status.postQuantumEnabled ? "ML-KEM-768 + ChaCha20" : "ChaCha20-Poly1305";
+          log.success(`✅ Browser state saved with ${encType} encryption (incl. sessionStorage: ${entries} entries)`);
         } catch (error) {
           log.warning(`⚠️  State saved, but sessionStorage failed: ${error}`);
         }
       } else {
-        log.success("✅ Browser state saved");
+        const status = secureStorage.getStatus();
+        const encType = status.postQuantumEnabled ? "ML-KEM-768 + ChaCha20" : "ChaCha20-Poly1305";
+        log.success(`✅ Browser state saved with ${encType} encryption`);
       }
 
       return true;
@@ -101,23 +112,19 @@ export class AuthManager {
   }
 
   /**
-   * Check if saved browser state exists
+   * Check if saved browser state exists (encrypted or unencrypted)
    */
   async hasSavedState(): Promise<boolean> {
-    try {
-      await fs.access(this.stateFilePath);
-      return true;
-    } catch {
-      return false;
-    }
+    const secureStorage = getSecureStorage();
+    return secureStorage.exists(this.stateFilePath);
   }
 
   /**
-   * Get path to saved browser state
+   * Get path to saved browser state (checks encrypted versions too)
    */
   getStatePath(): string | null {
-    // Synchronous check using imported existsSync
-    if (existsSync(this.stateFilePath)) {
+    const secureStorage = getSecureStorage();
+    if (secureStorage.exists(this.stateFilePath)) {
       return this.stateFilePath;
     }
     return null;
@@ -142,13 +149,20 @@ export class AuthManager {
   }
 
   /**
-   * Load sessionStorage from file
+   * Load sessionStorage from file (decrypts if encrypted)
    */
   async loadSessionStorage(): Promise<Record<string, string> | null> {
     try {
-      const data = await fs.readFile(this.sessionFilePath, { encoding: "utf-8" });
+      const secureStorage = getSecureStorage();
+      const data = await secureStorage.load(this.sessionFilePath);
+      if (!data) {
+        log.warning("⚠️  No sessionStorage found");
+        return null;
+      }
       const sessionData = JSON.parse(data);
-      log.success(`✅ Loaded sessionStorage (${Object.keys(sessionData).length} entries)`);
+      const status = secureStorage.getStatus();
+      const encType = status.postQuantumEnabled ? "ML-KEM-768 + ChaCha20" : "ChaCha20-Poly1305";
+      log.success(`✅ Loaded sessionStorage with ${encType} decryption (${Object.keys(sessionData).length} entries)`);
       return sessionData;
     } catch (error) {
       log.warning(`⚠️  Failed to load sessionStorage: ${error}`);
@@ -374,7 +388,7 @@ export class AuthManager {
     email: string,
     password: string
   ): Promise<boolean> {
-    const maskedEmail = this.maskEmail(email);
+    const maskedEmail = maskEmail(email);
     log.warning(`🔁 Attempting automatic login for ${maskedEmail}...`);
 
     // Log browser visibility
@@ -681,7 +695,7 @@ export class AuthManager {
     }
 
     // ✅ FASTER: Programmer typing speed (90-120 WPM from config)
-    log.info(`    ⌨️  Typing email: ${this.maskEmail(email)}`);
+    log.info(`    ⌨️  Typing email: ${maskEmail(email)}`);
     try {
       const wpm = CONFIG.typingWpmMin + Math.floor(Math.random() * (CONFIG.typingWpmMax - CONFIG.typingWpmMin + 1));
       await humanType(page, emailSelector, email, { wpm, withTypos: false });
@@ -852,37 +866,34 @@ export class AuthManager {
     return false;
   }
 
-  /**
-   * Mask email for logging
-   */
-  private maskEmail(email: string): string {
-    if (!email.includes("@")) {
-      return "***";
-    }
-    const [name, domain] = email.split("@");
-    if (name.length <= 2) {
-      return `${"*".repeat(name.length)}@${domain}`;
-    }
-    return `${name[0]}${"*".repeat(name.length - 2)}${name[name.length - 1]}@${domain}`;
-  }
+  // maskEmail is now imported from security.ts for consistent sanitization
 
   // ============================================================================
   // Additional Helper Methods
   // ============================================================================
 
   /**
-   * Load authentication state from a specific file path
+   * Load authentication state from a specific file path (decrypts if encrypted)
    */
   async loadAuthState(context: BrowserContext, statePath: string): Promise<boolean> {
     try {
-      // Read state.json
-      const stateData = await fs.readFile(statePath, { encoding: "utf-8" });
+      const secureStorage = getSecureStorage();
+
+      // Read and decrypt state
+      const stateData = await secureStorage.load(statePath);
+      if (!stateData) {
+        log.warning(`⚠️  No state file found at ${statePath}`);
+        return false;
+      }
+
       const state = JSON.parse(stateData);
 
       // Add cookies to context
       if (state.cookies) {
         await context.addCookies(state.cookies);
-        log.success(`✅ Loaded ${state.cookies.length} cookies from ${statePath}`);
+        const status = secureStorage.getStatus();
+        const encType = status.postQuantumEnabled ? "ML-KEM-768 + ChaCha20" : "ChaCha20-Poly1305";
+        log.success(`✅ Loaded ${state.cookies.length} cookies with ${encType} decryption from ${statePath}`);
         return true;
       }
 
@@ -983,9 +994,10 @@ export class AuthManager {
    * Clear ALL authentication data for account switching
    *
    * CRITICAL: This deletes EVERYTHING to ensure only ONE account is active:
-   * - All state.json files (cookies, localStorage)
+   * - All state files (encrypted .pqenc, .enc, and unencrypted .json)
    * - sessionStorage files
    * - Chrome profile directory (browser fingerprint, cache, etc.)
+   * - Post-quantum key pairs
    *
    * Use this BEFORE authenticating a new account!
    */
@@ -993,12 +1005,13 @@ export class AuthManager {
     log.warning("🗑️  Clearing ALL authentication data for account switch...");
 
     let deletedCount = 0;
+    const secureStorage = getSecureStorage();
 
-    // 1. Delete all state files in browser_state_dir
+    // 1. Delete all state files in browser_state_dir (including encrypted versions)
     try {
       const files = await fs.readdir(CONFIG.browserStateDir);
       for (const file of files) {
-        if (file.endsWith(".json")) {
+        if (file.endsWith(".json") || file.endsWith(".enc") || file.endsWith(".pqenc")) {
           await fs.unlink(path.join(CONFIG.browserStateDir, file));
           log.info(`  ✅ Deleted: ${file}`);
           deletedCount++;
@@ -1008,7 +1021,14 @@ export class AuthManager {
       log.warning(`  ⚠️  Could not delete state files: ${error}`);
     }
 
-    // 2. Delete Chrome profile (THE KEY for account switching!)
+    // 2. Delete PQ key files
+    try {
+      await secureStorage.delete(path.join(CONFIG.configDir, "pq-keys"));
+    } catch {
+      // Ignore
+    }
+
+    // 3. Delete Chrome profile (THE KEY for account switching!)
     // This removes ALL browser data: cookies, cache, fingerprint, etc.
     try {
       const chromeProfileDir = CONFIG.chromeProfileDir;
@@ -1029,23 +1049,19 @@ export class AuthManager {
   }
 
   /**
-   * Clear all saved authentication state
+   * Clear all saved authentication state (including encrypted versions)
    */
   async clearState(): Promise<boolean> {
     try {
-      try {
-        await fs.unlink(this.stateFilePath);
-      } catch {
-        // File doesn't exist
-      }
+      const secureStorage = getSecureStorage();
 
-      try {
-        await fs.unlink(this.sessionFilePath);
-      } catch {
-        // File doesn't exist
-      }
+      // Delete state file (handles .json, .enc, .pqenc)
+      await secureStorage.delete(this.stateFilePath);
 
-      log.success("✅ Authentication state cleared");
+      // Delete session file (handles .json, .enc, .pqenc)
+      await secureStorage.delete(this.sessionFilePath);
+
+      log.success("✅ Authentication state cleared (including encrypted files)");
       return true;
     } catch (error) {
       log.error(`❌ Failed to clear state: ${error}`);

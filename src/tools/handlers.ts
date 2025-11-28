@@ -16,6 +16,17 @@ import type {
   ProgressCallback,
 } from "../types.js";
 import { RateLimitError } from "../errors.js";
+import {
+  validateNotebookUrl,
+  validateNotebookId,
+  validateSessionId,
+  validateQuestion,
+  sanitizeForLogging,
+  RateLimiter,
+  SecurityError,
+} from "../utils/security.js";
+import { audit } from "../utils/audit-logger.js";
+import { validateResponse } from "../utils/response-validator.js";
 import { CleanupManager } from "../utils/cleanup-manager.js";
 
 const FOLLOW_UP_REMINDER =
@@ -28,11 +39,14 @@ export class ToolHandlers {
   private sessionManager: SessionManager;
   private authManager: AuthManager;
   private library: NotebookLibrary;
+  private rateLimiter: RateLimiter;
 
   constructor(sessionManager: SessionManager, authManager: AuthManager, library: NotebookLibrary) {
     this.sessionManager = sessionManager;
     this.authManager = authManager;
     this.library = library;
+    // Rate limit: 100 requests per minute per session (protective limit)
+    this.rateLimiter = new RateLimiter(100, 60000);
   }
 
   /**
@@ -49,28 +63,78 @@ export class ToolHandlers {
     },
     sendProgress?: ProgressCallback
   ): Promise<ToolResult<AskQuestionResult>> {
-    const { question, session_id, notebook_id, notebook_url, show_browser, browser_options } = args;
+    const { show_browser, browser_options } = args;
+    const startTime = Date.now();
 
     log.info(`🔧 [TOOL] ask_question called`);
-    log.info(`  Question: "${question.substring(0, 100)}"...`);
-    if (session_id) {
-      log.info(`  Session ID: ${session_id}`);
-    }
-    if (notebook_id) {
-      log.info(`  Notebook ID: ${notebook_id}`);
-    }
-    if (notebook_url) {
-      log.info(`  Notebook URL: ${notebook_url}`);
+
+    // === SECURITY: Input validation ===
+    let safeQuestion: string;
+    let safeSessionId: string | undefined;
+    let safeNotebookId: string | undefined;
+    let safeNotebookUrl: string | undefined;
+
+    try {
+      // Validate question (required)
+      safeQuestion = validateQuestion(args.question);
+      log.info(`  Question: "${sanitizeForLogging(safeQuestion.substring(0, 100))}"...`);
+
+      // Validate optional session_id
+      if (args.session_id) {
+        safeSessionId = validateSessionId(args.session_id);
+        log.info(`  Session ID: ${safeSessionId}`);
+      }
+
+      // Validate optional notebook_id
+      if (args.notebook_id) {
+        safeNotebookId = validateNotebookId(args.notebook_id);
+        log.info(`  Notebook ID: ${safeNotebookId}`);
+      }
+
+      // Validate optional notebook_url (CRITICAL - prevents URL injection)
+      if (args.notebook_url) {
+        safeNotebookUrl = validateNotebookUrl(args.notebook_url);
+        log.info(`  Notebook URL: ${safeNotebookUrl}`);
+      }
+
+      // Rate limiting check
+      const rateLimitKey = safeSessionId || 'global';
+      if (!this.rateLimiter.isAllowed(rateLimitKey)) {
+        log.warning(`🚫 Rate limit exceeded for ${rateLimitKey}`);
+        await audit.security("rate_limit_exceeded", "warning", {
+          session_id: rateLimitKey,
+          remaining: this.rateLimiter.getRemaining(rateLimitKey),
+        });
+        await audit.tool("ask_question", args, false, Date.now() - startTime, "Rate limit exceeded");
+        return {
+          success: false,
+          error: `Rate limit exceeded. Please wait before making more requests. Remaining: ${this.rateLimiter.getRemaining(rateLimitKey)}`,
+        };
+      }
+    } catch (error) {
+      if (error instanceof SecurityError) {
+        log.error(`🛡️ [SECURITY] Validation failed: ${error.message}`);
+        await audit.security("validation_failed", "error", {
+          tool: "ask_question",
+          error: error.message,
+        });
+        await audit.tool("ask_question", args, false, Date.now() - startTime, error.message);
+        return {
+          success: false,
+          error: `Security validation failed: ${error.message}`,
+        };
+      }
+      throw error;
     }
 
     try {
-      // Resolve notebook URL
-      let resolvedNotebookUrl = notebook_url;
+      // Resolve notebook URL (using validated values)
+      let resolvedNotebookUrl = safeNotebookUrl;
 
-      if (!resolvedNotebookUrl && notebook_id) {
-        const notebook = this.library.incrementUseCount(notebook_id);
+      if (!resolvedNotebookUrl && safeNotebookId) {
+        const notebook = this.library.incrementUseCount(safeNotebookId);
         if (!notebook) {
-          throw new Error(`Notebook not found in library: ${notebook_id}`);
+          throw new Error(`Notebook not found in library: ${safeNotebookId}`);
         }
 
         resolvedNotebookUrl = notebook.url;
@@ -109,7 +173,7 @@ export class ToolHandlers {
       try {
         // Get or create session (with headless override to handle mode changes)
         const session = await this.sessionManager.getOrCreateSession(
-          session_id,
+          safeSessionId,
           resolvedNotebookUrl,
           overrideHeadless
         );
@@ -117,16 +181,37 @@ export class ToolHandlers {
       // Progress: Asking question
       await sendProgress?.("Asking question to NotebookLM...", 2, 5);
 
-      // Ask the question (pass progress callback)
-      const rawAnswer = await session.ask(question, sendProgress);
-      const answer = `${rawAnswer.trimEnd()}${FOLLOW_UP_REMINDER}`;
+      // Ask the question (pass progress callback) - using validated question
+      const rawAnswer = await session.ask(safeQuestion, sendProgress);
+
+      // === SECURITY: Validate response for prompt injection & malicious content ===
+      await sendProgress?.("Validating response security...", 4, 5);
+      const validationResult = await validateResponse(rawAnswer);
+
+      // Use sanitized response if issues were found
+      let finalAnswer: string;
+      let securityWarnings: string[] = [];
+
+      if (!validationResult.safe) {
+        log.warning(`🛡️ Response contained blocked content, using sanitized version`);
+        finalAnswer = validationResult.sanitized;
+        securityWarnings = validationResult.blocked;
+      } else if (validationResult.warnings.length > 0) {
+        log.info(`⚠️ Response had ${validationResult.warnings.length} warnings`);
+        finalAnswer = rawAnswer;
+        securityWarnings = validationResult.warnings;
+      } else {
+        finalAnswer = rawAnswer;
+      }
+
+      const answer = `${finalAnswer.trimEnd()}${FOLLOW_UP_REMINDER}`;
 
       // Get session info
       const sessionInfo = session.getInfo();
 
       const result: AskQuestionResult = {
         status: "success",
-        question,
+        question: safeQuestion,
         answer,
         session_id: session.sessionId,
         notebook_url: session.notebookUrl,
@@ -135,12 +220,22 @@ export class ToolHandlers {
           message_count: sessionInfo.message_count,
           last_activity: sessionInfo.last_activity,
         },
+        // Include security warnings if any
+        ...(securityWarnings.length > 0 && { security_warnings: securityWarnings }),
       };
 
         // Progress: Complete
         await sendProgress?.("Question answered successfully!", 5, 5);
 
         log.success(`✅ [TOOL] ask_question completed successfully`);
+
+        // Audit: successful tool call
+        await audit.tool("ask_question", {
+          question_length: safeQuestion.length,
+          session_id: safeSessionId,
+          notebook_id: safeNotebookId,
+        }, true, Date.now() - startTime);
+
         return {
           success: true,
           data: result,
@@ -156,6 +251,10 @@ export class ToolHandlers {
       // Special handling for rate limit errors
       if (error instanceof RateLimitError || errorMessage.toLowerCase().includes("rate limit")) {
         log.error(`🚫 [TOOL] Rate limit detected`);
+        await audit.security("notebooklm_rate_limit", "warning", {
+          session_id: safeSessionId,
+        });
+        await audit.tool("ask_question", args, false, Date.now() - startTime, "NotebookLM rate limit");
         return {
           success: false,
           error:
@@ -169,6 +268,7 @@ export class ToolHandlers {
       }
 
       log.error(`❌ [TOOL] ask_question failed: ${errorMessage}`);
+      await audit.tool("ask_question", args, false, Date.now() - startTime, errorMessage);
       return {
         success: false,
         error: errorMessage,
@@ -443,6 +543,11 @@ export class ToolHandlers {
         await sendProgress?.("Authentication saved successfully!", 10, 10);
 
         log.success(`✅ [TOOL] setup_auth completed (${durationSeconds.toFixed(1)}s)`);
+
+        // Audit: successful authentication
+        await audit.auth("setup_auth", true, { duration_seconds: durationSeconds });
+        await audit.tool("setup_auth", {}, true, Date.now() - startTime);
+
         return {
           success: true,
           data: {
@@ -454,6 +559,11 @@ export class ToolHandlers {
         };
       } else {
         log.error(`❌ [TOOL] setup_auth failed (${durationSeconds.toFixed(1)}s)`);
+
+        // Audit: failed authentication
+        await audit.auth("setup_auth", false, { reason: "cancelled_or_failed" });
+        await audit.tool("setup_auth", {}, false, Date.now() - startTime, "Authentication failed or was cancelled");
+
         return {
           success: false,
           error: "Authentication failed or was cancelled",
@@ -464,6 +574,11 @@ export class ToolHandlers {
         error instanceof Error ? error.message : String(error);
       const durationSeconds = (Date.now() - startTime) / 1000;
       log.error(`❌ [TOOL] setup_auth failed: ${errorMessage} (${durationSeconds.toFixed(1)}s)`);
+
+      // Audit: auth error
+      await audit.auth("setup_auth", false, { error: errorMessage });
+      await audit.tool("setup_auth", {}, false, Date.now() - startTime, errorMessage);
+
       return {
         success: false,
         error: errorMessage,
@@ -536,6 +651,11 @@ export class ToolHandlers {
       if (success) {
         await sendProgress?.("Re-authentication complete!", 12, 12);
         log.success(`✅ [TOOL] re_auth completed (${durationSeconds.toFixed(1)}s)`);
+
+        // Audit: successful re-auth
+        await audit.auth("re_auth", true, { duration_seconds: durationSeconds });
+        await audit.tool("re_auth", {}, true, Date.now() - startTime);
+
         return {
           success: true,
           data: {
@@ -548,6 +668,11 @@ export class ToolHandlers {
         };
       } else {
         log.error(`❌ [TOOL] re_auth failed (${durationSeconds.toFixed(1)}s)`);
+
+        // Audit: failed re-auth
+        await audit.auth("re_auth", false, { reason: "cancelled_or_failed" });
+        await audit.tool("re_auth", {}, false, Date.now() - startTime, "Re-authentication failed or was cancelled");
+
         return {
           success: false,
           error: "Re-authentication failed or was cancelled",
@@ -559,6 +684,11 @@ export class ToolHandlers {
       log.error(
         `❌ [TOOL] re_auth failed: ${errorMessage} (${durationSeconds.toFixed(1)}s)`
       );
+
+      // Audit: re-auth error
+      await audit.auth("re_auth", false, { error: errorMessage });
+      await audit.tool("re_auth", {}, false, Date.now() - startTime, errorMessage);
+
       return {
         success: false,
         error: errorMessage,

@@ -1,10 +1,10 @@
 {
-  "name": "notebooklm-mcp",
-  "version": "1.2.0",
-  "description": "MCP server for NotebookLM API with session support and human-like behavior",
+  "name": "notebooklm-mcp-secure",
+  "version": "1.4.0-secure",
+  "description": "Security-hardened MCP server for NotebookLM API with input validation, rate limiting, and log sanitization",
   "type": "module",
   "bin": {
-    "notebooklm-mcp": "dist/index.js"
+    "notebooklm-mcp-secure": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -12,34 +12,43 @@
     "watch": "tsc --watch",
     "dev": "tsx watch src/index.ts",
     "prepare": "npm run build",
-    "test": "tsx src/index.ts"
+    "test": "npx vitest run",
+    "test:watch": "npx vitest",
+    "security-check": "npm audit",
+    "security-scan": "medusa scan . --fail-on high"
   },
   "keywords": [
     "mcp",
     "notebooklm",
     "gemini",
     "ai",
-    "claude"
+    "claude",
+    "security",
+    "hardened"
   ],
-  "author": "Gérôme Dexheimer <hello@geromedexheimer.de> (https://github.com/PleasePrompto)",
+  "author": "Pantheon Security <support@pantheonsecurity.io> (https://pantheonsecurity.io)",
+  "contributors": [
+    "Gérôme Dexheimer <hello@geromedexheimer.de> (https://github.com/PleasePrompto) - Original Author"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PleasePrompto/notebooklm-mcp.git"
+    "url": "git+https://github.com/Pantheon-Security/notebooklm-mcp-secure.git"
   },
-  "homepage": "https://github.com/PleasePrompto/notebooklm-mcp#readme",
+  "homepage": "https://github.com/Pantheon-Security/notebooklm-mcp-secure#readme",
   "bugs": {
-    "url": "https://github.com/PleasePrompto/notebooklm-mcp/issues"
+    "url": "https://github.com/Pantheon-Security/notebooklm-mcp-secure/issues"
   },
   "files": [
     "dist",
     "README.md",
-    "NOTEBOOKLM_USAGE.md",
+    "SECURITY.md",
     "LICENSE",
     "docs"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "@noble/post-quantum": "^0.2.1",
     "dotenv": "^16.4.0",
     "env-paths": "^3.0.0",
     "globby": "^14.1.0",
@@ -53,5 +62,21 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "securityHardening": {
+    "inputValidation": true,
+    "urlWhitelisting": true,
+    "rateLimiting": true,
+    "logSanitization": true,
+    "credentialMasking": true,
+    "auditLogging": true,
+    "sessionTimeout": true,
+    "mcpAuthentication": true,
+    "responseValidation": true,
+    "postQuantumEncryption": true,
+    "secretsScanning": true,
+    "certificatePinning": true,
+    "memoryScubbing": true,
+    "medusaIntegration": true
   }
 }

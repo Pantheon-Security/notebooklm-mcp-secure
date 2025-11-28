@@ -19,6 +19,8 @@ import { CONFIG } from "../config.js";
 import { log } from "../utils/logger.js";
 import type { SessionInfo } from "../types.js";
 import { randomBytes } from "crypto";
+import { getSessionTimeoutManager, SessionTimeoutManager } from "./session-timeout.js";
+import { audit } from "../utils/audit-logger.js";
 
 export class SessionManager {
   private authManager: AuthManager;
@@ -27,12 +29,24 @@ export class SessionManager {
   private maxSessions: number;
   private sessionTimeout: number;
   private cleanupInterval?: NodeJS.Timeout;
+  private timeoutManager: SessionTimeoutManager;
 
   constructor(authManager: AuthManager) {
     this.authManager = authManager;
     this.sharedContextManager = new SharedContextManager(authManager);
     this.maxSessions = CONFIG.maxSessions;
     this.sessionTimeout = CONFIG.sessionTimeout;
+
+    // Initialize security timeout manager
+    this.timeoutManager = getSessionTimeoutManager();
+    this.timeoutManager.setTimeoutCallback(async (sessionId, reason) => {
+      log.warning(`🔒 Security timeout: Closing session ${sessionId} due to ${reason}`);
+      await audit.security("session_security_timeout", "warning", {
+        session_id: sessionId,
+        reason,
+      });
+      await this.closeSession(sessionId);
+    });
 
     log.info("🎯 SessionManager initialized");
     log.info(`  Max sessions: ${this.maxSessions}`);
@@ -102,12 +116,27 @@ export class SessionManager {
     // Return existing session if found
     if (this.sessions.has(sessionId)) {
       const session = this.sessions.get(sessionId)!;
-      if (session.notebookUrl !== targetUrl) {
+
+      // Check security timeout before reusing
+      const expiry = this.timeoutManager.isExpired(sessionId);
+      if (expiry.expired) {
+        log.warning(`🔒 Session ${sessionId} has security-expired (${expiry.reason}), creating new`);
+        await audit.security("session_expired_on_reuse", "info", {
+          session_id: sessionId,
+          reason: expiry.reason,
+        });
+        await session.close();
+        this.sessions.delete(sessionId);
+        this.timeoutManager.removeSession(sessionId);
+      } else if (session.notebookUrl !== targetUrl) {
         log.warning(`♻️  Replacing session ${sessionId} with new notebook URL`);
         await session.close();
         this.sessions.delete(sessionId);
+        this.timeoutManager.removeSession(sessionId);
       } else {
         session.updateActivity();
+        // Touch security timeout manager
+        this.timeoutManager.touchSession(sessionId);
         log.success(`♻️  Reusing existing session ${sessionId}`);
         return session;
       }
@@ -143,6 +172,16 @@ export class SessionManager {
       await session.init();
 
       this.sessions.set(sessionId, session);
+
+      // Register with security timeout manager
+      this.timeoutManager.startSession(sessionId);
+
+      // Audit: session created
+      await audit.session("session_created", sessionId, {
+        notebook_url: targetUrl,
+        active_sessions: this.sessions.size,
+      });
+
       log.success(
         `✅ Session ${sessionId} created (${this.sessions.size}/${this.maxSessions} active)`
       );
@@ -172,6 +211,14 @@ export class SessionManager {
     const session = this.sessions.get(sessionId)!;
     await session.close();
     this.sessions.delete(sessionId);
+
+    // Remove from security timeout manager
+    this.timeoutManager.removeSession(sessionId);
+
+    // Audit: session closed
+    await audit.session("session_closed", sessionId, {
+      active_sessions: this.sessions.size,
+    });
 
     log.success(
       `✅ Session ${sessionId} closed (${this.sessions.size}/${this.maxSessions} active)`
