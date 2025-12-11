@@ -1,0 +1,58 @@
+# Smithery configuration for notebooklm-mcp-secure
+# https://smithery.ai/docs
+
+build:
+  dockerBuildPath: .
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      headless:
+        type: boolean
+        default: true
+        description: "Run browser in headless mode"
+      showBrowser:
+        type: boolean
+        default: false
+        description: "Show browser window for debugging"
+      stealthEnabled:
+        type: boolean
+        default: true
+        description: "Enable stealth mode to avoid detection"
+      humanTyping:
+        type: boolean
+        default: true
+        description: "Use human-like typing patterns"
+      mouseMovements:
+        type: boolean
+        default: true
+        description: "Enable realistic mouse movements"
+      typingWpmMin:
+        type: number
+        default: 160
+        description: "Minimum typing speed (words per minute)"
+      typingWpmMax:
+        type: number
+        default: 240
+        description: "Maximum typing speed (words per minute)"
+      timeoutMs:
+        type: number
+        default: 30000
+        description: "Browser operation timeout in milliseconds"
+  commandFunction: |
+    (config) => ({
+      command: 'node',
+      args: ['dist/index.js'],
+      env: {
+        HEADLESS: String(config.headless !== false),
+        SHOW_BROWSER: String(config.showBrowser === true),
+        STEALTH_ENABLED: String(config.stealthEnabled !== false),
+        HUMAN_TYPING: String(config.humanTyping !== false),
+        MOUSE_MOVEMENTS: String(config.mouseMovements !== false),
+        TYPING_WPM_MIN: String(config.typingWpmMin || 160),
+        TYPING_WPM_MAX: String(config.typingWpmMax || 240),
+        TIMEOUT_MS: String(config.timeoutMs || 30000)
+      }
+    })
