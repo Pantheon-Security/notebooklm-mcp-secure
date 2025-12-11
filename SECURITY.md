@@ -2,8 +2,9 @@
 
 This is a security-hardened fork of [PleasePrompto/notebooklm-mcp](https://github.com/PleasePrompto/notebooklm-mcp), maintained by [Pantheon Security](https://pantheonsecurity.io).
 
-**Version**: 1.4.0-secure
+**Version**: 1.5.1
 **Security Features**: 14 hardening layers
+**Platforms**: Linux, macOS, Windows
 
 ## Security Features Overview
 
@@ -21,10 +22,43 @@ This is a security-hardened fork of [PleasePrompto/notebooklm-mcp](https://githu
 | **Certificate Pinning** | ✅ | Google TLS MITM protection |
 | **Memory Scrubbing** | ✅ | Zero sensitive data after use |
 | **MEDUSA Integration** | ✅ | Automated security scanning |
+| **Cross-Platform Permissions** | ✅ | Secure file permissions on all OSes |
 
 ---
 
-## Post-Quantum Encryption (NEW)
+## Cross-Platform Support
+
+Full native support for Linux, macOS, and Windows with proper secure file permissions on each platform.
+
+### Platform-Specific Security
+
+| Platform | File Permissions | Implementation |
+|----------|-----------------|----------------|
+| **Linux** | Unix chmod | `0o600` (files), `0o700` (directories) |
+| **macOS** | Unix chmod | `0o600` (files), `0o700` (directories) |
+| **Windows** | ACLs via icacls | Current user only (Full Control) |
+
+### Data Directories
+
+| Platform | Path |
+|----------|------|
+| Linux | `~/.local/share/notebooklm-mcp/` |
+| macOS | `~/Library/Application Support/notebooklm-mcp/` |
+| Windows | `%LOCALAPPDATA%\notebooklm-mcp\` |
+
+### Protected Files
+
+All sensitive files are automatically protected with owner-only permissions:
+- Encryption keys (`pq-keys.enc`)
+- Authentication tokens (`auth-token.hash`)
+- Audit logs (`audit/*.jsonl`)
+- Browser session state (`browser_state/`)
+- Notebook library (`library.json`)
+- Settings (`settings.json`)
+
+---
+
+## Post-Quantum Encryption
 
 ### Why Post-Quantum?
 
@@ -88,7 +122,7 @@ When you upgrade, existing unencrypted files are automatically:
 
 ---
 
-## Secrets Scanning (NEW)
+## Secrets Scanning
 
 Real-time detection of credentials in logs and responses using patterns from TruffleHog and GitLeaks.
 
@@ -124,7 +158,7 @@ NLMCP_SECRETS_IGNORE=pattern1,pattern2  # Ignore specific patterns
 
 ---
 
-## Certificate Pinning (NEW)
+## Certificate Pinning
 
 Protects HTTPS connections to Google by validating server certificate chains against known-good SPKI hashes.
 
@@ -159,7 +193,7 @@ NLMCP_CERT_REPORT_ONLY=false     # Log but don't block (default: false)
 
 ---
 
-## Memory Scrubbing (NEW)
+## Memory Scrubbing
 
 Sensitive data is securely wiped from memory after use to prevent:
 - Memory dump attacks
@@ -197,7 +231,7 @@ await withSecureCredential(apiKey, async (cred) => {
 
 ---
 
-## MEDUSA Integration (NEW)
+## MEDUSA Integration
 
 Automated security scanning using [MEDUSA](https://github.com/Pantheon-Security/medusa) - Multi-Language Security Scanner with 46+ analyzers.
 
