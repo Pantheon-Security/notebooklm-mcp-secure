@@ -19,6 +19,7 @@ import { log } from "../utils/logger.js";
 import { AuthManager } from "../auth/auth-manager.js";
 import fs from "fs";
 import path from "path";
+import { mkdirSecure, PERMISSION_MODES } from "../utils/file-permissions.js";
 
 /**
  * Shared Context Manager
@@ -292,7 +293,7 @@ export class SharedContextManager {
     const stamp = `${process.pid}-${Date.now()}`;
     const dir = path.join(CONFIG.chromeInstancesDir, `instance-${stamp}`);
     try {
-      fs.mkdirSync(dir, { recursive: true });
+      mkdirSecure(dir, PERMISSION_MODES.OWNER_FULL);
       if (CONFIG.cloneProfileOnIsolated && fs.existsSync(baseProfile)) {
         log.info("  🧬 Cloning base Chrome profile into isolated instance (may take time)...");
         // Best-effort clone without locks

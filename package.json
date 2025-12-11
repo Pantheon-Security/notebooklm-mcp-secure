@@ -1,6 +1,6 @@
 {
   "name": "@pan-sec/notebooklm-mcp",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Security-hardened MCP server for NotebookLM API with input validation, rate limiting, and log sanitization",
   "type": "module",
   "bin": {

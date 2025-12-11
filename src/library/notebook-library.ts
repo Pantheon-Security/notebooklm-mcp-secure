@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 import { CONFIG } from "../config.js";
 import { log } from "../utils/logger.js";
+import { writeFileSecure, PERMISSION_MODES } from "../utils/file-permissions.js";
 import type {
   NotebookEntry,
   Library,
@@ -102,7 +103,7 @@ export class NotebookLibrary {
     try {
       library.last_modified = new Date().toISOString();
       const data = JSON.stringify(library, null, 2);
-      fs.writeFileSync(this.libraryPath, data, "utf-8");
+      writeFileSecure(this.libraryPath, data, PERMISSION_MODES.OWNER_READ_WRITE);
       this.library = library;
       log.success(`  💾 Library saved (${library.notebooks.length} notebooks)`);
     } catch (error) {

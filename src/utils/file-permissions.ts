@@ -16,7 +16,6 @@
 import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
-import { log } from "./logger.js";
 
 /**
  * Platform detection
@@ -58,8 +57,8 @@ export function setSecureFilePermissions(
       fs.chmodSync(filePath, mode);
       return true;
     }
-  } catch (error) {
-    log.warning(`Failed to set file permissions on ${path.basename(filePath)}: ${error}`);
+  } catch {
+    // Silently fail - permissions are best-effort on some systems
     return false;
   }
 }
@@ -82,8 +81,8 @@ export function setSecureDirectoryPermissions(
       fs.chmodSync(dirPath, mode);
       return true;
     }
-  } catch (error) {
-    log.warning(`Failed to set directory permissions on ${path.basename(dirPath)}: ${error}`);
+  } catch {
+    // Silently fail - permissions are best-effort on some systems
     return false;
   }
 }
@@ -101,7 +100,6 @@ function setWindowsFilePermissions(targetPath: string, ownerOnly: boolean): bool
   try {
     const username = process.env.USERNAME || process.env.USER;
     if (!username) {
-      log.warning("Could not determine Windows username for permission setting");
       return false;
     }
 
@@ -117,10 +115,9 @@ function setWindowsFilePermissions(targetPath: string, ownerOnly: boolean): bool
     }
 
     return true;
-  } catch (error) {
+  } catch {
     // icacls may not be available or may fail - this is not critical
     // The file is still created, just without restricted permissions
-    log.debug?.(`icacls failed (non-critical): ${error}`);
     return false;
   }
 }

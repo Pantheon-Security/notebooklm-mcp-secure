@@ -5,12 +5,12 @@
  * Manages profiles, disabled tools, and environment variable overrides.
  */
 
-import fs from "fs/promises";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { CONFIG } from "../config.js";
 import { log } from "./logger.js";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { mkdirSecure, writeFileSecure, PERMISSION_MODES } from "./file-permissions.js";
 
 export type ProfileName = "minimal" | "standard" | "full";
 
@@ -63,18 +63,13 @@ export class SettingsManager {
    */
   private loadSettings(): Settings {
     try {
-      // Ensure config dir exists
+      // Ensure config dir exists with secure permissions
       if (!existsSync(CONFIG.configDir)) {
-        mkdirSync(CONFIG.configDir, { recursive: true });
+        mkdirSecure(CONFIG.configDir, PERMISSION_MODES.OWNER_FULL);
       }
 
       if (existsSync(this.settingsPath)) {
-        // Use fs.readFileSync for synchronous initialization in constructor if needed, 
-        // but here we used async fs in imports. For simplicity in constructor, 
-        // we'll assume the file is read when needed or require explicit init. 
-        // Actually, to keep it simple, let's use require/import or readFileSync.
-        const fsSync =  require("fs");
-        const data = fsSync.readFileSync(this.settingsPath, "utf-8");
+        const data = readFileSync(this.settingsPath, "utf-8");
         return { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
       }
     } catch (error) {
@@ -89,7 +84,11 @@ export class SettingsManager {
   async saveSettings(newSettings: Partial<Settings>): Promise<void> {
     this.settings = { ...this.settings, ...newSettings };
     try {
-      await fs.writeFile(this.settingsPath, JSON.stringify(this.settings, null, 2), "utf-8");
+      writeFileSecure(
+        this.settingsPath,
+        JSON.stringify(this.settings, null, 2),
+        PERMISSION_MODES.OWNER_READ_WRITE
+      );
     } catch (error) {
       throw new Error(`Failed to save settings: ${error}`);
     }

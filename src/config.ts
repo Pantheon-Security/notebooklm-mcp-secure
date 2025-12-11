@@ -12,6 +12,7 @@
 import envPaths from "env-paths";
 import fs from "fs";
 import path from "path";
+import { mkdirSecure, PERMISSION_MODES } from "./utils/file-permissions.js";
 
 // Cross-platform data paths (unified without -nodejs suffix)
 // Linux: ~/.local/share/notebooklm-mcp/
@@ -226,7 +227,7 @@ export function ensureDirectories(): void {
 
   for (const dir of dirs) {
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+      mkdirSecure(dir, PERMISSION_MODES.OWNER_FULL);
     }
   }
 }
