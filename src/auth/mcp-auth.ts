@@ -16,6 +16,11 @@ import path from "path";
 import { CONFIG } from "../config.js";
 import { log } from "../utils/logger.js";
 import { audit } from "../utils/audit-logger.js";
+import {
+  mkdirSecure,
+  writeFileSecure,
+  PERMISSION_MODES,
+} from "../utils/file-permissions.js";
 
 /**
  * MCP Auth configuration
@@ -158,13 +163,13 @@ export class MCPAuthenticator {
     if (!this.tokenHash) return;
 
     const dir = path.dirname(this.config.tokenFile);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    }
+    mkdirSecure(dir, PERMISSION_MODES.OWNER_FULL);
 
-    fs.writeFileSync(this.config.tokenFile, this.tokenHash, {
-      mode: 0o600, // Owner read/write only
-    });
+    writeFileSecure(
+      this.config.tokenFile,
+      this.tokenHash,
+      PERMISSION_MODES.OWNER_READ_WRITE
+    );
   }
 
   /**

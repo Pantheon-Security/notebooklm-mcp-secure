@@ -17,6 +17,11 @@ import path from "path";
 import crypto from "crypto";
 import { CONFIG } from "../config.js";
 import { sanitizeForLogging } from "./security.js";
+import {
+  mkdirSecure,
+  appendFileSecure,
+  PERMISSION_MODES,
+} from "./file-permissions.js";
 
 /**
  * Audit event types
@@ -100,9 +105,7 @@ export class AuditLogger {
    * Ensure audit log directory exists
    */
   private ensureLogDirectory(): void {
-    if (!fs.existsSync(this.config.logDir)) {
-      fs.mkdirSync(this.config.logDir, { recursive: true, mode: 0o700 });
-    }
+    mkdirSecure(this.config.logDir, PERMISSION_MODES.OWNER_FULL);
   }
 
   /**
@@ -219,7 +222,7 @@ export class AuditLogger {
           this.currentLogFile = expectedFile;
         }
 
-        fs.appendFileSync(this.currentLogFile, lines, { mode: 0o600 });
+        appendFileSecure(this.currentLogFile, lines, PERMISSION_MODES.OWNER_READ_WRITE);
       }
     } finally {
       this.isWriting = false;

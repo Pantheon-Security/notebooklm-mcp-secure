@@ -1,6 +1,6 @@
 {
   "name": "@pan-sec/notebooklm-mcp",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Security-hardened MCP server for NotebookLM API with input validation, rate limiting, and log sanitization",
   "type": "module",
   "bin": {
@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "postbuild": "chmod +x dist/index.js",
+    "postbuild": "node -e \"if(process.platform!=='win32'){require('fs').chmodSync('dist/index.js',0o755)}\"",
     "watch": "tsc --watch",
     "dev": "tsx watch src/index.ts",
     "prepare": "npm run build",
