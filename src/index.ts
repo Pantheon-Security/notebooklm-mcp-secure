@@ -38,8 +38,14 @@ import {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 
+import { createRequire } from "module";
 import { AuthManager } from "./auth/auth-manager.js";
 import { SessionManager } from "./session/session-manager.js";
+
+// Read version from package.json
+const require = createRequire(import.meta.url);
+const packageJson = require("../package.json");
+const VERSION = packageJson.version;
 import { NotebookLibrary } from "./library/notebook-library.js";
 import { ToolHandlers, buildToolDefinitions } from "./tools/index.js";
 import { ResourceHandlers } from "./resources/resource-handlers.js";
@@ -106,7 +112,7 @@ class NotebookLMMCPServer {
 
     const activeSettings = this.settingsManager.getEffectiveSettings();
     log.info("🚀 NotebookLM MCP Server initialized");
-    log.info(`  Version: 1.1.0`);
+    log.info(`  Version: ${VERSION}`);
     log.info(`  Node: ${process.version}`);
     log.info(`  Platform: ${process.platform}`);
     log.info(`  Profile: ${activeSettings.profile} (${this.toolDefinitions.length} tools active)`);
@@ -600,7 +606,7 @@ async function main() {
   // Print banner
   console.error("╔══════════════════════════════════════════════════════════╗");
   console.error("║                                                          ║");
-  console.error("║           NotebookLM MCP Server v1.0.0                   ║");
+  console.error(`║           NotebookLM MCP Server v${VERSION.padEnd(23)}║`);
   console.error("║                                                          ║");
   console.error("║   Chat with Gemini 2.5 through NotebookLM via MCP       ║");
   console.error("║                                                          ║");
