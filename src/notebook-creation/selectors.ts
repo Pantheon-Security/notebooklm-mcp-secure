@@ -99,10 +99,21 @@ export const NOTEBOOKLM_SELECTORS = {
   },
 
   /** File input element
-   * Discovered: "choose file" span leads to input[type="file"] */
+   * Discovered: "choose file" span triggers hidden input[type="file"]
+   * Updated: December 2025 - dropzone UI */
   fileInput: {
     primary: 'input[type="file"]',
     fallbacks: [],
+    confirmed: true, // December 2025
+  },
+
+  /** Choose file button in dropzone (December 2025 UI) */
+  chooseFileButton: {
+    primary: 'span.dropzone__file-dialog-button',
+    fallbacks: [
+      'span[xapscottyuploadertrigger]',
+      'a:text("choose file")',
+    ],
     confirmed: true, // December 2025
   },
 

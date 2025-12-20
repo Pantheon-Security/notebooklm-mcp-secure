@@ -163,22 +163,35 @@ export class SourceManager {
     const page = await this.navigateToNotebook(notebookUrl);
 
     try {
-      // Click "Add source" button
-      const addSourceBtn = await page.$(NOTEBOOKLM_SELECTORS.addSourceButton.primary);
-      if (!addSourceBtn) {
-        // Try fallbacks
-        for (const fallback of NOTEBOOKLM_SELECTORS.addSourceButton.fallbacks) {
-          const btn = await page.$(fallback);
-          if (btn) {
-            await btn.click();
-            break;
-          }
-        }
-      } else {
-        await addSourceBtn.click();
-      }
+      // Check if source dialog is already open (new/empty notebooks may auto-open it)
+      const dialogAlreadyOpen = await page.evaluate(() => {
+        // @ts-expect-error - DOM types
+        const uploadDialog = document.querySelector('upload-dialog, .cdk-overlay-container mat-dialog-container');
+        // @ts-expect-error - DOM types
+        const dropzone = document.querySelector('.dropzone__file-dialog-button, span[xapscottyuploadertrigger]');
+        return !!(uploadDialog || dropzone);
+      });
 
-      await randomDelay(1000, 1500);
+      if (dialogAlreadyOpen) {
+        log.info("  📋 Source dialog already open");
+      } else {
+        // Click "Add source" button to open dialog
+        log.info("  Opening source dialog...");
+        const addSourceBtn = await page.$(NOTEBOOKLM_SELECTORS.addSourceButton.primary);
+        if (!addSourceBtn) {
+          // Try fallbacks
+          for (const fallback of NOTEBOOKLM_SELECTORS.addSourceButton.fallbacks) {
+            const btn = await page.$(fallback);
+            if (btn) {
+              await btn.click();
+              break;
+            }
+          }
+        } else {
+          await addSourceBtn.click();
+        }
+        await randomDelay(1000, 1500);
+      }
 
       // Handle based on source type
       if (source.type === "url") {
@@ -443,37 +456,73 @@ export class SourceManager {
 
   /**
    * Internal: Add file source
+   * December 2025: NotebookLM uses a dropzone with hidden file input
    */
   private async addFileSourceInternal(page: Page, filePath: string): Promise<void> {
-    // Click file upload option
-    const fileOptionClicked = await page.evaluate(() => {
+    log.info("  Attempting file upload...");
+
+    // Method 1: Try to use setInputFiles directly on any file input
+    // This works even on hidden inputs and bypasses click interception
+    try {
+      await page.setInputFiles('input[type="file"]', filePath);
+      log.info("  File uploaded via direct setInputFiles");
+      await randomDelay(500, 1000);
+      return;
+    } catch (e) {
+      log.info(`  Direct setInputFiles failed: ${e}`);
+    }
+
+    // Method 2: Click using JavaScript to bypass Playwright overlay checks
+    log.info("  Trying JavaScript click on choose file button...");
+    const jsClicked = await page.evaluate(() => {
       // @ts-expect-error - DOM types
-      const buttons = document.querySelectorAll("button, [role='button']");
-      for (const btn of buttons) {
-        const text = (btn as any).textContent?.toLowerCase() || "";
-        const aria = (btn as any).getAttribute("aria-label")?.toLowerCase() || "";
-        if (text.includes("upload") || text.includes("file") ||
-            aria.includes("upload") || aria.includes("computer")) {
-          (btn as any).click();
-          return true;
-        }
+      const btn = document.querySelector('span.dropzone__file-dialog-button');
+      if (btn) {
+        (btn as any).click();
+        return true;
+      }
+      // @ts-expect-error - DOM types
+      const btn2 = document.querySelector('span[xapscottyuploadertrigger]');
+      if (btn2) {
+        (btn2 as any).click();
+        return true;
       }
       return false;
     });
 
-    if (!fileOptionClicked) {
-      throw new Error("Could not find file upload option");
+    if (jsClicked) {
+      await randomDelay(500, 800);
+      try {
+        await page.setInputFiles('input[type="file"]', filePath);
+        log.info("  File uploaded via JS click + setInputFiles");
+        await randomDelay(500, 1000);
+        return;
+      } catch (e) {
+        log.info(`  setInputFiles after JS click failed: ${e}`);
+      }
     }
 
-    await randomDelay(800, 1200);
+    // Method 3: Try drag and drop simulation
+    log.info("  Trying drag-drop simulation...");
+    const fileInputExists = await page.evaluate(() => {
+      // @ts-expect-error - DOM types
+      return !!document.querySelector('input[type="file"]');
+    });
 
-    // Set file input
-    const fileInput = await page.$(NOTEBOOKLM_SELECTORS.fileInput.primary);
-    if (!fileInput) {
-      throw new Error("Could not find file input element");
+    if (fileInputExists) {
+      try {
+        // Use locator for more robust handling
+        const fileInput = page.locator('input[type="file"]');
+        await fileInput.setInputFiles(filePath);
+        log.info("  File uploaded via locator setInputFiles");
+        await randomDelay(500, 1000);
+        return;
+      } catch (e) {
+        log.info(`  Locator setInputFiles failed: ${e}`);
+      }
     }
 
-    await fileInput.setInputFiles(filePath);
+    throw new Error("Could not upload file - all methods failed");
   }
 
   /**

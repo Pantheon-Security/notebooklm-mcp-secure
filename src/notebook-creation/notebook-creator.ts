@@ -492,19 +492,44 @@ export class NotebookCreator {
 
     log.info(`📁 Adding file source: ${path.basename(absolutePath)}`);
 
-    // For file uploads, we just need to find the file input - no need to click an option
-    // The file upload zone is already visible in the source dialog
-
-    // Find file input and upload
     await randomDelay(500, 1000);
 
-    // Look for file input
-    const fileInput = await this.page.$('input[type="file"]');
+    // First try to find file input directly
+    let fileInput = await this.page.$('input[type="file"]');
     if (fileInput) {
       await fileInput.setInputFiles(absolutePath);
       await randomDelay(1000, 2000);
       await this.waitForSourceProcessing();
       return;
+    }
+
+    // If not found, click on upload option first
+    log.info("  Looking for upload option...");
+    const uploadClicked = await this.page.evaluate(() => {
+      // @ts-expect-error - DOM types
+      const elements = document.querySelectorAll("button, [role='button'], span, div[role='button']");
+      for (const el of elements) {
+        const text = (el as any).textContent?.toLowerCase() || "";
+        const aria = (el as any).getAttribute("aria-label")?.toLowerCase() || "";
+        if ((text.includes("upload") || text.includes("file") || text.includes("computer") ||
+             aria.includes("upload") || aria.includes("file")) &&
+            (el as any).offsetParent !== null) {
+          (el as any).click();
+          return true;
+        }
+      }
+      return false;
+    });
+
+    if (uploadClicked) {
+      await randomDelay(1000, 1500);
+      fileInput = await this.page.$('input[type="file"]');
+      if (fileInput) {
+        await fileInput.setInputFiles(absolutePath);
+        await randomDelay(1000, 2000);
+        await this.waitForSourceProcessing();
+        return;
+      }
     }
 
     throw new Error("Could not find file upload input");
