@@ -451,6 +451,37 @@ class NotebookLMMCPServer {
             );
             break;
 
+          // Gemini Files API tools (v1.9.0)
+          case "upload_document":
+            result = await this.toolHandlers.handleUploadDocument(
+              args as { file_path: string; display_name?: string }
+            );
+            break;
+
+          case "query_document":
+            result = await this.toolHandlers.handleQueryDocument({
+              file_name: (args as { file_name: string }).file_name,
+              query: (args as { query: string }).query,
+              model: (args as { model?: string }).model as
+                | import("./gemini/types.js").GeminiModel
+                | undefined,
+              additional_files: (args as { additional_files?: string[] })
+                .additional_files,
+            });
+            break;
+
+          case "list_documents":
+            result = await this.toolHandlers.handleListDocuments(
+              args as { page_size?: number }
+            );
+            break;
+
+          case "delete_document":
+            result = await this.toolHandlers.handleDeleteDocument(
+              args as { file_name: string }
+            );
+            break;
+
           default:
             log.error(`❌ [MCP] Unknown tool: ${name}`);
             return {

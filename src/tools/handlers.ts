@@ -2345,6 +2345,186 @@ export class ToolHandlers {
     }
   }
 
+  // ==================== DOCUMENT TOOLS (v1.9.0) ====================
+
+  /**
+   * Upload a document to Gemini Files API
+   */
+  async handleUploadDocument(args: {
+    file_path: string;
+    display_name?: string;
+  }): Promise<ToolResult<import("../gemini/types.js").UploadDocumentResult>> {
+    const startTime = Date.now();
+    log.info(`🔧 [TOOL] upload_document called`);
+    log.info(`  File: ${args.file_path}`);
+
+    // Check if Gemini is available
+    if (!this.geminiClient.isAvailable()) {
+      log.error(`❌ [TOOL] upload_document failed: Gemini API key not configured`);
+      return {
+        success: false,
+        error: "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+      };
+    }
+
+    try {
+      // Validate file path
+      if (!args.file_path || args.file_path.trim().length === 0) {
+        throw new Error("File path cannot be empty");
+      }
+
+      const result = await this.geminiClient.uploadDocument({
+        filePath: args.file_path,
+        displayName: args.display_name,
+      });
+
+      const durationMs = Date.now() - startTime;
+      await audit.tool("upload_document", { file: sanitizeForLogging(args.file_path) }, true, durationMs);
+
+      log.success(`✅ [TOOL] upload_document completed in ${durationMs}ms`);
+
+      return {
+        success: true,
+        data: result,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const durationMs = Date.now() - startTime;
+      await audit.tool("upload_document", { file: sanitizeForLogging(args.file_path) }, false, durationMs, errorMessage);
+      log.error(`❌ [TOOL] upload_document failed: ${errorMessage}`);
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Query an uploaded document
+   */
+  async handleQueryDocument(args: {
+    file_name: string;
+    query: string;
+    model?: string;
+    additional_files?: string[];
+  }): Promise<ToolResult<import("../gemini/types.js").QueryDocumentResult>> {
+    const startTime = Date.now();
+    log.info(`🔧 [TOOL] query_document called`);
+    log.info(`  File: ${args.file_name}`);
+    log.info(`  Query: ${args.query.substring(0, 50)}...`);
+
+    // Check if Gemini is available
+    if (!this.geminiClient.isAvailable()) {
+      log.error(`❌ [TOOL] query_document failed: Gemini API key not configured`);
+      return {
+        success: false,
+        error: "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+      };
+    }
+
+    try {
+      // Validate inputs
+      if (!args.file_name || args.file_name.trim().length === 0) {
+        throw new Error("File name cannot be empty");
+      }
+      if (!args.query || args.query.trim().length === 0) {
+        throw new Error("Query cannot be empty");
+      }
+
+      const result = await this.geminiClient.queryDocument({
+        fileName: args.file_name,
+        query: args.query,
+        model: args.model as import("../gemini/types.js").GeminiModel | undefined,
+        additionalFiles: args.additional_files,
+      });
+
+      const durationMs = Date.now() - startTime;
+      await audit.tool("query_document", { file: args.file_name, query: sanitizeForLogging(args.query) }, true, durationMs);
+
+      log.success(`✅ [TOOL] query_document completed in ${durationMs}ms`);
+
+      return {
+        success: true,
+        data: result,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const durationMs = Date.now() - startTime;
+      await audit.tool("query_document", { file: args.file_name }, false, durationMs, errorMessage);
+      log.error(`❌ [TOOL] query_document failed: ${errorMessage}`);
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * List all uploaded documents
+   */
+  async handleListDocuments(args: {
+    page_size?: number;
+  }): Promise<ToolResult<import("../gemini/types.js").ListDocumentsResult>> {
+    log.info(`🔧 [TOOL] list_documents called`);
+
+    // Check if Gemini is available
+    if (!this.geminiClient.isAvailable()) {
+      log.error(`❌ [TOOL] list_documents failed: Gemini API key not configured`);
+      return {
+        success: false,
+        error: "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+      };
+    }
+
+    try {
+      const result = await this.geminiClient.listFiles(args.page_size || 100);
+
+      log.success(`✅ [TOOL] list_documents: ${result.totalCount} files`);
+
+      return {
+        success: true,
+        data: result,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] list_documents failed: ${errorMessage}`);
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Delete an uploaded document
+   */
+  async handleDeleteDocument(args: {
+    file_name: string;
+  }): Promise<ToolResult<{ deleted: boolean; fileName: string }>> {
+    log.info(`🔧 [TOOL] delete_document called`);
+    log.info(`  File: ${args.file_name}`);
+
+    // Check if Gemini is available
+    if (!this.geminiClient.isAvailable()) {
+      log.error(`❌ [TOOL] delete_document failed: Gemini API key not configured`);
+      return {
+        success: false,
+        error: "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+      };
+    }
+
+    try {
+      // Validate file name
+      if (!args.file_name || args.file_name.trim().length === 0) {
+        throw new Error("File name cannot be empty");
+      }
+
+      await this.geminiClient.deleteFile(args.file_name);
+
+      log.success(`✅ [TOOL] delete_document: ${args.file_name} deleted`);
+
+      return {
+        success: true,
+        data: { deleted: true, fileName: args.file_name },
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] delete_document failed: ${errorMessage}`);
+      return { success: false, error: errorMessage };
+    }
+  }
+
   // ==================== CLEANUP ====================
 
   /**

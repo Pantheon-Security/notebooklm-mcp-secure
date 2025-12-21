@@ -130,11 +130,181 @@ Use this when you started deep_research with wait_for_completion=false.
   },
 };
 
+// =============================================================================
+// Document Tools (Files API) - v1.9.0
+// =============================================================================
+
+/**
+ * Upload Document tool - upload a document to Gemini for querying
+ */
+const uploadDocumentTool: Tool = {
+  name: "upload_document",
+  description: `Upload a document (PDF, text, etc.) to Gemini for querying.
+
+## What This Does
+- Uploads a local file to Gemini's Files API
+- File is retained for 48 hours
+- Returns a file ID for use with query_document
+
+## Supported File Types
+- PDF (up to 50MB, 1000 pages)
+- TXT, MD, HTML, CSV, JSON, XML
+- DOCX, DOC
+- Images (PNG, JPG, GIF, WebP)
+- Audio (MP3, WAV)
+- Video (MP4)
+
+## When to Use
+- You have a local document to analyze
+- You want fast, API-based document queries (no browser needed)
+- For temporary analysis (48h retention)
+
+## For Permanent Storage
+Use create_notebook instead for permanent document storage with NotebookLM.
+
+## Requirements
+- GEMINI_API_KEY environment variable must be set`,
+  inputSchema: {
+    type: "object",
+    properties: {
+      file_path: {
+        type: "string",
+        description: "Absolute path to the file to upload",
+      },
+      display_name: {
+        type: "string",
+        description: "Optional friendly name for the file",
+      },
+    },
+    required: ["file_path"],
+  },
+};
+
+/**
+ * Query Document tool - ask questions about an uploaded document
+ */
+const queryDocumentTool: Tool = {
+  name: "query_document",
+  description: `Ask questions about an uploaded document.
+
+## What This Does
+- Queries a document previously uploaded with upload_document
+- Uses Gemini's document understanding (text, images, charts, tables)
+- Returns answers grounded in the document content
+
+## Features
+- Full document understanding (not just text extraction)
+- Can analyze charts, diagrams, and tables in PDFs
+- Multi-document queries (pass additional file IDs)
+- Fast API-based (no browser automation)
+
+## When to Use
+- Quick document analysis without browser
+- Comparing multiple documents
+- Extracting specific information
+
+## Requirements
+- GEMINI_API_KEY environment variable must be set
+- Document must be uploaded first with upload_document`,
+  inputSchema: {
+    type: "object",
+    properties: {
+      file_name: {
+        type: "string",
+        description: "File name/ID returned from upload_document",
+      },
+      query: {
+        type: "string",
+        description: "Question to ask about the document",
+      },
+      model: {
+        type: "string",
+        enum: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-flash-preview"],
+        default: "gemini-2.5-flash",
+        description: "Model to use (flash is faster, pro is more capable)",
+      },
+      additional_files: {
+        type: "array",
+        items: { type: "string" },
+        description: "Additional file IDs to include in the query (for multi-document analysis)",
+      },
+    },
+    required: ["file_name", "query"],
+  },
+};
+
+/**
+ * List Documents tool - list all uploaded documents
+ */
+const listDocumentsTool: Tool = {
+  name: "list_documents",
+  description: `List all documents uploaded to Gemini.
+
+## What This Does
+- Shows all files currently stored in Gemini Files API
+- Files expire 48 hours after upload
+- Returns file names, sizes, and expiration times
+
+## Use Cases
+- Check what documents are available for querying
+- Find file IDs for query_document
+- Monitor storage usage
+
+## Requirements
+- GEMINI_API_KEY environment variable must be set`,
+  inputSchema: {
+    type: "object",
+    properties: {
+      page_size: {
+        type: "number",
+        default: 100,
+        description: "Maximum number of files to return",
+      },
+    },
+  },
+};
+
+/**
+ * Delete Document tool - delete an uploaded document
+ */
+const deleteDocumentTool: Tool = {
+  name: "delete_document",
+  description: `Delete an uploaded document from Gemini.
+
+## What This Does
+- Removes a file from Gemini Files API
+- File will no longer be available for queries
+- Frees up storage space
+
+## Notes
+- Files auto-delete after 48 hours anyway
+- Use this to immediately remove sensitive documents
+
+## Requirements
+- GEMINI_API_KEY environment variable must be set`,
+  inputSchema: {
+    type: "object",
+    properties: {
+      file_name: {
+        type: "string",
+        description: "File name/ID to delete (from upload_document or list_documents)",
+      },
+    },
+    required: ["file_name"],
+  },
+};
+
 /**
  * All Gemini tools
  */
 export const geminiTools: Tool[] = [
+  // Research tools
   deepResearchTool,
   geminiQueryTool,
   getResearchStatusTool,
+  // Document tools (v1.9.0)
+  uploadDocumentTool,
+  queryDocumentTool,
+  listDocumentsTool,
+  deleteDocumentTool,
 ];

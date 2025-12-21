@@ -11,11 +11,12 @@
 [![Security](https://img.shields.io/badge/Security-14%20Layers-red.svg)](./SECURITY.md)
 [![Post-Quantum](https://img.shields.io/badge/Encryption-Post--Quantum-purple.svg)](./SECURITY.md#post-quantum-encryption)
 [![Gemini](https://img.shields.io/badge/Gemini-Deep%20Research-4285F4.svg)](#-gemini-deep-research-v180)
+[![Documents](https://img.shields.io/badge/Documents-API%20Upload-34A853.svg)](#-document-api-v190)
 [![Notebooks](https://img.shields.io/badge/Notebooks-Create%20%26%20Manage-orange.svg)](#programmatic-notebook-creation-v170)
 [![Compliance](https://img.shields.io/badge/Compliance-GDPR%20%7C%20SOC2%20%7C%20CSSF-blue.svg)](./docs/COMPLIANCE-SPEC.md)
 [![Tests](https://img.shields.io/badge/Tests-111%20Passing-brightgreen.svg)](./tests/)
 
-[**Gemini Deep Research**](#-gemini-deep-research-v180) • [**Notebook Creation**](#programmatic-notebook-creation-v170) • [Security](#security-features) • [Compliance](#enterprise-compliance-v160) • [Install](#installation)
+[**Gemini Deep Research**](#-gemini-deep-research-v180) • [**Document API**](#-document-api-v190) • [**Notebook Creation**](#programmatic-notebook-creation-v170) • [Security](#security-features) • [Install](#installation)
 
 </div>
 
@@ -78,25 +79,26 @@ Run deep research in the background and check progress:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                         NotebookLM MCP Server v1.8.0                         │
+│                         NotebookLM MCP Server v1.9.0                         │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌────────────────────────────────┐    ┌──────────────────────────────────┐  │
 │  │      BROWSER AUTOMATION        │    │          GEMINI API              │  │
-│  │      (Your Documents)          │    │          (Web Research)          │  │
+│  │      (Your Documents)          │    │    (Research & Documents)        │  │
 │  ├────────────────────────────────┤    ├──────────────────────────────────┤  │
 │  │                                │    │                                  │  │
-│  │  QUERY                         │    │  • deep_research           v1.8  │  │
-│  │  • ask_question                │    │  • gemini_query            v1.8  │  │
-│  │                                │    │  • get_research_status     v1.8  │  │
-│  │  CREATE & MANAGE         v1.7  │    │                                  │  │
-│  │  • create_notebook             │    │  Powered by:                     │  │
-│  │  • batch_create_notebooks      │    │  ✦ Deep Research Agent           │  │
-│  │  • manage_sources              │    │  ✦ Google Search Grounding       │  │
-│  │  • generate_audio              │    │  ✦ Code Execution                │  │
-│  │  • sync_notebook               │    │  ✦ URL Analysis                  │  │
-│  │                                │    │                                  │  │
-│  │  Grounded on YOUR docs         │    │  Grounded on the WEB             │  │
+│  │  QUERY                         │    │  RESEARCH                  v1.8  │  │
+│  │  • ask_question                │    │  • deep_research                 │  │
+│  │                                │    │  • gemini_query                  │  │
+│  │  CREATE & MANAGE         v1.7  │    │  • get_research_status           │  │
+│  │  • create_notebook             │    │                                  │  │
+│  │  • batch_create_notebooks      │    │  DOCUMENTS (NEW!)          v1.9  │  │
+│  │  • manage_sources              │    │  • upload_document               │  │
+│  │  • generate_audio              │    │  • query_document                │  │
+│  │  • sync_notebook               │    │  • list_documents                │  │
+│  │                                │    │  • delete_document               │  │
+│  │  Grounded on YOUR docs         │    │                                  │  │
+│  │  Permanent storage             │    │  Fast API • 48h retention        │  │
 │  └────────────────────────────────┘    └──────────────────────────────────┘  │
 │                                                                              │
 │                      ┌─────────────────────────────────┐                     │
@@ -129,6 +131,93 @@ GEMINI_TIMEOUT_MS=30000                  # API timeout
 | Current events / recent info | `gemini_query` + google_search | Live web data |
 | Code calculations | `gemini_query` + code_execution | Reliable computation |
 | Analyze a webpage | `gemini_query` + url_context | Direct page analysis |
+| **Quick PDF/document analysis** | `upload_document` + `query_document` | **Fast API, no browser** (NEW!) |
+
+---
+
+## 📄 Document API (v1.9.0)
+
+**Upload and query documents directly via Gemini API — no browser automation needed.**
+
+v1.9.0 introduces the **Gemini Files API** for fast, reliable document analysis. Upload PDFs, analyze them instantly, and delete when done.
+
+### Why This Matters
+
+| Feature | Browser Mode | Document API |
+|---------|--------------|--------------|
+| Speed | Seconds | **Milliseconds** |
+| Reliability | UI-dependent | **API-stable** |
+| File Support | Via NotebookLM | **50MB PDFs, 1000 pages** |
+| Retention | Permanent | 48 hours |
+| Setup | Auth + cookies | **Just API key** |
+
+### New Tools
+
+#### `upload_document` — Fast Document Upload
+
+Upload any document to Gemini for instant querying:
+
+```
+Upload /path/to/research-paper.pdf
+```
+
+- **Supported**: PDF (50MB, 1000 pages), TXT, MD, HTML, CSV, JSON, DOCX, images, audio, video
+- **48-hour retention** — files auto-expire, or delete manually
+- Returns a file ID for querying
+
+#### `query_document` — Ask Questions About Documents
+
+```
+"What are the main findings in this research paper?"
+"Summarize section 3 of the document"
+"Extract all statistics mentioned in the PDF"
+```
+
+- Full document understanding (text, tables, charts, diagrams)
+- Multi-document queries (compare multiple files)
+- Fast API response (no browser wait)
+
+#### `list_documents` — See All Uploaded Files
+
+```
+List all my uploaded documents
+```
+
+Shows file names, sizes, MIME types, and expiration times.
+
+#### `delete_document` — Clean Up Sensitive Files
+
+```
+Delete file xyz123
+```
+
+Immediately remove files (don't wait for 48h expiration).
+
+### Workflow Example
+
+```
+1. upload_document("/research/paper.pdf")
+   → Returns: files/abc123
+
+2. query_document("files/abc123", "What methodology was used?")
+   → Returns: "The paper uses a mixed-methods approach combining..."
+
+3. query_document("files/abc123", "List all cited authors")
+   → Returns: "Smith et al. (2024), Johnson (2023)..."
+
+4. delete_document("files/abc123")
+   → File removed
+```
+
+### When to Use Document API vs NotebookLM
+
+| Scenario | Use |
+|----------|-----|
+| Quick one-off document analysis | **Document API** — fast, no setup |
+| Building a permanent knowledge base | **NotebookLM** — permanent storage |
+| Analyzing sensitive documents | **Document API** — 48h auto-delete |
+| Multi-source research over time | **NotebookLM** — organized notebooks |
+| CI/CD pipeline document processing | **Document API** — API-native |
 
 ---
 

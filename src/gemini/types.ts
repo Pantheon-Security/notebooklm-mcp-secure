@@ -148,3 +148,110 @@ export interface GeminiQueryResult {
   /** Tools that were used */
   toolsUsed?: string[];
 }
+
+// =============================================================================
+// Files API Types (v1.9.0)
+// =============================================================================
+
+/**
+ * File processing state
+ */
+export type FileState = "PROCESSING" | "ACTIVE" | "FAILED";
+
+/**
+ * Uploaded file metadata
+ */
+export interface GeminiFile {
+  /** File name (resource ID) */
+  name: string;
+  /** Display name */
+  displayName?: string;
+  /** MIME type */
+  mimeType: string;
+  /** File size in bytes */
+  sizeBytes?: number;
+  /** Creation timestamp */
+  createTime?: string;
+  /** Expiration timestamp (48h after upload) */
+  expirationTime?: string;
+  /** Processing state */
+  state: FileState;
+  /** URI for use in prompts */
+  uri: string;
+  /** Error details if state is FAILED */
+  error?: string;
+}
+
+/**
+ * Options for uploading a document
+ */
+export interface UploadDocumentOptions {
+  /** Path to the file */
+  filePath: string;
+  /** Optional display name */
+  displayName?: string;
+  /** MIME type (auto-detected if not provided) */
+  mimeType?: string;
+}
+
+/**
+ * Options for querying a document
+ */
+export interface QueryDocumentOptions {
+  /** File name/ID returned from upload */
+  fileName: string;
+  /** The question to ask about the document */
+  query: string;
+  /** Model to use (default: gemini-2.5-flash) */
+  model?: GeminiModel;
+  /** Additional files to include in query */
+  additionalFiles?: string[];
+  /** Generation config */
+  generationConfig?: GeminiGenerationConfig;
+}
+
+/**
+ * Result from document upload
+ */
+export interface UploadDocumentResult {
+  /** File name (use this for queries) */
+  fileName: string;
+  /** Display name */
+  displayName: string;
+  /** URI for reference */
+  uri: string;
+  /** MIME type */
+  mimeType: string;
+  /** File size */
+  sizeBytes?: number;
+  /** Expiration time (48h from now) */
+  expiresAt: string;
+  /** Processing state */
+  state: FileState;
+}
+
+/**
+ * Result from document query
+ */
+export interface QueryDocumentResult {
+  /** The answer from Gemini */
+  answer: string;
+  /** Model used */
+  model: string;
+  /** Tokens used */
+  tokensUsed?: number;
+  /** Files referenced in the query */
+  filesUsed: string[];
+}
+
+/**
+ * Result from listing documents
+ */
+export interface ListDocumentsResult {
+  /** List of uploaded files */
+  files: GeminiFile[];
+  /** Total count */
+  totalCount: number;
+  /** Next page token (if more results) */
+  nextPageToken?: string;
+}
