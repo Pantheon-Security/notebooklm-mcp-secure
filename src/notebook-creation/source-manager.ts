@@ -5,6 +5,8 @@
  */
 
 import type { Page } from "patchright";
+import * as fs from "fs";
+import * as path from "path";
 import { AuthManager } from "../auth/auth-manager.js";
 import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
@@ -456,44 +458,23 @@ export class SourceManager {
 
   /**
    * Internal: Add file source
-   * December 2025: NotebookLM uses a dropzone with hidden file input.
-   * Multiple strategies are tried in order of reliability.
+   * December 2025: NotebookLM creates a hidden input[type="file"] AFTER clicking
+   * the "choose file" button. The key is: click first, then find the input.
    */
   private async addFileSourceInternal(page: Page, filePath: string): Promise<void> {
     log.info("  Attempting file upload...");
 
-    // Method 1: Try using page.locator with setInputFiles (most reliable)
-    // This works even on hidden file inputs
-    try {
-      const fileInputLocator = page.locator('input[type="file"]');
-      const count = await fileInputLocator.count();
-      if (count > 0) {
-        await fileInputLocator.first().setInputFiles(filePath);
-        log.success("  ✅ File uploaded via locator setInputFiles");
-        await randomDelay(500, 1000);
-        return;
-      }
-    } catch (e) {
-      log.info(`  Locator setInputFiles attempt: ${e}`);
+    // Validate and resolve path
+    const absolutePath = path.isAbsolute(filePath) ? filePath : path.resolve(filePath);
+    if (!fs.existsSync(absolutePath)) {
+      throw new Error(`File not found: ${absolutePath}`);
     }
 
-    // Method 2: Try direct setInputFiles on file input
+    // Method 1 (PRIMARY): Click "choose file" to create the hidden file input, then use it
+    // NotebookLM dynamically creates input[type="file"] only after clicking the button
+    log.info("  Clicking 'choose file' to create file input...");
     try {
-      await page.setInputFiles('input[type="file"]', filePath);
-      log.success("  ✅ File uploaded via direct setInputFiles");
-      await randomDelay(500, 1000);
-      return;
-    } catch (e) {
-      log.info(`  Direct setInputFiles failed: ${e}`);
-    }
-
-    // Method 3: Use filechooser event with dropzone click
-    log.info("  Trying filechooser event approach...");
-    try {
-      // Set up file chooser listener BEFORE clicking
-      const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 10000 });
-
-      // Click the "choose file" button or dropzone
+      // Click the "choose file" button to trigger file input creation
       const clicked = await page.evaluate(() => {
         // Try the "choose file" span first (most specific)
         // @ts-expect-error - DOM types
@@ -501,6 +482,14 @@ export class SourceManager {
         if (chooseFile && (chooseFile as any).offsetParent !== null) {
           (chooseFile as any).click();
           return "chooseFile";
+        }
+
+        // Try the upload icon button with xapscotty attribute
+        // @ts-expect-error - DOM types
+        const xapscottyBtn = document.querySelector('[xapscottyuploadertrigger]');
+        if (xapscottyBtn && (xapscottyBtn as any).offsetParent !== null) {
+          (xapscottyBtn as any).click();
+          return "xapscotty";
         }
 
         // Try the upload icon button
@@ -511,66 +500,64 @@ export class SourceManager {
           return "uploadBtn";
         }
 
-        // Try any element with "choose file" text
-        // @ts-expect-error - DOM types
-        const spans = document.querySelectorAll('span[role="button"]');
-        for (const span of spans) {
-          const text = (span as any).textContent?.toLowerCase() || "";
-          if (text.includes("choose file")) {
-            (span as any).click();
-            return "span";
-          }
-        }
-
         return null;
       });
 
       if (clicked) {
-        log.info(`  Clicked ${clicked}, waiting for file chooser...`);
-        const fileChooser = await fileChooserPromise;
-        await fileChooser.setFiles(filePath);
-        log.success("  ✅ File uploaded via filechooser event");
+        log.info(`  Clicked ${clicked}, waiting for file input to be created...`);
+
+        // Wait for the file input to appear (it's created dynamically after click)
+        await page.waitForSelector('input[type="file"]', { timeout: 5000 });
+        await randomDelay(200, 400);
+
+        // Now set the file on the newly created input
+        const fileInputLocator = page.locator('input[type="file"]');
+        await fileInputLocator.first().setInputFiles(absolutePath);
+        log.success("  ✅ File uploaded via click-then-setInputFiles");
         await randomDelay(500, 1000);
         return;
       }
     } catch (e) {
+      log.info(`  Click-then-setInputFiles approach: ${e}`);
+    }
+
+    // Method 2: Try filechooser event (fallback)
+    log.info("  Trying filechooser event approach...");
+    try {
+      // Set up file chooser listener BEFORE clicking
+      const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 5000 });
+
+      // Click again to trigger filechooser
+      await page.evaluate(() => {
+        // @ts-expect-error - DOM types
+        const chooseFile = document.querySelector('span.dropzone__file-dialog-button');
+        if (chooseFile) (chooseFile as any).click();
+      });
+
+      const fileChooser = await fileChooserPromise;
+      await fileChooser.setFiles(absolutePath);
+      log.success("  ✅ File uploaded via filechooser event");
+      await randomDelay(500, 1000);
+      return;
+    } catch (e) {
       log.info(`  Filechooser approach: ${e}`);
     }
 
-    // Method 4: Fallback - click upload button and try locator again
-    log.info("  Trying fallback click approach...");
-    const uploadClicked = await page.evaluate(() => {
-      // @ts-expect-error - DOM types
-      const elements = document.querySelectorAll("button, [role='button'], span, div[role='button']");
-      for (const el of elements) {
-        const text = (el as any).textContent?.toLowerCase() || "";
-        const aria = (el as any).getAttribute("aria-label")?.toLowerCase() || "";
-        if ((text.includes("upload") || text.includes("file") || text.includes("computer") ||
-             aria.includes("upload") || aria.includes("file")) &&
-            (el as any).offsetParent !== null) {
-          (el as any).click();
-          return true;
-        }
-      }
-      return false;
-    });
-
-    if (uploadClicked) {
-      await randomDelay(500, 800);
-
-      // Try locator again after clicking
-      try {
-        const fileInputLocator = page.locator('input[type="file"]');
-        await fileInputLocator.first().setInputFiles(filePath);
-        log.success("  ✅ File uploaded via post-click locator");
+    // Method 3: Try existing input[type="file"] directly (in case it already exists)
+    try {
+      const fileInputLocator = page.locator('input[type="file"]');
+      const count = await fileInputLocator.count();
+      if (count > 0) {
+        await fileInputLocator.first().setInputFiles(absolutePath);
+        log.success("  ✅ File uploaded via existing locator");
         await randomDelay(500, 1000);
         return;
-      } catch (e) {
-        log.info(`  Post-click locator attempt: ${e}`);
       }
+    } catch (e) {
+      log.info(`  Existing locator attempt: ${e}`);
     }
 
-    throw new Error("Could not upload file - all methods failed. The NotebookLM UI may have changed.");
+    throw new Error("Could not upload file - all methods failed. NotebookLM may be using an unsupported upload method.");
   }
 
   /**
