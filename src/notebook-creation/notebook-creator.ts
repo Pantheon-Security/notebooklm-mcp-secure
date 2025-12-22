@@ -480,6 +480,8 @@ export class NotebookCreator {
 
   /**
    * Add a file source
+   * December 2025: NotebookLM uses a dropzone with hidden file input.
+   * The file input is accessible via setInputFiles even when hidden.
    */
   private async addFileSource(filePath: string): Promise<void> {
     if (!this.page) throw new Error("Page not initialized");
@@ -494,17 +496,89 @@ export class NotebookCreator {
 
     await randomDelay(500, 1000);
 
-    // First try to find file input directly
-    let fileInput = await this.page.$('input[type="file"]');
-    if (fileInput) {
-      await fileInput.setInputFiles(absolutePath);
-      await randomDelay(1000, 2000);
-      await this.waitForSourceProcessing();
-      return;
+    // Method 1: Try using page.setInputFiles with locator (most reliable)
+    // This works even on hidden file inputs
+    try {
+      const fileInputLocator = this.page.locator('input[type="file"]');
+      const count = await fileInputLocator.count();
+      if (count > 0) {
+        await fileInputLocator.first().setInputFiles(absolutePath);
+        log.success("  ✅ File uploaded via locator setInputFiles");
+        await randomDelay(1000, 2000);
+        await this.waitForSourceProcessing();
+        return;
+      }
+    } catch (e) {
+      log.info(`  Locator setInputFiles attempt: ${e}`);
     }
 
-    // If not found, click on upload option first
-    log.info("  Looking for upload option...");
+    // Method 2: Try direct element setInputFiles
+    try {
+      const fileInput = await this.page.$('input[type="file"]');
+      if (fileInput) {
+        await fileInput.setInputFiles(absolutePath);
+        log.success("  ✅ File uploaded via direct setInputFiles");
+        await randomDelay(1000, 2000);
+        await this.waitForSourceProcessing();
+        return;
+      }
+    } catch (e) {
+      log.info(`  Direct setInputFiles attempt: ${e}`);
+    }
+
+    // Method 3: Use filechooser event with dropzone click
+    log.info("  Trying filechooser event approach...");
+    try {
+      // Set up file chooser listener BEFORE clicking
+      const fileChooserPromise = this.page.waitForEvent('filechooser', { timeout: 10000 });
+
+      // Click the "choose file" button or dropzone
+      const clicked = await this.page.evaluate(() => {
+        // Try the "choose file" span first (most specific)
+        // @ts-expect-error - DOM types
+        const chooseFile = document.querySelector('span.dropzone__file-dialog-button');
+        if (chooseFile && (chooseFile as any).offsetParent !== null) {
+          (chooseFile as any).click();
+          return "chooseFile";
+        }
+
+        // Try the upload icon button
+        // @ts-expect-error - DOM types
+        const uploadBtn = document.querySelector('button[aria-label="Upload sources from your computer"]');
+        if (uploadBtn && (uploadBtn as any).offsetParent !== null) {
+          (uploadBtn as any).click();
+          return "uploadBtn";
+        }
+
+        // Try any element with "choose file" text
+        // @ts-expect-error - DOM types
+        const spans = document.querySelectorAll('span[role="button"]');
+        for (const span of spans) {
+          const text = (span as any).textContent?.toLowerCase() || "";
+          if (text.includes("choose file")) {
+            (span as any).click();
+            return "span";
+          }
+        }
+
+        return null;
+      });
+
+      if (clicked) {
+        log.info(`  Clicked ${clicked}, waiting for file chooser...`);
+        const fileChooser = await fileChooserPromise;
+        await fileChooser.setFiles(absolutePath);
+        log.success("  ✅ File uploaded via filechooser event");
+        await randomDelay(1000, 2000);
+        await this.waitForSourceProcessing();
+        return;
+      }
+    } catch (e) {
+      log.info(`  Filechooser approach: ${e}`);
+    }
+
+    // Method 4: Fallback - click upload button and try again
+    log.info("  Trying fallback click approach...");
     const uploadClicked = await this.page.evaluate(() => {
       // @ts-expect-error - DOM types
       const elements = document.querySelectorAll("button, [role='button'], span, div[role='button']");
@@ -523,16 +597,21 @@ export class NotebookCreator {
 
     if (uploadClicked) {
       await randomDelay(1000, 1500);
-      fileInput = await this.page.$('input[type="file"]');
-      if (fileInput) {
-        await fileInput.setInputFiles(absolutePath);
+
+      // Try locator again after clicking
+      try {
+        const fileInputLocator = this.page.locator('input[type="file"]');
+        await fileInputLocator.first().setInputFiles(absolutePath);
+        log.success("  ✅ File uploaded via post-click locator");
         await randomDelay(1000, 2000);
         await this.waitForSourceProcessing();
         return;
+      } catch (e) {
+        log.info(`  Post-click locator attempt: ${e}`);
       }
     }
 
-    throw new Error("Could not find file upload input");
+    throw new Error("Could not upload file - all methods failed. The NotebookLM UI may have changed.");
   }
 
   /**
