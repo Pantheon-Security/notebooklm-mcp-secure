@@ -1,6 +1,6 @@
 {
   "name": "@pan-sec/notebooklm-mcp",
-  "version": "1.10.4",
+  "version": "1.10.5",
   "description": "Security-hardened MCP server for NotebookLM API with enterprise compliance (GDPR, SOC2, CSSF)",
   "type": "module",
   "bin": {
