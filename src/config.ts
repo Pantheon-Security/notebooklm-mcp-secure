@@ -95,7 +95,7 @@ const DEFAULTS: Config = {
   // Browser Settings
   headless: true,
   browserTimeout: 30000,
-  viewport: { width: 1024, height: 768 },
+  viewport: { width: 1440, height: 900 },  // Wide enough for NotebookLM sidebar
 
   // Session Management
   maxSessions: 10,

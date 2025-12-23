@@ -55,6 +55,21 @@ export class NotebookCreator {
       currentStep++;
       await sendProgress?.("Creating new notebook...", currentStep, totalSteps);
       await this.clickNewNotebook();
+
+      // Wait for notebook to fully load and stabilize
+      await randomDelay(3000, 4000);
+
+      // Verify we're on a notebook page
+      const createdNotebookUrl = this.page!.url();
+      log.info(`📍 Notebook URL after creation: ${createdNotebookUrl}`);
+      if (!createdNotebookUrl.includes("/notebook/")) {
+        throw new Error(`Failed to create notebook - unexpected URL: ${createdNotebookUrl}`);
+      }
+
+      // Store the notebook ID for verification later
+      const notebookId = createdNotebookUrl.split("/notebook/")[1]?.split("?")[0];
+      log.info(`📓 Created notebook ID: ${notebookId}`);
+
       await this.setNotebookName(name);
 
       // Step 3+: Add each source
@@ -237,14 +252,28 @@ export class NotebookCreator {
   private async addSource(source: NotebookSource): Promise<void> {
     if (!this.page) throw new Error("Page not initialized");
 
+    // CRITICAL: Track the notebook URL to detect accidental navigation
+    const expectedNotebookUrl = this.page.url();
+    log.info(`📍 Current notebook URL: ${expectedNotebookUrl}`);
+
     // Check if source dialog is already open (happens for new notebooks)
     const dialogAlreadyOpen = await this.isSourceDialogOpen();
+    log.info(`📋 Source dialog already open: ${dialogAlreadyOpen}`);
 
     if (!dialogAlreadyOpen) {
       // Click "Add source" button only if dialog isn't already open
       await this.clickAddSource();
+
+      // Verify we didn't accidentally navigate away
+      const currentUrl = this.page.url();
+      if (!currentUrl.includes("/notebook/") ||
+          (expectedNotebookUrl.includes("/notebook/") &&
+           !currentUrl.includes(expectedNotebookUrl.split("/notebook/")[1]?.split("?")[0] || ""))) {
+        log.error(`❌ URL changed unexpectedly! Expected: ${expectedNotebookUrl}, Got: ${currentUrl}`);
+        throw new Error(`Navigation error: accidentally navigated away from notebook. This may indicate clicking wrong button.`);
+      }
     } else {
-      log.info("📋 Source dialog already open");
+      log.info("📋 Source dialog already open - skipping clickAddSource");
     }
 
     // Handle based on source type
@@ -261,6 +290,10 @@ export class NotebookCreator {
       default:
         throw new Error(`Unknown source type: ${(source as NotebookSource).type}`);
     }
+
+    // Verify we're still on the same notebook after adding source
+    const finalUrl = this.page.url();
+    log.info(`📍 URL after adding source: ${finalUrl}`);
   }
 
   /**
@@ -271,19 +304,46 @@ export class NotebookCreator {
 
     // Check for source dialog indicators
     const dialogIndicators = await this.page.evaluate(() => {
+      // Method 1: Check for specific source type options (standard dialog)
       // @ts-expect-error - DOM types
       const spans = document.querySelectorAll('span');
       for (const span of spans) {
         const text = (span as any).textContent?.trim() || "";
         // These texts only appear when the source dialog is open
         if (text === "Copied text" || text === "Website" || text === "Discover sources") {
-          return true;
+          return { open: true, reason: "source_type_options" };
         }
       }
-      return false;
+
+      // Method 2: Check for file upload dropzone (initial notebook state)
+      // @ts-expect-error - DOM types
+      const dropzones = document.querySelectorAll('.dropzone, [class*="dropzone"]');
+      if (dropzones.length > 0) {
+        for (const dz of dropzones) {
+          if ((dz as any).offsetParent !== null) { // Check if visible
+            return { open: true, reason: "dropzone_visible" };
+          }
+        }
+      }
+
+      // Method 3: Check for "Upload sources" button in dialog
+      // @ts-expect-error - DOM types
+      const buttons = document.querySelectorAll('button');
+      for (const btn of buttons) {
+        const ariaLabel = (btn as any).getAttribute("aria-label")?.toLowerCase() || "";
+        if (ariaLabel.includes("upload sources from your computer")) {
+          const visible = (btn as any).offsetParent !== null;
+          if (visible) {
+            return { open: true, reason: "upload_button_visible" };
+          }
+        }
+      }
+
+      return { open: false };
     });
 
-    return dialogIndicators;
+    log.info(`📋 isSourceDialogOpen check: ${JSON.stringify(dialogIndicators)}`);
+    return dialogIndicators.open;
   }
 
   /**
@@ -294,58 +354,145 @@ export class NotebookCreator {
 
     log.info("📎 Clicking 'Add source' button...");
 
-    const selectors = getSelectors("addSourceButton");
+    // DEBUG: Log current URL to see if we're on the notebook page
+    const currentUrl = this.page.url();
+    log.info(`  Current URL: ${currentUrl}`);
 
-    for (const selector of selectors) {
-      try {
-        const element = await this.page.$(selector);
-        if (element && await element.isVisible()) {
-          await realisticClick(this.page, selector, true);
+    // Wait for page to settle and for any animations/updates to complete
+    await randomDelay(2000, 3000);
+
+    // DEBUG: Log all buttons found on the page
+    const buttonsInfo = await this.page.evaluate(() => {
+      // @ts-expect-error - DOM types
+      const buttons = document.querySelectorAll('button, [role="button"]');
+      const info: Array<{text: string, aria: string, class: string, visible: boolean}> = [];
+      for (const btn of buttons) {
+        const text = (btn as any).textContent?.trim().substring(0, 50) || "";
+        const aria = (btn as any).getAttribute("aria-label") || "";
+        const cls = (btn as any).className?.substring(0, 50) || "";
+        const visible = (btn as any).offsetParent !== null;
+        // Only include buttons with relevant content
+        if (aria.toLowerCase().includes("add") || aria.toLowerCase().includes("create") ||
+            text.toLowerCase().includes("add") || text.toLowerCase().includes("create") ||
+            cls.toLowerCase().includes("add") || cls.toLowerCase().includes("create")) {
+          info.push({ text, aria, class: cls, visible });
+        }
+      }
+      return info;
+    });
+    log.info(`  Buttons found: ${JSON.stringify(buttonsInfo, null, 2)}`);
+
+    // Method 1: Use Playwright locator with aria-label (try both singular and plural)
+    try {
+      // Try singular first
+      let addSourceLocator = this.page.locator('button[aria-label="Add source"]');
+      let count = await addSourceLocator.count();
+      log.info(`  Method 1a: Found ${count} button(s) with aria-label="Add source"`);
+
+      // Try plural if singular not found
+      if (count === 0) {
+        addSourceLocator = this.page.locator('button[aria-label="Add sources"]');
+        count = await addSourceLocator.count();
+        log.info(`  Method 1b: Found ${count} button(s) with aria-label="Add sources"`);
+      }
+
+      if (count > 0) {
+        const isVisible = await addSourceLocator.first().isVisible();
+        log.info(`  Method 1: First button visible: ${isVisible}`);
+        if (isVisible) {
+          await addSourceLocator.first().click();
           await randomDelay(800, 1500);
-          log.success("✅ Clicked 'Add source' button");
+          log.success("✅ Clicked 'Add source' button (locator)");
           return;
         }
-      } catch {
-        continue;
       }
+    } catch (e) {
+      log.info(`  Locator approach failed: ${e}`);
     }
 
-    // Fallback: look for any "add" button via evaluate (since :has-text() isn't supported)
-    const addPatterns = ["Add source", "Add", "Upload", "+"];
+    // Method 2: Use class selector
+    try {
+      const classLocator = this.page.locator('button.add-source-button');
+      const count = await classLocator.count();
+      log.info(`  Method 2: Found ${count} button(s) with class add-source-button`);
+      if (count > 0) {
+        const isVisible = await classLocator.first().isVisible();
+        log.info(`  Method 2: First button visible: ${isVisible}`);
+        if (isVisible) {
+          await classLocator.first().click();
+          await randomDelay(800, 1500);
+          log.success("✅ Clicked 'Add source' button (class)");
+          return;
+        }
+      }
+    } catch (e) {
+      log.info(`  Class selector failed: ${e}`);
+    }
 
-    for (const pattern of addPatterns) {
-      try {
-        const clicked = await this.page.evaluate((searchText) => {
-          // @ts-expect-error - DOM types
-          const elements = document.querySelectorAll('button, [role="button"]');
-          for (const el of elements) {
-            const elText = (el as any).textContent?.trim() || "";
-            const ariaLabel = (el as any).getAttribute("aria-label")?.toLowerCase() || "";
-            // For "+" we need exact match, for others partial match
-            if (searchText === "+") {
-              if (elText === "+" || ariaLabel.includes("add")) {
-                (el as any).click();
-                return true;
-              }
-            } else if (elText.toLowerCase().includes(searchText.toLowerCase()) || ariaLabel.includes(searchText.toLowerCase())) {
-              (el as any).click();
-              return true;
-            }
+    // Method 3: Fallback using page.evaluate with JavaScript click
+    try {
+      const clicked = await this.page.evaluate(() => {
+        // @ts-expect-error - DOM types
+        const elements = document.querySelectorAll('button, [role="button"]');
+        for (const el of elements) {
+          const elText = (el as any).textContent?.trim().toLowerCase() || "";
+          const ariaLabel = (el as any).getAttribute("aria-label")?.toLowerCase() || "";
+          const className = (el as any).className?.toLowerCase() || "";
+
+          // Skip if this is a "Create notebook" or "Add note" button
+          // Check BOTH aria-label AND text content for "create" to avoid clicking wrong button
+          if (ariaLabel.includes("create") || className.includes("create-notebook") ||
+              elText.includes("create") || elText.includes("add note") ||
+              className.includes("add-note")) {
+            continue;
           }
-          return false;
-        }, pattern);
 
-        if (clicked) {
-          await randomDelay(800, 1500);
-          log.success("✅ Clicked 'Add source' button (fallback)");
-          return;
+          // Match "Add source" or "Add sources" specifically
+          if (ariaLabel === "add source" || ariaLabel.includes("add source") ||
+              elText.includes("add source") || className.includes("add-source")) {
+            (el as any).click();
+            return { clicked: true, aria: ariaLabel, text: elText.substring(0, 30) };
+          }
         }
-      } catch {
-        continue;
+        return { clicked: false };
+      });
+
+      if (clicked.clicked) {
+        await randomDelay(800, 1500);
+        log.success(`✅ Clicked 'Add source' button (JS fallback) - aria: ${clicked.aria}, text: ${clicked.text}`);
+        return;
       }
+    } catch {
+      // Continue to error
     }
 
-    throw new Error("Could not find 'Add source' button");
+    // If we get here, button wasn't found. Try waiting and retrying once more.
+    log.warning("⚠️ Add source button not found, waiting and retrying...");
+    await randomDelay(3000, 4000);
+
+    // Final retry with Method 1 (try both singular and plural)
+    try {
+      let addSourceLocator = this.page.locator('button[aria-label="Add source"]');
+      let count = await addSourceLocator.count();
+      log.info(`  Retry: Found ${count} button(s) with aria-label="Add source"`);
+
+      if (count === 0) {
+        addSourceLocator = this.page.locator('button[aria-label="Add sources"]');
+        count = await addSourceLocator.count();
+        log.info(`  Retry: Found ${count} button(s) with aria-label="Add sources"`);
+      }
+
+      if (count > 0 && await addSourceLocator.first().isVisible()) {
+        await addSourceLocator.first().click();
+        await randomDelay(800, 1500);
+        log.success("✅ Clicked 'Add source' button (retry)");
+        return;
+      }
+    } catch (e) {
+      log.info(`  Retry failed: ${e}`);
+    }
+
+    throw new Error("Could not find 'Add source' button after retry");
   }
 
   /**

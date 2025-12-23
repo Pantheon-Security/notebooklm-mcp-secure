@@ -165,34 +165,88 @@ export class SourceManager {
     const page = await this.navigateToNotebook(notebookUrl);
 
     try {
+      // Wait for page to fully load and stabilize
+      log.info("  Waiting for page to load...");
+      try {
+        await page.waitForLoadState('networkidle', { timeout: 15000 });
+      } catch {
+        log.warning("  Network idle timeout, continuing...");
+      }
+      await randomDelay(3000, 4000);
+
+      // Check page state
+      const pageState = await page.evaluate(() => {
+        // @ts-expect-error - DOM types in evaluate
+        const addSourceBtn = document.querySelector('button[aria-label="Add source"]');
+        // @ts-expect-error - window in evaluate
+        return { hasAddSourceBtn: !!addSourceBtn, windowWidth: window.innerWidth };
+      });
+      log.dim(`  Page state: width=${pageState.windowWidth}, addSourceBtn=${pageState.hasAddSourceBtn}`);
+
       // Check if source dialog is already open (new/empty notebooks may auto-open it)
       const dialogAlreadyOpen = await page.evaluate(() => {
-        // @ts-expect-error - DOM types
-        const uploadDialog = document.querySelector('upload-dialog, .cdk-overlay-container mat-dialog-container');
+        // Check for dropzone (file upload area) - most reliable indicator
         // @ts-expect-error - DOM types
         const dropzone = document.querySelector('.dropzone__file-dialog-button, span[xapscottyuploadertrigger]');
-        return !!(uploadDialog || dropzone);
+        // Check for source type options in dialog
+        // @ts-expect-error - DOM types
+        const sourceOptions = document.querySelector('[aria-label="Upload sources from your computer"]');
+        return !!(dropzone || sourceOptions);
       });
 
       if (dialogAlreadyOpen) {
         log.info("  📋 Source dialog already open");
       } else {
-        // Click "Add source" button to open dialog
+        // Click "Add source" button to open dialog using Playwright locator
         log.info("  Opening source dialog...");
-        const addSourceBtn = await page.$(NOTEBOOKLM_SELECTORS.addSourceButton.primary);
-        if (!addSourceBtn) {
-          // Try fallbacks
-          for (const fallback of NOTEBOOKLM_SELECTORS.addSourceButton.fallbacks) {
-            const btn = await page.$(fallback);
-            if (btn) {
-              await btn.click();
-              break;
-            }
-          }
-        } else {
-          await addSourceBtn.click();
+
+        // Try both singular and plural aria-labels (NotebookLM uses "Add source" singular)
+        let clicked = false;
+        const singularLocator = page.locator('button[aria-label="Add source"]');
+        if (await singularLocator.count() > 0 && await singularLocator.first().isVisible()) {
+          await singularLocator.first().click();
+          log.info("  Clicked 'Add source' button (singular)");
+          clicked = true;
         }
-        await randomDelay(1000, 1500);
+
+        if (!clicked) {
+          const pluralLocator = page.locator('button[aria-label="Add sources"]');
+          if (await pluralLocator.count() > 0 && await pluralLocator.first().isVisible()) {
+            await pluralLocator.first().click();
+            log.info("  Clicked 'Add sources' button (plural)");
+            clicked = true;
+          }
+        }
+
+        if (!clicked) {
+          // Try class selector as fallback
+          const classLocator = page.locator('button.add-source-button');
+          if (await classLocator.count() > 0 && await classLocator.first().isVisible()) {
+            await classLocator.first().click();
+            log.info("  Clicked 'Add source' button (class)");
+            clicked = true;
+          }
+        }
+
+        if (!clicked) {
+          throw new Error("Could not find 'Add source' button");
+        }
+
+        await randomDelay(1500, 2000);
+
+        // Verify dialog opened
+        const dialogOpened = await page.evaluate(() => {
+          // @ts-expect-error - DOM types
+          const dropzone = document.querySelector('.dropzone__file-dialog-button, span[xapscottyuploadertrigger]');
+          // @ts-expect-error - DOM types
+          const sourceOptions = document.querySelector('[aria-label="Upload sources from your computer"]');
+          return !!(dropzone || sourceOptions);
+        });
+
+        if (!dialogOpened) {
+          log.warning("  ⚠️ Dialog may not have opened, retrying...");
+          await randomDelay(1000, 1500);
+        }
       }
 
       // Handle based on source type
@@ -470,69 +524,76 @@ export class SourceManager {
       throw new Error(`File not found: ${absolutePath}`);
     }
 
-    // Method 1 (PRIMARY): Click "choose file" to create the hidden file input, then use it
-    // NotebookLM dynamically creates input[type="file"] only after clicking the button
-    log.info("  Clicking 'choose file' to create file input...");
+    // Method 1 (PRIMARY): Use Playwright's real click on "choose file" button
+    // CRITICAL: Angular blocks JavaScript element.click() - must use Playwright's click()
+    log.info("  Using Playwright click on 'choose file' button...");
+
     try {
-      // Click the "choose file" button to trigger file input creation
-      const clicked = await page.evaluate(() => {
-        // Try the "choose file" span first (most specific)
-        // @ts-expect-error - DOM types
-        const chooseFile = document.querySelector('span.dropzone__file-dialog-button');
-        if (chooseFile && (chooseFile as any).offsetParent !== null) {
-          (chooseFile as any).click();
-          return "chooseFile";
-        }
+      // Try the "choose file" span first (most specific)
+      const chooseFileLocator = page.locator('span.dropzone__file-dialog-button');
+      if (await chooseFileLocator.count() > 0 && await chooseFileLocator.first().isVisible()) {
+        await chooseFileLocator.first().click();
+        log.info("  Clicked 'choose file' span with Playwright");
 
-        // Try the upload icon button with xapscotty attribute
-        // @ts-expect-error - DOM types
-        const xapscottyBtn = document.querySelector('[xapscottyuploadertrigger]');
-        if (xapscottyBtn && (xapscottyBtn as any).offsetParent !== null) {
-          (xapscottyBtn as any).click();
-          return "xapscotty";
-        }
-
-        // Try the upload icon button
-        // @ts-expect-error - DOM types
-        const uploadBtn = document.querySelector('button[aria-label="Upload sources from your computer"]');
-        if (uploadBtn && (uploadBtn as any).offsetParent !== null) {
-          (uploadBtn as any).click();
-          return "uploadBtn";
-        }
-
-        return null;
-      });
-
-      if (clicked) {
-        log.info(`  Clicked ${clicked}, waiting for file input to be created...`);
-
-        // Wait for the file input to appear (it's created dynamically after click)
-        await page.waitForSelector('input[type="file"]', { timeout: 5000 });
+        // Wait for the file input to appear (it's created dynamically after real click)
+        // Note: The input has display:none, so use state:'attached' not 'visible'
+        await page.waitForSelector('input[type="file"]', { timeout: 5000, state: 'attached' });
         await randomDelay(200, 400);
 
         // Now set the file on the newly created input
         const fileInputLocator = page.locator('input[type="file"]');
         await fileInputLocator.first().setInputFiles(absolutePath);
-        log.success("  ✅ File uploaded via click-then-setInputFiles");
+        log.success("  ✅ File uploaded via Playwright click + setInputFiles");
+        await randomDelay(500, 1000);
+        return;
+      }
+
+      // Try the xapscotty trigger button
+      const xapscottyLocator = page.locator('[xapscottyuploadertrigger]');
+      if (await xapscottyLocator.count() > 0 && await xapscottyLocator.first().isVisible()) {
+        await xapscottyLocator.first().click();
+        log.info("  Clicked xapscotty trigger with Playwright");
+
+        await page.waitForSelector('input[type="file"]', { timeout: 5000, state: 'attached' });
+        await randomDelay(200, 400);
+
+        const fileInputLocator = page.locator('input[type="file"]');
+        await fileInputLocator.first().setInputFiles(absolutePath);
+        log.success("  ✅ File uploaded via xapscotty click + setInputFiles");
+        await randomDelay(500, 1000);
+        return;
+      }
+
+      // Try the upload icon button
+      const uploadBtnLocator = page.locator('button[aria-label="Upload sources from your computer"]');
+      if (await uploadBtnLocator.count() > 0 && await uploadBtnLocator.first().isVisible()) {
+        await uploadBtnLocator.first().click();
+        log.info("  Clicked upload button with Playwright");
+
+        await page.waitForSelector('input[type="file"]', { timeout: 5000, state: 'attached' });
+        await randomDelay(200, 400);
+
+        const fileInputLocator = page.locator('input[type="file"]');
+        await fileInputLocator.first().setInputFiles(absolutePath);
+        log.success("  ✅ File uploaded via upload button click + setInputFiles");
         await randomDelay(500, 1000);
         return;
       }
     } catch (e) {
-      log.info(`  Click-then-setInputFiles approach: ${e}`);
+      log.info(`  Playwright click approach: ${e}`);
     }
 
-    // Method 2: Try filechooser event (fallback)
+    // Method 2: Try filechooser event with Playwright click (fallback)
     log.info("  Trying filechooser event approach...");
     try {
       // Set up file chooser listener BEFORE clicking
       const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 5000 });
 
-      // Click again to trigger filechooser
-      await page.evaluate(() => {
-        // @ts-expect-error - DOM types
-        const chooseFile = document.querySelector('span.dropzone__file-dialog-button');
-        if (chooseFile) (chooseFile as any).click();
-      });
+      // Click using Playwright's real click (not JavaScript click!)
+      const chooseFileLocator = page.locator('span.dropzone__file-dialog-button');
+      if (await chooseFileLocator.count() > 0) {
+        await chooseFileLocator.first().click();
+      }
 
       const fileChooser = await fileChooserPromise;
       await fileChooser.setFiles(absolutePath);

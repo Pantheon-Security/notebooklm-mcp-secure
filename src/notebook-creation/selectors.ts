@@ -35,14 +35,15 @@ export const NOTEBOOKLM_SELECTORS = {
   },
 
   /** Add source / Upload source button
-   * Discovered: aria="Opens the upload source dialogue" */
+   * Discovered: aria="Add source" with class "add-source-button" */
   addSourceButton: {
-    primary: 'button[aria-label="Opens the upload source dialogue"]',
+    primary: 'button[aria-label="Add source"]',
     fallbacks: [
-      'button[aria-label*="upload source"]',
-      'button[aria-label*="Upload"]',
+      'button.add-source-button',
+      'button[aria-label*="Add source"]',
+      'button[aria-label="Opens the upload source dialogue"]',
     ],
-    confirmed: true, // December 2025
+    confirmed: true, // December 2025 - Updated
   },
 
   /** URL/Discover sources option (for adding URLs)
