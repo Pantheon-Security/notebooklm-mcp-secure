@@ -267,23 +267,33 @@ export class AuthManager {
 
   /**
    * Check if the saved state file is too old (>24 hours)
+   * Checks encrypted versions (.pqenc, .enc) as well as unencrypted
    */
   async isStateExpired(): Promise<boolean> {
-    try {
-      const stats = await fs.stat(this.stateFilePath);
-      const fileAgeSeconds = (Date.now() - stats.mtimeMs) / 1000;
-      const maxAgeSeconds = 24 * 60 * 60; // 24 hours
+    // Check all possible encrypted/unencrypted file extensions
+    const extensions = ["", ".enc", ".pqenc"];
 
-      if (fileAgeSeconds > maxAgeSeconds) {
-        const hoursOld = fileAgeSeconds / 3600;
-        log.warning(`⚠️  Saved state is ${hoursOld.toFixed(1)}h old (max: 24h)`);
-        return true;
+    for (const ext of extensions) {
+      const filePath = this.stateFilePath + ext;
+      try {
+        const stats = await fs.stat(filePath);
+        const fileAgeSeconds = (Date.now() - stats.mtimeMs) / 1000;
+        const maxAgeSeconds = 24 * 60 * 60; // 24 hours
+
+        if (fileAgeSeconds > maxAgeSeconds) {
+          const hoursOld = fileAgeSeconds / 3600;
+          log.warning(`⚠️  Saved state is ${hoursOld.toFixed(1)}h old (max: 24h)`);
+          return true;
+        }
+
+        return false; // Found a valid, non-expired file
+      } catch {
+        // File with this extension doesn't exist, try next
+        continue;
       }
-
-      return false;
-    } catch {
-      return true; // File doesn't exist = expired
     }
+
+    return true; // No state file found = expired
   }
 
   // ============================================================================
