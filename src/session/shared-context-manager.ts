@@ -20,6 +20,7 @@ import { AuthManager } from "../auth/auth-manager.js";
 import fs from "fs";
 import path from "path";
 import { mkdirSecure, PERMISSION_MODES } from "../utils/file-permissions.js";
+import { getSecureStorage } from "../utils/crypto.js";
 
 /**
  * Shared Context Manager
@@ -133,12 +134,27 @@ export class SharedContextManager {
       }
     }
 
-    // Check for saved auth
+    // Check for saved auth and decrypt if needed
     const statePath = await this.authManager.getValidStatePath();
+    let decryptedState: object | undefined;
 
     if (statePath) {
       log.success(`  📂 Found auth state: ${statePath}`);
       log.info("  💡 Will load cookies into persistent profile");
+
+      // Decrypt the state since it may be encrypted (.pqenc or .enc)
+      try {
+        const secureStorage = getSecureStorage();
+        const stateData = await secureStorage.load(statePath);
+        if (stateData) {
+          decryptedState = JSON.parse(stateData);
+          const status = secureStorage.getStatus();
+          const encType = status.postQuantumEnabled ? "ML-KEM-768 + ChaCha20" : "ChaCha20-Poly1305";
+          log.success(`  🔓 Decrypted auth state with ${encType}`);
+        }
+      } catch (error) {
+        log.warning(`  ⚠️  Failed to decrypt auth state: ${error}`);
+      }
     } else {
       log.warning("  🆕 No saved auth - fresh persistent profile");
       log.info("  💡 First login will save auth to persistent profile");
@@ -159,13 +175,13 @@ export class SharedContextManager {
       viewport: CONFIG.viewport,
       locale: "en-US",
       timezoneId: "Europe/Berlin",
-      // ✅ CRITICAL FIX: Pass storageState directly at launch!
-      // This is the PROPER way to handle session cookies (Playwright bug workaround)
+      // ✅ CRITICAL FIX: Pass decrypted storageState object at launch!
+      // This handles encrypted state files (.pqenc, .enc) properly
       // Benefits:
       // - Session cookies persist correctly
-      // - No need for addCookies() workarounds
+      // - Works with encrypted auth state
       // - Chrome loads everything automatically
-      ...(statePath && { storageState: statePath }),
+      ...(decryptedState && { storageState: decryptedState }),
       args: [
         "--disable-blink-features=AutomationControlled",
         "--disable-dev-shm-usage",
@@ -181,8 +197,8 @@ export class SharedContextManager {
     const tryLaunch = async (userDataDir: string) => {
       log.info("  🚀 Launching persistent Chrome context...");
       log.dim(`  📍 Profile location: ${userDataDir}`);
-      if (statePath) {
-        log.info(`  📄 Loading auth state: ${statePath}`);
+      if (decryptedState) {
+        log.info(`  📄 Loading decrypted auth state into browser`);
       }
       return chromium.launchPersistentContext(userDataDir, launchOptions);
     };
@@ -229,8 +245,8 @@ export class SharedContextManager {
       });
     } catch {}
 
-    // Validate cookies if we loaded state
-    if (statePath) {
+    // Validate cookies if we loaded decrypted state
+    if (decryptedState) {
       try {
         if (await this.authManager.validateCookiesExpiry(this.globalContext)) {
           log.success("  ✅ Authentication state loaded successfully");
