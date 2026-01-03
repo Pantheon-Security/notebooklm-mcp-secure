@@ -27,6 +27,7 @@ import {
 import type { ProgressCallback } from "../types.js";
 import { maskEmail } from "../utils/security.js";
 import { getSecureStorage } from "../utils/crypto.js";
+import { withLock } from "../utils/file-lock.js";
 
 /**
  * Critical cookie names for Google authentication
@@ -59,56 +60,60 @@ export class AuthManager {
   /**
    * Save entire browser state (cookies + localStorage)
    * Uses post-quantum encrypted storage for sensitive auth data
+   * Uses file locking to prevent race conditions with concurrent sessions
    */
   async saveBrowserState(context: BrowserContext, page?: Page): Promise<boolean> {
-    try {
-      const secureStorage = getSecureStorage();
+    // Use file locking to prevent concurrent save race conditions
+    return await withLock(this.stateFilePath, async () => {
+      try {
+        const secureStorage = getSecureStorage();
 
-      // Get storage state as JSON string (cookies + localStorage + IndexedDB)
-      const storageState = await context.storageState();
+        // Get storage state as JSON string (cookies + localStorage + IndexedDB)
+        const storageState = await context.storageState();
 
-      // Save encrypted state using post-quantum encryption
-      await secureStorage.save(this.stateFilePath, storageState);
+        // Save encrypted state using post-quantum encryption
+        await secureStorage.save(this.stateFilePath, storageState);
 
-      // Also save sessionStorage if page is provided
-      if (page) {
-        try {
-          const sessionStorageData: string = await page.evaluate((): string => {
-            // Properly extract sessionStorage as a plain object
-            const storage: Record<string, string> = {};
-            // @ts-expect-error - sessionStorage exists in browser context
-            for (let i = 0; i < sessionStorage.length; i++) {
+        // Also save sessionStorage if page is provided
+        if (page) {
+          try {
+            const sessionStorageData: string = await page.evaluate((): string => {
+              // Properly extract sessionStorage as a plain object
+              const storage: Record<string, string> = {};
               // @ts-expect-error - sessionStorage exists in browser context
-              const key = sessionStorage.key(i);
-              if (key) {
+              for (let i = 0; i < sessionStorage.length; i++) {
                 // @ts-expect-error - sessionStorage exists in browser context
-                storage[key] = sessionStorage.getItem(key) || '';
+                const key = sessionStorage.key(i);
+                if (key) {
+                  // @ts-expect-error - sessionStorage exists in browser context
+                  storage[key] = sessionStorage.getItem(key) || '';
+                }
               }
-            }
-            return JSON.stringify(storage);
-          });
+              return JSON.stringify(storage);
+            });
 
-          // Save sessionStorage with encryption
-          await secureStorage.save(this.sessionFilePath, sessionStorageData);
+            // Save sessionStorage with encryption
+            await secureStorage.save(this.sessionFilePath, sessionStorageData);
 
-          const entries = Object.keys(JSON.parse(sessionStorageData)).length;
+            const entries = Object.keys(JSON.parse(sessionStorageData)).length;
+            const status = secureStorage.getStatus();
+            const encType = status.postQuantumEnabled ? "ML-KEM-768 + ChaCha20" : "ChaCha20-Poly1305";
+            log.success(`✅ Browser state saved with ${encType} encryption (incl. sessionStorage: ${entries} entries)`);
+          } catch (error) {
+            log.warning(`⚠️  State saved, but sessionStorage failed: ${error}`);
+          }
+        } else {
           const status = secureStorage.getStatus();
           const encType = status.postQuantumEnabled ? "ML-KEM-768 + ChaCha20" : "ChaCha20-Poly1305";
-          log.success(`✅ Browser state saved with ${encType} encryption (incl. sessionStorage: ${entries} entries)`);
-        } catch (error) {
-          log.warning(`⚠️  State saved, but sessionStorage failed: ${error}`);
+          log.success(`✅ Browser state saved with ${encType} encryption`);
         }
-      } else {
-        const status = secureStorage.getStatus();
-        const encType = status.postQuantumEnabled ? "ML-KEM-768 + ChaCha20" : "ChaCha20-Poly1305";
-        log.success(`✅ Browser state saved with ${encType} encryption`);
-      }
 
-      return true;
-    } catch (error) {
-      log.error(`❌ Failed to save browser state: ${error}`);
-      return false;
-    }
+        return true;
+      } catch (error) {
+        log.error(`❌ Failed to save browser state: ${error}`);
+        return false;
+      }
+    });
   }
 
   /**
@@ -884,35 +889,39 @@ export class AuthManager {
 
   /**
    * Load authentication state from a specific file path (decrypts if encrypted)
+   * Uses file locking to prevent race conditions with concurrent sessions
    */
   async loadAuthState(context: BrowserContext, statePath: string): Promise<boolean> {
-    try {
-      const secureStorage = getSecureStorage();
+    // Use file locking to prevent reading during a concurrent write
+    return await withLock(statePath, async () => {
+      try {
+        const secureStorage = getSecureStorage();
 
-      // Read and decrypt state
-      const stateData = await secureStorage.load(statePath);
-      if (!stateData) {
-        log.warning(`⚠️  No state file found at ${statePath}`);
+        // Read and decrypt state
+        const stateData = await secureStorage.load(statePath);
+        if (!stateData) {
+          log.warning(`⚠️  No state file found at ${statePath}`);
+          return false;
+        }
+
+        const state = JSON.parse(stateData);
+
+        // Add cookies to context
+        if (state.cookies) {
+          await context.addCookies(state.cookies);
+          const status = secureStorage.getStatus();
+          const encType = status.postQuantumEnabled ? "ML-KEM-768 + ChaCha20" : "ChaCha20-Poly1305";
+          log.success(`✅ Loaded ${state.cookies.length} cookies with ${encType} decryption from ${statePath}`);
+          return true;
+        }
+
+        log.warning(`⚠️  No cookies found in state file`);
+        return false;
+      } catch (error) {
+        log.error(`❌ Failed to load auth state: ${error}`);
         return false;
       }
-
-      const state = JSON.parse(stateData);
-
-      // Add cookies to context
-      if (state.cookies) {
-        await context.addCookies(state.cookies);
-        const status = secureStorage.getStatus();
-        const encType = status.postQuantumEnabled ? "ML-KEM-768 + ChaCha20" : "ChaCha20-Poly1305";
-        log.success(`✅ Loaded ${state.cookies.length} cookies with ${encType} decryption from ${statePath}`);
-        return true;
-      }
-
-      log.warning(`⚠️  No cookies found in state file`);
-      return false;
-    } catch (error) {
-      log.error(`❌ Failed to load auth state: ${error}`);
-      return false;
-    }
+    });
   }
 
   /**

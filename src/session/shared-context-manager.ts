@@ -21,6 +21,7 @@ import fs from "fs";
 import path from "path";
 import { mkdirSecure, PERMISSION_MODES } from "../utils/file-permissions.js";
 import { getSecureStorage } from "../utils/crypto.js";
+import { withLock } from "../utils/file-lock.js";
 
 /**
  * Shared Context Manager
@@ -38,9 +39,11 @@ export class SharedContextManager {
   private currentProfileDir: string | null = null;
   private isIsolatedProfile: boolean = false;
   private currentHeadlessMode: boolean | null = null;
+  private contextLockPath: string;
 
   constructor(authManager: AuthManager) {
     this.authManager = authManager;
+    this.contextLockPath = path.join(CONFIG.dataDir, ".context-creation");
 
     log.info("🌐 SharedContextManager initialized (PERSISTENT MODE)");
     log.info(`  Chrome Profile: ${CONFIG.chromeProfileDir}`);
@@ -62,6 +65,9 @@ export class SharedContextManager {
    * Note: Auth expiry does NOT recreate context - we reuse the SAME
    * fingerprint and just re-login!
    *
+   * Uses file locking to prevent race conditions when multiple
+   * concurrent sessions try to create contexts simultaneously.
+   *
    * @param overrideHeadless Optional override for headless mode (true = show browser)
    */
   async getOrCreateContext(overrideHeadless?: boolean): Promise<BrowserContext> {
@@ -73,8 +79,17 @@ export class SharedContextManager {
     }
 
     if (await this.needsRecreation()) {
-      log.warning("🔄 Creating/Loading persistent context...");
-      await this.recreateContext(overrideHeadless);
+      // Use file locking to prevent concurrent context creation race conditions
+      // Timeout is 60 seconds since Chrome launch can take time
+      await withLock(this.contextLockPath, async () => {
+        // Double-check inside lock (another process may have created it)
+        if (await this.needsRecreation()) {
+          log.warning("🔄 Creating/Loading persistent context...");
+          await this.recreateContext(overrideHeadless);
+        } else {
+          log.success("♻️  Context was created by another process while waiting for lock");
+        }
+      }, { timeout: 60000 });
     } else {
       log.success("♻️  Reusing existing persistent context");
     }

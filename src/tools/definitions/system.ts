@@ -157,18 +157,27 @@ export const systemTools: Tool[] = [
       "Get current quota status including license tier, usage, and limits.\n\n" +
       "Returns:\n" +
       "- tier: 'free', 'pro', 'ultra', or 'unknown'\n" +
-      "- notebooks: used/limit/percent\n" +
+      "- notebooks: used/limit/remaining/percent\n" +
       "- sources: limit per notebook\n" +
-      "- queries: used today/limit/percent\n\n" +
+      "- queries: used/limit/remaining/percent/should_stop/reset_time\n" +
+      "- warnings: array of warning messages\n\n" +
       "Quota Limits by Tier:\n" +
       "- Free: 100 notebooks, 50 sources/notebook, 50 queries/day\n" +
       "- Pro: 500 notebooks, 300 sources/notebook, 500 queries/day\n" +
       "- Ultra: 500 notebooks, 600 sources/notebook, 5000 queries/day\n\n" +
-      "The tier is auto-detected from NotebookLM UI when you use the service. " +
+      "Use sync=true to fetch actual quota from Google's NotebookLM UI (requires browser). " +
+      "Without sync, returns locally tracked counts which may differ if you used NotebookLM directly in browser. " +
       "Query counts reset daily at midnight.",
     inputSchema: {
       type: "object",
-      properties: {},
+      properties: {
+        sync: {
+          type: "boolean",
+          description:
+            "If true, navigate to NotebookLM and fetch actual quota from Google's UI. " +
+            "More accurate but requires browser automation. Default: false (use local tracking).",
+        },
+      },
     },
   },
   {

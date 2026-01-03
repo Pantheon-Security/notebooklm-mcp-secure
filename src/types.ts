@@ -16,6 +16,18 @@ export interface SessionInfo {
 }
 
 /**
+ * Quota information included in ask_question responses
+ */
+export interface QuotaInfo {
+  queries_remaining: number;
+  queries_used_today: number;
+  queries_limit: number;
+  should_stop: boolean;
+  tier: string;
+  warnings: string[];
+}
+
+/**
  * Result from asking a question
  */
 export interface AskQuestionResult {
@@ -30,6 +42,8 @@ export interface AskQuestionResult {
     message_count: number;
     last_activity: number;
   };
+  quota_info?: QuotaInfo;
+  security_warnings?: string[];
 }
 
 /**

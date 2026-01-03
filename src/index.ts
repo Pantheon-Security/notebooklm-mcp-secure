@@ -262,7 +262,9 @@ class NotebookLMMCPServer {
             break;
 
           case "get_quota":
-            result = await this.toolHandlers.handleGetQuota();
+            result = await this.toolHandlers.handleGetQuota(
+              args as { sync?: boolean }
+            );
             break;
 
           case "set_quota_tier":
@@ -487,6 +489,19 @@ class NotebookLMMCPServer {
           case "query_chunked_document":
             result = await this.toolHandlers.handleQueryChunkedDocument(
               args as { file_names: string[]; query: string; model?: string }
+            );
+            break;
+
+          // Query history tool
+          case "get_query_history":
+            result = await this.toolHandlers.handleGetQueryHistory(
+              args as {
+                session_id?: string;
+                notebook_id?: string;
+                date?: string;
+                search?: string;
+                limit?: number;
+              }
             );
             break;
 

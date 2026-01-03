@@ -7,6 +7,7 @@
 import type { Page } from "patchright";
 import { log } from "../utils/logger.js";
 import { CONFIG } from "../config.js";
+import { withLock } from "../utils/file-lock.js";
 import fs from "fs";
 import path from "path";
 
@@ -193,6 +194,110 @@ export class QuotaManager {
   }
 
   /**
+   * Extract query usage from NotebookLM UI
+   *
+   * Looks for patterns like:
+   * - "X/50 queries" or "X of 50 queries"
+   * - "X queries remaining"
+   * - Usage indicators in settings/account area
+   *
+   * Returns { used, limit } or null if not found
+   */
+  async extractQueryUsageFromUI(page: Page): Promise<{ used: number; limit: number } | null> {
+    log.info("🔍 Looking for query usage in UI...");
+
+    const usageInfo = await page.evaluate(() => {
+      // @ts-expect-error - DOM types
+      const allText = document.body.innerText;
+
+      // Pattern 1: "X/Y queries" or "X / Y queries"
+      const slashPattern = allText.match(/(\d+)\s*\/\s*(\d+)\s*quer(?:y|ies)/i);
+      if (slashPattern) {
+        return {
+          used: parseInt(slashPattern[1], 10),
+          limit: parseInt(slashPattern[2], 10),
+        };
+      }
+
+      // Pattern 2: "X of Y queries"
+      const ofPattern = allText.match(/(\d+)\s+of\s+(\d+)\s*quer(?:y|ies)/i);
+      if (ofPattern) {
+        return {
+          used: parseInt(ofPattern[1], 10),
+          limit: parseInt(ofPattern[2], 10),
+        };
+      }
+
+      // Pattern 3: "X queries remaining" with known limits
+      const remainingPattern = allText.match(/(\d+)\s*quer(?:y|ies)\s*remaining/i);
+      if (remainingPattern) {
+        const remaining = parseInt(remainingPattern[1], 10);
+        // Infer limit from known tiers
+        let limit = 50; // default free
+        if (remaining > 50) limit = 500; // pro
+        if (remaining > 500) limit = 5000; // ultra
+        return {
+          used: limit - remaining,
+          limit,
+        };
+      }
+
+      // Pattern 4: "You have used X queries today"
+      const usedPattern = allText.match(/(?:used|made)\s*(\d+)\s*quer(?:y|ies)/i);
+      if (usedPattern) {
+        const used = parseInt(usedPattern[1], 10);
+        // Infer tier from usage
+        let limit = 50;
+        if (used > 50) limit = 500;
+        if (used > 500) limit = 5000;
+        return { used, limit };
+      }
+
+      // Pattern 5: Look for rate limit message
+      const rateLimitPattern = allText.match(/(?:limit|quota)\s*(?:reached|exceeded)/i);
+      if (rateLimitPattern) {
+        // At limit - try to find the number
+        const limitNum = allText.match(/(\d+)\s*(?:daily|per day)/i);
+        const limit = limitNum ? parseInt(limitNum[1], 10) : 50;
+        return { used: limit, limit };
+      }
+
+      return null;
+    });
+
+    if (usageInfo) {
+      log.info(`  Found query usage: ${usageInfo.used}/${usageInfo.limit}`);
+    } else {
+      log.info("  No query usage found in UI");
+    }
+
+    return usageInfo;
+  }
+
+  /**
+   * Check for rate limit error message on page
+   */
+  async checkForRateLimitError(page: Page): Promise<boolean> {
+    const isRateLimited = await page.evaluate(() => {
+      // @ts-expect-error - DOM types
+      const allText = document.body.innerText.toLowerCase();
+      return (
+        allText.includes("rate limit") ||
+        allText.includes("quota exceeded") ||
+        allText.includes("too many requests") ||
+        allText.includes("daily limit reached") ||
+        allText.includes("try again tomorrow")
+      );
+    });
+
+    if (isRateLimited) {
+      log.warning("⚠️ Rate limit detected in UI!");
+    }
+
+    return isRateLimited;
+  }
+
+  /**
    * Count notebooks from homepage
    */
   async countNotebooksFromPage(page: Page): Promise<number> {
@@ -215,7 +320,11 @@ export class QuotaManager {
   /**
    * Update quota from UI scraping
    */
-  async updateFromUI(page: Page): Promise<void> {
+  async updateFromUI(page: Page): Promise<{
+    tier: LicenseTier;
+    queryUsageFromGoogle: { used: number; limit: number } | null;
+    rateLimitDetected: boolean;
+  }> {
     log.info("📊 Updating quota from UI...");
 
     // Detect tier
@@ -238,10 +347,33 @@ export class QuotaManager {
       this.settings.limits.sourcesPerNotebook = sourceLimit;
     }
 
+    // Try to extract query usage from UI
+    const queryUsage = await this.extractQueryUsageFromUI(page);
+    if (queryUsage) {
+      // Update local tracking with Google's numbers
+      this.settings.usage.queriesUsedToday = queryUsage.used;
+      this.settings.limits.queriesPerDay = queryUsage.limit;
+      this.settings.usage.lastQueryDate = new Date().toISOString().split("T")[0];
+      log.info(`  Synced query usage from Google: ${queryUsage.used}/${queryUsage.limit}`);
+    }
+
+    // Check for rate limit
+    const rateLimitDetected = await this.checkForRateLimitError(page);
+    if (rateLimitDetected) {
+      // Mark as at limit
+      this.settings.usage.queriesUsedToday = this.settings.limits.queriesPerDay;
+    }
+
     this.settings.usage.lastUpdated = new Date().toISOString();
     this.saveSettings();
 
-    log.success(`✅ Quota updated: tier=${this.settings.tier}, notebooks=${this.settings.usage.notebooks}`);
+    log.success(`✅ Quota updated: tier=${this.settings.tier}, notebooks=${this.settings.usage.notebooks}, queries=${this.settings.usage.queriesUsedToday}/${this.settings.limits.queriesPerDay}`);
+
+    return {
+      tier: this.settings.tier,
+      queryUsageFromGoogle: queryUsage,
+      rateLimitDetected,
+    };
   }
 
   /**
@@ -286,7 +418,8 @@ export class QuotaManager {
   }
 
   /**
-   * Increment query count
+   * Increment query count (synchronous, for backwards compatibility)
+   * Note: For concurrent safety, use incrementQueryCountAtomic() instead
    */
   incrementQueryCount(): void {
     const today = new Date().toISOString().split("T")[0];
@@ -300,6 +433,58 @@ export class QuotaManager {
     this.settings.usage.queriesUsedToday++;
     this.settings.usage.lastUpdated = new Date().toISOString();
     this.saveSettings();
+  }
+
+  /**
+   * Increment query count atomically with file locking
+   *
+   * This method is safe for concurrent access from multiple processes/sessions.
+   * It reloads settings from disk before incrementing to ensure accuracy.
+   */
+  async incrementQueryCountAtomic(): Promise<void> {
+    await withLock(this.settingsPath, async () => {
+      // Reload latest settings from disk (another process may have updated)
+      this.settings = this.loadSettings();
+
+      const today = new Date().toISOString().split("T")[0];
+
+      // Reset if new day
+      if (this.settings.usage.lastQueryDate !== today) {
+        this.settings.usage.queriesUsedToday = 0;
+        this.settings.usage.lastQueryDate = today;
+      }
+
+      this.settings.usage.queriesUsedToday++;
+      this.settings.usage.lastUpdated = new Date().toISOString();
+
+      // Save with lock held
+      try {
+        const dir = path.dirname(this.settingsPath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+        }
+        fs.writeFileSync(
+          this.settingsPath,
+          JSON.stringify(this.settings, null, 2),
+          { mode: 0o600 }
+        );
+        log.debug(`💾 Quota incremented atomically (${this.settings.usage.queriesUsedToday} queries today)`);
+      } catch (error) {
+        log.error(`❌ Could not save quota settings: ${error}`);
+      }
+    });
+  }
+
+  /**
+   * Refresh settings from disk with file locking
+   *
+   * Use this to ensure you have the latest quota state from disk.
+   */
+  async refreshSettings(): Promise<QuotaSettings> {
+    return await withLock(this.settingsPath, async () => {
+      this.settings = this.loadSettings();
+      return { ...this.settings };
+    });
   }
 
   /**
@@ -396,6 +581,91 @@ export class QuotaManager {
         limit: limits.queriesPerDay,
         percent: Math.round((usage.queriesUsedToday / limits.queriesPerDay) * 100),
       },
+    };
+  }
+
+  /**
+   * Get detailed quota status with remaining counts, warnings, and stop signals
+   * Used to provide visibility to users about when to stop querying for the day
+   */
+  getDetailedStatus(): {
+    tier: LicenseTier;
+    queries: {
+      used: number;
+      limit: number;
+      remaining: number;
+      percentUsed: number;
+      shouldStop: boolean;
+      resetTime: string;
+    };
+    notebooks: {
+      used: number;
+      limit: number;
+      remaining: number;
+      percentUsed: number;
+    };
+    sources: {
+      limit: number;
+    };
+    warnings: string[];
+  } {
+    const today = new Date().toISOString().split("T")[0];
+
+    // Reset if new day
+    if (this.settings.usage.lastQueryDate !== today) {
+      this.settings.usage.queriesUsedToday = 0;
+      this.settings.usage.lastQueryDate = today;
+    }
+
+    const { tier, limits, usage } = this.settings;
+
+    const queriesRemaining = limits.queriesPerDay - usage.queriesUsedToday;
+    const queriesPercentUsed = Math.round((usage.queriesUsedToday / limits.queriesPerDay) * 100);
+    const notebooksRemaining = limits.notebooks - usage.notebooks;
+    const notebooksPercentUsed = Math.round((usage.notebooks / limits.notebooks) * 100);
+
+    // Calculate next reset time (midnight local time)
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+
+    // Build warnings list
+    const warnings: string[] = [];
+
+    if (queriesRemaining <= 0) {
+      warnings.push(`CRITICAL: Daily query limit reached (${usage.queriesUsedToday}/${limits.queriesPerDay}). Wait until tomorrow or upgrade your plan.`);
+    } else if (queriesRemaining <= 5) {
+      warnings.push(`CRITICAL: Only ${queriesRemaining} queries remaining today! Consider stopping soon.`);
+    } else if (queriesRemaining <= 10) {
+      warnings.push(`WARNING: Only ${queriesRemaining} queries remaining today.`);
+    } else if (queriesPercentUsed >= 80) {
+      warnings.push(`INFO: ${queriesPercentUsed}% of daily queries used (${queriesRemaining} remaining).`);
+    }
+
+    if (notebooksRemaining <= 5) {
+      warnings.push(`WARNING: Only ${notebooksRemaining} notebook slots remaining.`);
+    }
+
+    return {
+      tier,
+      queries: {
+        used: usage.queriesUsedToday,
+        limit: limits.queriesPerDay,
+        remaining: queriesRemaining,
+        percentUsed: queriesPercentUsed,
+        shouldStop: queriesRemaining <= 5,
+        resetTime: tomorrow.toISOString(),
+      },
+      notebooks: {
+        used: usage.notebooks,
+        limit: limits.notebooks,
+        remaining: notebooksRemaining,
+        percentUsed: notebooksPercentUsed,
+      },
+      sources: {
+        limit: limits.sourcesPerNotebook,
+      },
+      warnings,
     };
   }
 }

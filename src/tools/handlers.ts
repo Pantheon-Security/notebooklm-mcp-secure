@@ -36,6 +36,7 @@ import type { CreateNotebookInput, CreatedNotebook, NotebookSource } from "../no
 import { getWebhookDispatcher, type WebhookConfig, type WebhookStats } from "../webhooks/index.js";
 import type { EventType } from "../events/event-types.js";
 import { getQuotaManager } from "../quota/index.js";
+import { getQueryLogger } from "../logging/index.js";
 import {
   GeminiClient,
   type GeminiInteraction,
@@ -240,6 +241,9 @@ export class ToolHandlers {
       // Get session info
       const sessionInfo = session.getInfo();
 
+      // Get quota status for response visibility
+      const quotaStatus = getQuotaManager().getDetailedStatus();
+
       const result: AskQuestionResult = {
         status: "success",
         question: safeQuestion,
@@ -251,6 +255,15 @@ export class ToolHandlers {
           message_count: sessionInfo.message_count,
           last_activity: sessionInfo.last_activity,
         },
+        // Include quota info for visibility
+        quota_info: {
+          queries_remaining: quotaStatus.queries.remaining,
+          queries_used_today: quotaStatus.queries.used,
+          queries_limit: quotaStatus.queries.limit,
+          should_stop: quotaStatus.queries.shouldStop,
+          tier: quotaStatus.tier,
+          warnings: quotaStatus.warnings,
+        },
         // Include security warnings if any
         ...(securityWarnings.length > 0 && { security_warnings: securityWarnings }),
       };
@@ -260,8 +273,28 @@ export class ToolHandlers {
 
         log.success(`✅ [TOOL] ask_question completed successfully`);
 
-        // Update quota tracking
-        getQuotaManager().incrementQueryCount();
+        // Update quota tracking (atomic for concurrent session safety)
+        await getQuotaManager().incrementQueryCountAtomic();
+
+        // Log query for research history (Phase 1)
+        const queryLogger = getQueryLogger();
+        const resolvedNotebook = safeNotebookId ? this.library.getNotebook(safeNotebookId) : null;
+        await queryLogger.logQuery({
+          sessionId: session.sessionId,
+          notebookId: safeNotebookId,
+          notebookUrl: session.notebookUrl,
+          notebookName: resolvedNotebook?.name,
+          question: safeQuestion,
+          answer: finalAnswer,
+          answerLength: finalAnswer.length,
+          durationMs: Date.now() - startTime,
+          quotaInfo: {
+            used: quotaStatus.queries.used + 1, // +1 because we just incremented
+            limit: quotaStatus.queries.limit,
+            remaining: quotaStatus.queries.remaining - 1,
+            tier: quotaStatus.tier,
+          },
+        });
 
         // Audit: successful tool call
         await audit.tool("ask_question", {
@@ -1083,32 +1116,95 @@ export class ToolHandlers {
    * Handle get_quota tool
    *
    * Returns current quota status including license tier, usage, and limits.
+   * If sync=true, navigates to NotebookLM to fetch actual quota from Google.
    */
-  async handleGetQuota(): Promise<ToolResult<{
+  async handleGetQuota(args: { sync?: boolean } = {}): Promise<ToolResult<{
     tier: string;
-    notebooks: { used: number; limit: number; percent: number };
+    notebooks: { used: number; limit: number; remaining: number; percent: number };
     sources: { limit: number };
-    queries: { used: number; limit: number; percent: number };
+    queries: { used: number; limit: number; remaining: number; percent: number; should_stop: boolean; reset_time: string };
+    warnings: string[];
     auto_detected: boolean;
     last_updated: string;
+    synced_from_google: boolean;
+    google_quota?: { used: number; limit: number } | null;
+    rate_limit_detected?: boolean;
   }>> {
-    log.info(`🔧 [TOOL] get_quota called`);
+    const { sync = false } = args;
+    log.info(`🔧 [TOOL] get_quota called (sync=${sync})`);
 
     try {
       const quotaManager = getQuotaManager();
-      const status = quotaManager.getStatus();
+
+      let syncedFromGoogle = false;
+      let googleQuota: { used: number; limit: number } | null = null;
+      let rateLimitDetected = false;
+
+      // If sync requested, navigate to NotebookLM and scrape quota
+      if (sync) {
+        log.info("📊 Syncing quota from Google NotebookLM...");
+        try {
+          // Get the shared context manager from session manager
+          const contextManager = this.sessionManager.getContextManager();
+          const context = await contextManager.getOrCreateContext();
+
+          // Create a new page to check quota
+          const page = await context.newPage();
+          try {
+            // Navigate to NotebookLM homepage
+            await page.goto("https://notebooklm.google.com/", {
+              waitUntil: "networkidle",
+              timeout: 30000,
+            });
+
+            // Wait for page to load
+            await page.waitForTimeout(2000);
+
+            // Update quota from UI
+            const syncResult = await quotaManager.updateFromUI(page);
+            syncedFromGoogle = true;
+            googleQuota = syncResult.queryUsageFromGoogle;
+            rateLimitDetected = syncResult.rateLimitDetected;
+
+            log.success(`✅ Synced quota from Google: ${googleQuota ? `${googleQuota.used}/${googleQuota.limit}` : "usage not displayed in UI"}`);
+          } finally {
+            await page.close();
+          }
+        } catch (syncError) {
+          const syncErrorMsg = syncError instanceof Error ? syncError.message : String(syncError);
+          log.warning(`⚠️ Could not sync from Google: ${syncErrorMsg}. Using local tracking.`);
+        }
+      }
+
+      const detailedStatus = quotaManager.getDetailedStatus();
       const settings = quotaManager.getSettings();
 
-      log.success(`✅ [TOOL] get_quota completed (tier: ${status.tier})`);
+      log.success(`✅ [TOOL] get_quota completed (tier: ${detailedStatus.tier}, ${detailedStatus.queries.remaining} queries remaining, synced=${syncedFromGoogle})`);
       return {
         success: true,
         data: {
-          tier: status.tier,
-          notebooks: status.notebooks,
-          sources: status.sources,
-          queries: status.queries,
+          tier: detailedStatus.tier,
+          notebooks: {
+            used: detailedStatus.notebooks.used,
+            limit: detailedStatus.notebooks.limit,
+            remaining: detailedStatus.notebooks.remaining,
+            percent: detailedStatus.notebooks.percentUsed,
+          },
+          sources: detailedStatus.sources,
+          queries: {
+            used: detailedStatus.queries.used,
+            limit: detailedStatus.queries.limit,
+            remaining: detailedStatus.queries.remaining,
+            percent: detailedStatus.queries.percentUsed,
+            should_stop: detailedStatus.queries.shouldStop,
+            reset_time: detailedStatus.queries.resetTime,
+          },
+          warnings: detailedStatus.warnings,
           auto_detected: settings.autoDetected,
           last_updated: settings.usage.lastUpdated,
+          synced_from_google: syncedFromGoogle,
+          google_quota: googleQuota,
+          rate_limit_detected: rateLimitDetected,
         },
       };
     } catch (error) {
@@ -2584,6 +2680,87 @@ export class ToolHandlers {
       const errorMessage = error instanceof Error ? error.message : String(error);
       log.error(`❌ [TOOL] query_chunked_document failed: ${errorMessage}`);
       return { success: false, error: errorMessage };
+    }
+  }
+
+  // ==================== QUERY HISTORY ====================
+
+  /**
+   * Handle get_query_history tool
+   *
+   * Retrieves past NotebookLM queries for reviewing research sessions.
+   */
+  async handleGetQueryHistory(args: {
+    session_id?: string;
+    notebook_id?: string;
+    date?: string;
+    search?: string;
+    limit?: number;
+  }): Promise<ToolResult<{
+    count: number;
+    queries: Array<{
+      timestamp: string;
+      queryId: string;
+      sessionId: string;
+      notebookId?: string;
+      notebookUrl: string;
+      notebookName?: string;
+      question: string;
+      answer: string;
+      answerLength: number;
+      durationMs: number;
+      quotaInfo: { used: number; limit: number; remaining: number; tier: string };
+    }>;
+  }>> {
+    log.info(`🔧 [TOOL] get_query_history called`);
+
+    try {
+      const queryLogger = getQueryLogger();
+      const limit = Math.min(args.limit ?? 50, 500); // Cap at 500
+
+      let queries;
+
+      if (args.search) {
+        // Search across all queries
+        queries = await queryLogger.searchQueries(args.search, { limit });
+        log.info(`  Searching for: "${args.search}"`);
+      } else if (args.session_id) {
+        // Filter by session
+        queries = await queryLogger.getQueriesForSession(args.session_id);
+        log.info(`  Filtering by session: ${args.session_id}`);
+      } else if (args.notebook_id) {
+        // Filter by notebook
+        queries = await queryLogger.getQueriesForNotebookId(args.notebook_id);
+        log.info(`  Filtering by notebook: ${args.notebook_id}`);
+      } else if (args.date) {
+        // Filter by date
+        queries = await queryLogger.getQueriesForDate(args.date);
+        log.info(`  Filtering by date: ${args.date}`);
+      } else {
+        // Get recent queries
+        queries = await queryLogger.getRecentQueries(limit);
+        log.info(`  Getting recent queries (limit: ${limit})`);
+      }
+
+      // Apply limit
+      const limitedQueries = queries.slice(0, limit);
+
+      log.success(`✅ [TOOL] get_query_history completed (${limitedQueries.length} queries)`);
+
+      return {
+        success: true,
+        data: {
+          count: limitedQueries.length,
+          queries: limitedQueries,
+        },
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] get_query_history failed: ${errorMessage}`);
+      return {
+        success: false,
+        error: errorMessage,
+      };
     }
   }
 
