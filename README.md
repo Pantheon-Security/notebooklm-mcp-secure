@@ -2,7 +2,9 @@
 
 # NotebookLM MCP Server (Security Hardened)
 
-**Zero-hallucination answers from NotebookLM + Gemini Deep Research — with enterprise-grade security**
+### 🏆 The World's Most Advanced NotebookLM MCP Server
+
+**Zero-hallucination answers • Gemini Deep Research • 14 Security Layers • Enterprise Compliance**
 
 [![npm](https://img.shields.io/npm/v/@pan-sec/notebooklm-mcp?color=blue)](https://www.npmjs.com/package/@pan-sec/notebooklm-mcp)
 [![CalVer](https://img.shields.io/badge/CalVer-2026.x.x-blue.svg)](https://calver.org/)
@@ -17,12 +19,44 @@
 [![Compliance](https://img.shields.io/badge/Compliance-GDPR%20%7C%20SOC2%20%7C%20CSSF-blue.svg)](./docs/COMPLIANCE-SPEC.md)
 [![Tests](https://img.shields.io/badge/Tests-111%20Passing-brightgreen.svg)](./tests/)
 
-[**Gemini Deep Research**](#-gemini-deep-research-v180) • [**Document API**](#-document-api-v190) • [**Notebook Creation**](#programmatic-notebook-creation-v170) • [Security](#security-features) • [Install](#installation)
+[**What's New 2026**](#-whats-new-in-2026) • [**Deep Research**](#-gemini-deep-research) • [**Document API**](#-document-api) • [**Create Notebooks**](#programmatic-notebook-creation) • [**Security**](#security-features) • [**Install**](#installation)
 
 </div>
 
-> **Security-hardened fork** of [PleasePrompto/notebooklm-mcp](https://github.com/PleasePrompto/notebooklm-mcp)
-> Maintained by [Pantheon Security](https://pantheonsecurity.io)
+> **The only NotebookLM MCP with enterprise-grade security, post-quantum encryption, and full Gemini API integration.**
+>
+> Security-hardened fork of [PleasePrompto/notebooklm-mcp](https://github.com/PleasePrompto/notebooklm-mcp) • Maintained by [Pantheon Security](https://pantheonsecurity.io)
+
+---
+
+## 🚀 What's New in 2026
+
+**v2026.1.1** brings powerful new capabilities:
+
+| Feature | Description |
+|---------|-------------|
+| 🔍 **Deep Health Check** | Verifies NotebookLM chat UI actually loads — catches stale sessions |
+| 📊 **Chat History Extraction** | Recover conversations from browser, with pagination & file export |
+| 🎯 **Context Management** | Preview mode, offset pagination, output to file — never overflow context |
+| 📅 **CalVer Versioning** | Modern `2026.MINOR.PATCH` format for predictable releases |
+
+```bash
+# Quick install
+claude mcp add notebooklm -- npx @pan-sec/notebooklm-mcp@latest
+```
+
+### Why Choose This MCP?
+
+| Capability | Other MCPs | This MCP |
+|------------|------------|----------|
+| Query NotebookLM | ✅ Basic | ✅ **+ session management, quotas** |
+| Create notebooks programmatically | ❌ | ✅ **UNIQUE** |
+| Gemini Deep Research | ❌ | ✅ **EXCLUSIVE** |
+| Document API (no browser) | ❌ | ✅ **EXCLUSIVE** |
+| Post-quantum encryption | ❌ | ✅ **Future-proof** |
+| Enterprise compliance | ❌ | ✅ **GDPR/SOC2/CSSF** |
+| Chat history extraction | ❌ | ✅ **NEW** |
+| Deep health verification | ❌ | ✅ **NEW** |
 
 ---
 
@@ -80,7 +114,7 @@ Run deep research in the background and check progress:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                         NotebookLM MCP Server v1.9.0                         │
+│                      NotebookLM MCP Server v2026.1.x                         │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌────────────────────────────────┐    ┌──────────────────────────────────┐  │
@@ -88,18 +122,20 @@ Run deep research in the background and check progress:
 │  │      (Your Documents)          │    │    (Research & Documents)        │  │
 │  ├────────────────────────────────┤    ├──────────────────────────────────┤  │
 │  │                                │    │                                  │  │
-│  │  QUERY                         │    │  RESEARCH                  v1.8  │  │
+│  │  QUERY                         │    │  RESEARCH                        │  │
 │  │  • ask_question                │    │  • deep_research                 │  │
-│  │                                │    │  • gemini_query                  │  │
-│  │  CREATE & MANAGE         v1.7  │    │  • get_research_status           │  │
-│  │  • create_notebook             │    │                                  │  │
-│  │  • batch_create_notebooks      │    │  DOCUMENTS (NEW!)          v1.9  │  │
-│  │  • manage_sources              │    │  • upload_document               │  │
-│  │  • generate_audio              │    │  • query_document                │  │
-│  │  • sync_notebook               │    │  • list_documents                │  │
-│  │                                │    │  • delete_document               │  │
-│  │  Grounded on YOUR docs         │    │                                  │  │
-│  │  Permanent storage             │    │  Fast API • 48h retention        │  │
+│  │  • get_notebook_chat_history   │    │  • gemini_query                  │  │
+│  │                                │    │  • get_research_status           │  │
+│  │  CREATE & MANAGE               │    │                                  │  │
+│  │  • create_notebook             │    │  DOCUMENTS                       │  │
+│  │  • batch_create_notebooks      │    │  • upload_document               │  │
+│  │  • manage_sources              │    │  • query_document                │  │
+│  │  • generate_audio              │    │  • query_chunked_document        │  │
+│  │  • sync_notebook               │    │  • list/delete_document          │  │
+│  │                                │    │                                  │  │
+│  │  HEALTH & SESSIONS     v2026   │    │                                  │  │
+│  │  • get_health (deep_check)     │    │  Fast API • 48h retention        │  │
+│  │  • get_query_history           │    │  Auto-chunking for large PDFs    │  │
 │  └────────────────────────────────┘    └──────────────────────────────────┘  │
 │                                                                              │
 │                      ┌─────────────────────────────────┐                     │
@@ -625,11 +661,14 @@ Go to [notebooklm.google.com](https://notebooklm.google.com) → Create notebook
 | `list_sessions` | View active sessions |
 | `close_session` | Close a session |
 | `reset_session` | Reset session chat |
-| `get_health` | Server health check |
+| `get_health` | Server health check (**with deep_check for UI verification**) |
+| `get_query_history` | Review past queries with search/filter |
+| `get_notebook_chat_history` | Extract browser conversations (pagination, file export) |
 | `setup_auth` | Initial authentication |
 | `re_auth` | Re-authenticate |
 | `cleanup_data` | Deep cleanup utility |
 | `get_library_stats` | Library statistics |
+| `get_quota` | Check usage limits and remaining quota |
 
 ### Compliance (v1.6.0+)
 16 compliance tools for GDPR, SOC2, and CSSF requirements.
@@ -708,27 +747,42 @@ Or integrate in CI/CD:
 
 ## Comparison
 
-| Feature | Original | This Fork |
-|---------|----------|-----------|
+### vs Other NotebookLM MCPs
+
+| Feature | Others | @pan-sec/notebooklm-mcp |
+|---------|--------|-------------------------|
 | Zero-hallucination Q&A | ✅ | ✅ |
 | Library management | ✅ | ✅ |
-| Multi-client support | ✅ | ✅ |
-| **Create Notebooks Programmatically** | ❌ | ✅ **UNIQUE** |
-| **Batch Create (10 notebooks at once)** | ❌ | ✅ **UNIQUE** |
-| **Gemini Deep Research** | ❌ | ✅ **NEW** |
-| **Gemini Query with Grounding** | ❌ | ✅ **NEW** |
-| **Source Management (add/remove)** | ❌ | ✅ |
-| **Audio Overview Generation** | ❌ | ✅ |
-| **Sync from Local Directories** | ❌ | ✅ |
-| **Cross-platform (Linux/macOS/Windows)** | ⚠️ | ✅ |
-| **Post-quantum encryption** | ❌ | ✅ |
-| **Secrets scanning** | ❌ | ✅ |
-| **Certificate pinning** | ❌ | ✅ |
-| **Memory scrubbing** | ❌ | ✅ |
-| **Audit logging** | ❌ | ✅ |
-| **MCP authentication** | ❌ | ✅ |
-| **Prompt injection detection** | ❌ | ✅ |
-| **Enterprise Compliance (GDPR/SOC2/CSSF)** | ❌ | ✅ |
+| **Create Notebooks Programmatically** | ❌ | ✅ **EXCLUSIVE** |
+| **Batch Create (10 notebooks)** | ❌ | ✅ **EXCLUSIVE** |
+| **Gemini Deep Research** | ❌ | ✅ **EXCLUSIVE** |
+| **Document API (no browser)** | ❌ | ✅ **EXCLUSIVE** |
+| **Auto-chunking (1000+ page PDFs)** | ❌ | ✅ **EXCLUSIVE** |
+| **Chat History Extraction** | ❌ | ✅ **NEW** |
+| **Deep Health Verification** | ❌ | ✅ **NEW** |
+| **Query History & Search** | ❌ | ✅ |
+| **Quota Management** | ❌ | ✅ |
+| Source Management (add/remove) | ❌ | ✅ |
+| Audio Overview Generation | ❌ | ✅ |
+| Sync from Local Directories | ❌ | ✅ |
+
+### Security & Compliance (Unique to This Fork)
+
+| Feature | Others | @pan-sec/notebooklm-mcp |
+|---------|--------|-------------------------|
+| Cross-platform (Linux/macOS/Windows) | ⚠️ Partial | ✅ Full |
+| **Post-quantum encryption** | ❌ | ✅ ML-KEM-768 + ChaCha20 |
+| **Secrets scanning** | ❌ | ✅ 30+ patterns |
+| **Certificate pinning** | ❌ | ✅ Google MITM protection |
+| **Memory scrubbing** | ❌ | ✅ Zero-on-free |
+| **Audit logging** | ❌ | ✅ Hash-chained |
+| **MCP authentication** | ❌ | ✅ Token + lockout |
+| **Prompt injection detection** | ❌ | ✅ Response validation |
+| **GDPR Compliance** | ❌ | ✅ Full |
+| **SOC2 Type II** | ❌ | ✅ Full |
+| **CSSF (Luxembourg)** | ❌ | ✅ Full |
+
+> **Bottom line**: If you need more than basic queries, or care about security, there's only one choice.
 
 ---
 
@@ -736,12 +790,16 @@ Or integrate in CI/CD:
 
 | Version | Highlights |
 |---------|------------|
-| **v1.8.0** | Gemini Interactions API: Deep Research, Query with Grounding, Background Tasks |
-| **v1.7.0** | Source management, batch operations, audio generation, webhooks |
+| **v2026.1.1** | 🔍 Deep health check — verifies NotebookLM chat UI actually loads |
+| **v2026.1.0** | 📊 Chat history extraction with context management, CalVer versioning |
+| **v1.10.8** | Query history logging, quota tracking |
+| **v1.10.0** | Auto-chunking for large PDFs (1000+ pages) |
+| **v1.9.0** | Document API: upload, query, delete via Gemini Files API |
+| **v1.8.0** | Gemini Deep Research, Query with Grounding, Background Tasks |
+| **v1.7.0** | Programmatic notebook creation, batch operations, audio generation |
 | **v1.6.0** | Enterprise compliance: GDPR, SOC2 Type II, CSSF |
 | **v1.5.0** | Cross-platform support (Windows ACLs, macOS, Linux) |
 | **v1.4.0** | Post-quantum encryption, secrets scanning |
-| **v1.3.0** | Certificate pinning, audit logging |
 
 ---
 
