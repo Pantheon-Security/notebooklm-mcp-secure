@@ -5,8 +5,9 @@
 **Zero-hallucination answers from NotebookLM + Gemini Deep Research — with enterprise-grade security**
 
 [![npm](https://img.shields.io/npm/v/@pan-sec/notebooklm-mcp?color=blue)](https://www.npmjs.com/package/@pan-sec/notebooklm-mcp)
+[![CalVer](https://img.shields.io/badge/CalVer-2026.x.x-blue.svg)](https://calver.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
-[![MCP](https://img.shields.io/badge/MCP-2025-green.svg)](https://modelcontextprotocol.io/)
+[![MCP](https://img.shields.io/badge/MCP-2026-green.svg)](https://modelcontextprotocol.io/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#cross-platform-support)
 [![Security](https://img.shields.io/badge/Security-14%20Layers-red.svg)](./SECURITY.md)
 [![Post-Quantum](https://img.shields.io/badge/Encryption-Post--Quantum-purple.svg)](./SECURITY.md#post-quantum-encryption)
