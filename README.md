@@ -722,7 +722,31 @@ NLMCP_CERT_PINNING=true
 
 # Audit Logging
 NLMCP_AUDIT_ENABLED=true
+
+# Multi-Session Support (v2026.1.2+)
+NOTEBOOK_PROFILE_STRATEGY=isolated  # isolated|single|auto
+NOTEBOOK_CLONE_PROFILE=true         # Clone auth from base profile
 ```
+
+### Multi-Session Mode
+
+Run multiple Claude Code sessions simultaneously with isolated browser profiles:
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export NOTEBOOK_PROFILE_STRATEGY=isolated
+export NOTEBOOK_CLONE_PROFILE=true
+```
+
+| Variable | Values | Description |
+|----------|--------|-------------|
+| `NOTEBOOK_PROFILE_STRATEGY` | `single`, `auto`, `isolated` | `isolated` = separate profile per session |
+| `NOTEBOOK_CLONE_PROFILE` | `true`, `false` | Clone authenticated base profile into isolated instances |
+
+**How it works:**
+- Each session gets its own Chrome profile (no lock conflicts)
+- Isolated profiles clone from the authenticated base profile
+- Auth coordination ensures cloning waits for any in-progress authentication
 
 See [SECURITY.md](./SECURITY.md) for complete configuration reference.
 
