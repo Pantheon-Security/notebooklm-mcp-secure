@@ -54,7 +54,7 @@
   ],
   "dependencies": {
     "@google/genai": "^1.34.0",
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.25.2",
     "@noble/post-quantum": "^0.2.1",
     "dotenv": "^16.4.0",
     "env-paths": "^3.0.0",
