@@ -21,7 +21,7 @@ import fs from "fs";
 import path from "path";
 import { mkdirSecure, PERMISSION_MODES } from "../utils/file-permissions.js";
 import { getSecureStorage } from "../utils/crypto.js";
-import { withLock } from "../utils/file-lock.js";
+import { withLock, isLocked } from "../utils/file-lock.js";
 
 /**
  * Shared Context Manager
@@ -40,10 +40,13 @@ export class SharedContextManager {
   private isIsolatedProfile: boolean = false;
   private currentHeadlessMode: boolean | null = null;
   private contextLockPath: string;
+  private authLockPath: string;
 
   constructor(authManager: AuthManager) {
     this.authManager = authManager;
     this.contextLockPath = path.join(CONFIG.dataDir, ".context-creation");
+    // Must match auth-manager.ts authLockPath for coordination
+    this.authLockPath = path.join(CONFIG.dataDir, ".auth-in-progress");
 
     log.info("🌐 SharedContextManager initialized (PERSISTENT MODE)");
     log.info(`  Chrome Profile: ${CONFIG.chromeProfileDir}`);
@@ -320,12 +323,43 @@ export class SharedContextManager {
     }
   }
 
+  /**
+   * Wait for any in-progress authentication to complete before cloning profile.
+   * This prevents cloning an incomplete/unauthenticated base profile.
+   *
+   * Uses the same auth lock path as auth-manager.ts for coordination.
+   * Timeout: 10 minutes (same as auth timeout)
+   */
+  private async waitForAuthComplete(): Promise<void> {
+    // Auth lock stale threshold is 12 minutes in auth-manager.ts
+    const AUTH_STALE_THRESHOLD = 720000;
+    const POLL_INTERVAL = 500;
+    const MAX_WAIT = 600000; // 10 minutes
+    const startTime = Date.now();
+
+    while (isLocked(this.authLockPath, AUTH_STALE_THRESHOLD)) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed > MAX_WAIT) {
+        log.warning("⚠️  Timed out waiting for auth to complete. Proceeding anyway...");
+        return;
+      }
+
+      if (elapsed % 5000 < POLL_INTERVAL) {
+        log.info(`  ⏳ Waiting for another session to complete authentication... (${Math.round(elapsed / 1000)}s)`);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
+    }
+  }
+
   private async prepareIsolatedProfileDir(baseProfile: string): Promise<string> {
     const stamp = `${process.pid}-${Date.now()}`;
     const dir = path.join(CONFIG.chromeInstancesDir, `instance-${stamp}`);
     try {
       mkdirSecure(dir, PERMISSION_MODES.OWNER_FULL);
       if (CONFIG.cloneProfileOnIsolated && fs.existsSync(baseProfile)) {
+        // Wait for any in-progress auth before cloning to ensure we get valid auth state
+        await this.waitForAuthComplete();
         log.info("  🧬 Cloning base Chrome profile into isolated instance (may take time)...");
         // Best-effort clone without locks
         await (fs.promises as any).cp(baseProfile, dir, {

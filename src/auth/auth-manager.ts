@@ -47,10 +47,13 @@ const CRITICAL_COOKIE_NAMES = [
 export class AuthManager {
   private stateFilePath: string;
   private sessionFilePath: string;
+  private authLockPath: string;
 
   constructor() {
     this.stateFilePath = path.join(CONFIG.browserStateDir, "state.json");
     this.sessionFilePath = path.join(CONFIG.browserStateDir, "session.json");
+    // Global auth lock to prevent multiple sessions from authenticating simultaneously
+    this.authLockPath = path.join(CONFIG.dataDir, ".auth-in-progress");
   }
 
   // ============================================================================
@@ -942,67 +945,83 @@ export class AuthManager {
    *                         If not provided, defaults to true (visible) for setup
    */
   async performSetup(sendProgress?: ProgressCallback, overrideHeadless?: boolean): Promise<boolean> {
-    const { chromium } = await import("patchright");
-
-    // Determine headless mode: override or default to true (visible for setup)
-    // overrideHeadless contains show_browser value (true = show, false = hide)
-    const shouldShowBrowser = overrideHeadless !== undefined ? overrideHeadless : true;
-
-    try {
-      // CRITICAL: Clear ALL old auth data FIRST (for account switching)
-      log.info("🔄 Preparing for new account authentication...");
-      await sendProgress?.("Clearing old authentication data...", 1, 10);
-      await this.clearAllAuthData();
-
-      log.info("🚀 Launching persistent browser for interactive setup...");
-      log.info(`  📍 Profile: ${CONFIG.chromeProfileDir}`);
-      await sendProgress?.("Launching persistent browser...", 2, 10);
-
-      // ✅ CRITICAL FIX: Use launchPersistentContext (same as runtime!)
-      // This ensures session cookies persist correctly
-      const context = await chromium.launchPersistentContext(
-        CONFIG.chromeProfileDir,
-        {
-          headless: !shouldShowBrowser, // Use override or default to visible for setup
-          channel: "chrome" as const,
-          viewport: CONFIG.viewport,
-          locale: "en-US",
-          timezoneId: "Europe/Berlin",
-          args: [
-            "--disable-blink-features=AutomationControlled",
-            "--disable-dev-shm-usage",
-            "--no-first-run",
-            "--no-default-browser-check",
-          ],
+    // Use global auth lock to prevent multiple sessions from authenticating simultaneously
+    // Timeout: 10 minutes (login can take a while)
+    // Stale threshold: 12 minutes (slightly longer than timeout)
+    return await withLock(this.authLockPath, async () => {
+      // Check if another session completed auth while we were waiting for the lock
+      if (await this.hasSavedState()) {
+        const statePath = await this.getValidStatePath();
+        if (statePath) {
+          log.success("✅ Another session completed authentication while waiting!");
+          log.info("  💡 Using shared auth state - no need to login again");
+          await sendProgress?.("Using existing authentication from another session", 10, 10);
+          return true;
         }
-      );
-
-      // Get or create a page
-      const pages = context.pages();
-      const page = pages.length > 0 ? pages[0] : await context.newPage();
-
-      // Perform login with progress updates
-      const loginSuccess = await this.performLogin(page, sendProgress);
-
-      if (loginSuccess) {
-        // ✅ Save browser state to state.json (for validation & backup)
-        // Chrome ALSO saves everything to the persistent profile automatically!
-        await sendProgress?.("Saving authentication state...", 9, 10);
-        await this.saveBrowserState(context, page);
-        log.success("✅ Setup complete - authentication saved to:");
-        log.success(`  📄 State file: ${this.stateFilePath}`);
-        log.success(`  📁 Chrome profile: ${CONFIG.chromeProfileDir}`);
-        log.info("💡 Session cookies will now persist across restarts!");
       }
 
-      // Close persistent context
-      await context.close();
+      const { chromium } = await import("patchright");
 
-      return loginSuccess;
-    } catch (error) {
-      log.error(`❌ Setup failed: ${error}`);
-      return false;
-    }
+      // Determine headless mode: override or default to true (visible for setup)
+      // overrideHeadless contains show_browser value (true = show, false = hide)
+      const shouldShowBrowser = overrideHeadless !== undefined ? overrideHeadless : true;
+
+      try {
+        // CRITICAL: Clear ALL old auth data FIRST (for account switching)
+        log.info("🔄 Preparing for new account authentication...");
+        await sendProgress?.("Clearing old authentication data...", 1, 10);
+        await this.clearAllAuthData();
+
+        log.info("🚀 Launching persistent browser for interactive setup...");
+        log.info(`  📍 Profile: ${CONFIG.chromeProfileDir}`);
+        await sendProgress?.("Launching persistent browser...", 2, 10);
+
+        // ✅ CRITICAL FIX: Use launchPersistentContext (same as runtime!)
+        // This ensures session cookies persist correctly
+        const context = await chromium.launchPersistentContext(
+          CONFIG.chromeProfileDir,
+          {
+            headless: !shouldShowBrowser, // Use override or default to visible for setup
+            channel: "chrome" as const,
+            viewport: CONFIG.viewport,
+            locale: "en-US",
+            timezoneId: "Europe/Berlin",
+            args: [
+              "--disable-blink-features=AutomationControlled",
+              "--disable-dev-shm-usage",
+              "--no-first-run",
+              "--no-default-browser-check",
+            ],
+          }
+        );
+
+        // Get or create a page
+        const pages = context.pages();
+        const page = pages.length > 0 ? pages[0] : await context.newPage();
+
+        // Perform login with progress updates
+        const loginSuccess = await this.performLogin(page, sendProgress);
+
+        if (loginSuccess) {
+          // ✅ Save browser state to state.json (for validation & backup)
+          // Chrome ALSO saves everything to the persistent profile automatically!
+          await sendProgress?.("Saving authentication state...", 9, 10);
+          await this.saveBrowserState(context, page);
+          log.success("✅ Setup complete - authentication saved to:");
+          log.success(`  📄 State file: ${this.stateFilePath}`);
+          log.success(`  📁 Chrome profile: ${CONFIG.chromeProfileDir}`);
+          log.info("💡 Session cookies will now persist across restarts!");
+        }
+
+        // Close persistent context
+        await context.close();
+
+        return loginSuccess;
+      } catch (error) {
+        log.error(`❌ Setup failed: ${error}`);
+        return false;
+      }
+    }, { timeout: 600000, staleThreshold: 720000 }); // 10 min timeout, 12 min stale
   }
 
   // ============================================================================
