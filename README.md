@@ -581,8 +581,21 @@ Add to `~/.cursor/mcp.json`:
 </details>
 
 <details>
-<summary>Other MCP Clients</summary>
+<summary>Google Antigravity</summary>
 
+Add to `~/.gemini/antigravity/mcp_config.json` (macOS/Linux) or `%USERPROFILE%\.gemini\antigravity\mcp_config.json` (Windows):
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "npx",
+      "args": ["-y", "@pan-sec/notebooklm-mcp@latest"]
+    }
+  }
+}
+```
+
+With optional env vars:
 ```json
 {
   "mcpServers": {
@@ -590,14 +603,105 @@ Add to `~/.cursor/mcp.json`:
       "command": "npx",
       "args": ["-y", "@pan-sec/notebooklm-mcp@latest"],
       "env": {
-        "NLMCP_AUTH_ENABLED": "true",
-        "NLMCP_AUTH_TOKEN": "your-secure-token",
         "GEMINI_API_KEY": "your-gemini-api-key"
       }
     }
   }
 }
 ```
+
+> **Note:** Antigravity does NOT support `${workspaceFolder}` variables. Use absolute paths.
+</details>
+
+<details>
+<summary>OpenCode</summary>
+
+Add to `~/.config/opencode/opencode.json` (global) or `opencode.json` in project root:
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "notebooklm": {
+      "type": "local",
+      "command": ["npx", "-y", "@pan-sec/notebooklm-mcp@latest"],
+      "enabled": true,
+      "environment": {
+        "GEMINI_API_KEY": "your-gemini-api-key"
+      }
+    }
+  }
+}
+```
+
+> **Note:** OpenCode uses `"mcp"` (not `"mcpServers"`) and `"command"` is an array.
+</details>
+
+<details>
+<summary>Windsurf</summary>
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "npx",
+      "args": ["-y", "@pan-sec/notebooklm-mcp@latest"],
+      "env": {
+        "GEMINI_API_KEY": "your-gemini-api-key"
+      }
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary>VS Code + Copilot</summary>
+
+Add to your VS Code `settings.json`:
+```json
+{
+  "mcp": {
+    "servers": {
+      "notebooklm": {
+        "command": "npx",
+        "args": ["-y", "@pan-sec/notebooklm-mcp@latest"],
+        "env": {
+          "GEMINI_API_KEY": "your-gemini-api-key"
+        }
+      }
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary>Other MCP Clients</summary>
+
+Most MCP clients use this standard format:
+```json
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "npx",
+      "args": ["-y", "@pan-sec/notebooklm-mcp@latest"],
+      "env": {
+        "GEMINI_API_KEY": "your-gemini-api-key"
+      }
+    }
+  }
+}
+```
+
+**Common config locations:**
+| Client | Config File |
+|--------|-------------|
+| Claude Desktop | `~/.config/claude/claude_desktop_config.json` |
+| Cursor | `~/.cursor/mcp.json` |
+| Antigravity | `~/.gemini/antigravity/mcp_config.json` |
+| OpenCode | `~/.config/opencode/opencode.json` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
 </details>
 
 ---
