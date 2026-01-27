@@ -24,7 +24,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { ml_kem768 } from "@noble/post-quantum/ml-kem";
+import { ml_kem768 } from "@noble/post-quantum/ml-kem.js";
 import { log } from "./logger.js";
 import { audit } from "./audit-logger.js";
 import {
