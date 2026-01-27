@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.1.7] - 2026-01-27
+
+### Added - MCP Protocol UX Enhancements
+- **Tool Icons** - All 43 tools now have SVG icons for visual identification in compatible MCP clients
+- **Human-Friendly Titles** - Tools have proper display titles (e.g., "Ask NotebookLM" instead of "ask_question")
+- **Tool Behavior Annotations** - Tools include hints for client decision-making:
+  - `readOnlyHint` - Indicates if tool only reads data
+  - `destructiveHint` - Warns about data deletion operations
+  - `idempotentHint` - Indicates if repeated calls are safe
+  - `openWorldHint` - Shows if tool interacts with external services
+- **Task Support for Deep Research** - `deep_research` tool now declares `execution.taskSupport: "optional"` for proper long-running operation handling
+- **Resource Icons & Annotations** - Resources now include:
+  - SVG icons for visual identification
+  - `title` field for human-friendly display
+  - `annotations` with `audience`, `priority`, and `lastModified` hints
+- **Predefined Prompts** - New prompts available via `prompts/list`:
+  - `notebooklm.auth-setup` - Initial authentication guide
+  - `notebooklm.auth-repair` - Authentication troubleshooting
+  - `notebooklm.quick-start` - Getting started guide
+  - `notebooklm.security-overview` - Security features documentation
+
+### Changed
+- Updated `@modelcontextprotocol/sdk` from 1.25.2 to 1.25.3
+- Updated `@google/genai` from 1.36.0 to 1.38.0
+- Updated `patchright` from 1.55.0 to 1.57.0
+- Updated `tsx` from 4.19.0 to 4.21.0
+
+### Security
+- Fixed 3 npm audit vulnerabilities (body-parser, hono, qs)
+
 ## [2026.1.4] - 2026-01-23
 
 ### Security
