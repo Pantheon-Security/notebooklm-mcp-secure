@@ -50,7 +50,7 @@ export class NotebookSync {
     private authManager: AuthManager,
     private contextManager: SharedContextManager,
     private library: NotebookLibrary
-  ) {}
+  ) { }
 
   /**
    * Sync library with actual NotebookLM notebooks
@@ -80,8 +80,29 @@ export class NotebookSync {
       this.logSyncSummary(result);
 
       // Auto-fix if requested
-      if (options?.autoFix && result.staleEntries.length > 0) {
-        await this.autoFixStaleEntries(result.staleEntries);
+      if (options?.autoFix) {
+        if (result.staleEntries.length > 0) {
+          await this.autoFixStaleEntries(result.staleEntries);
+        }
+
+        if (result.missingNotebooks.length > 0) {
+          log.info(`➕ Auto-adding ${result.missingNotebooks.length} missing notebooks...`);
+          for (const notebook of result.missingNotebooks) {
+            try {
+              this.library.addNotebook({
+                name: notebook.title,
+                url: notebook.url,
+                sourceCount: notebook.sourceCount,
+                createdDate: notebook.createdDate,
+                use_cases: [], // Default empty
+                tags: [] // Default empty
+              });
+            } catch (e) {
+              log.error(`Failed to add notebook ${notebook.title}: ${e}`);
+            }
+          }
+          log.success(`✅ Added ${result.missingNotebooks.length} notebooks to library`);
+        }
       }
 
       return result;
@@ -99,7 +120,7 @@ export class NotebookSync {
     log.info("📋 Extracting notebooks from NotebookLM...");
 
     // Wait for page to fully load
-    await this.page.waitForLoadState("networkidle").catch(() => {});
+    await this.page.waitForLoadState("networkidle").catch(() => { });
     await randomDelay(2000, 3000);
 
     // Try to click on "My notebooks" tab if it exists
@@ -126,10 +147,10 @@ export class NotebookSync {
 
     // Wait for notebook list to load - try multiple selectors
     await Promise.race([
+      this.page.waitForSelector('project-button', { timeout: 15000 }), // Angular Material selector
       this.page.waitForSelector('a[href*="/notebook/"]', { timeout: 15000 }),
       this.page.waitForSelector('[data-notebook-id]', { timeout: 15000 }),
-      this.page.waitForSelector('table', { timeout: 15000 }),
-    ]).catch(() => {});
+    ]).catch(() => { });
     await randomDelay(2000, 3000);
 
     // Debug: Log what we can see on the page
@@ -139,7 +160,7 @@ export class NotebookSync {
     });
     log.dim(`  Page preview: ${pageContent.replace(/\n/g, " ").substring(0, 200)}...`);
 
-    // Extract notebook data from the page - notebooks may not be <a> tags
+    // Extract notebook data from the page - using new Angular Material structure where possible
     const notebooks = await this.page.evaluate(() => {
       const results: Array<{
         title: string;
@@ -148,77 +169,70 @@ export class NotebookSync {
         createdDate: string;
       }> = [];
 
-      // Strategy 1: Find table rows that look like notebook entries
-      // @ts-expect-error - DOM types available in browser context
-      const rows = document.querySelectorAll('tr');
+      // Strategy: Angular Material Cards (New UI)
+      // @ts-expect-error - DOM types
+      const projectButtons = document.querySelectorAll('project-button');
 
-      for (const row of rows) {
-        const rowText = (row as any).textContent || "";
+      for (const btn of projectButtons) {
+        try {
+          // Title
+          const titleEl = btn.querySelector('.project-button-title');
+          if (!titleEl) continue;
 
-        // Skip header rows or rows without source count
-        if (!rowText.match(/\d+\s*Source/i)) continue;
+          const title = titleEl.textContent?.trim() || "";
+          if (!title) continue;
 
-        // Get the title - first cell with substantial text
-        let title = "";
-        const cells = (row as any).querySelectorAll('td, th');
-        for (const cell of cells) {
-          const cellText = cell.textContent?.trim() || "";
-          // Skip cells that are just icons, numbers, dates, or role
-          if (cellText.length > 3 &&
-              !cellText.match(/^[\d\s]+$/) &&
-              !cellText.match(/^\d+\s*Source/i) &&
-              !cellText.match(/^\d{1,2}\s+\w{3}\s+\d{4}$/) &&
-              !cellText.match(/^(Owner|Viewer|Editor)$/i)) {
-            title = cellText;
-            break;
+          // UUID Extraction from ID (project-UUID-title)
+          // Example ID: "project-8dea4306-a71b-45f5-928a-ae7dcfd590d5-title"
+          const titleId = titleEl.id || "";
+          const uuidMatch = titleId.match(/project-([a-f0-9\-]+)-title/);
+          let url = "";
+          if (uuidMatch && uuidMatch[1]) {
+            url = `https://notebooklm.google.com/notebook/${uuidMatch[1]}`;
+          } else {
+            // Fallback: try to find it in the button aria-labelledby or other attributes
+            const actionBtn = btn.querySelector('.primary-action-button');
+            if (actionBtn) {
+              const ariaLabel = actionBtn.getAttribute('aria-labelledby') || "";
+              const uuidMatchB = ariaLabel.match(/project-([a-f0-9\-]+)-title/);
+              if (uuidMatchB) {
+                url = `https://notebooklm.google.com/notebook/${uuidMatchB[1]}`;
+              }
+            }
           }
-        }
 
-        if (!title || title.length < 3) continue;
+          if (!url) continue;
 
-        // Clean up title - remove emoji prefixes
-        title = title.replace(/^[🔓🔒📁📄🔐]\s*/, "").trim();
+          // Metadata (Date & Source Count)
+          let createdDate = "";
+          let sourceCount = 0;
 
-        // Extract source count
-        let sourceCount = 0;
-        const sourceMatch = rowText.match(/(\d+)\s*Source/i);
-        if (sourceMatch) sourceCount = parseInt(sourceMatch[1], 10);
-
-        // Extract date
-        let createdDate = "";
-        const dateMatch = rowText.match(/(\d{1,2}\s+\w{3}\s+\d{4})/);
-        if (dateMatch) createdDate = dateMatch[1];
-
-        // Try to find notebook URL - look for any link in the row
-        let url = "";
-        const links = (row as any).querySelectorAll('a');
-        for (const link of links) {
-          const href = link.href || "";
-          if (href.includes('/notebook/')) {
-            url = href;
-            break;
+          // Date
+          const dateEl = btn.querySelector('.project-button-subtitle-part:first-of-type');
+          if (dateEl) {
+            createdDate = dateEl.textContent?.trim() || "";
           }
-        }
 
-        // If no direct link, try data attributes
-        if (!url) {
-          const dataId = (row as any).getAttribute('data-notebook-id') ||
-                        (row as any).getAttribute('data-id') ||
-                        (row as any).querySelector('[data-notebook-id]')?.getAttribute('data-notebook-id');
-          if (dataId) {
-            url = `https://notebooklm.google.com/notebook/${dataId}`;
+          // Source Count
+          const sourceEl = btn.querySelector('.project-button-subtitle-part-sources');
+          if (sourceEl) {
+            const sourceText = sourceEl.textContent?.trim() || "";
+            const countMatch = sourceText.match(/(\d+)/);
+            if (countMatch) {
+              sourceCount = parseInt(countMatch[1], 10);
+            }
           }
-        }
 
-        // If still no URL, we'll construct it from the row index (placeholder)
-        if (!url) {
-          // Note: This is a placeholder - we'll need to click to get the real URL
-          url = `pending-${results.length}`;
+          results.push({
+            title,
+            url,
+            sourceCount,
+            createdDate
+          });
+        } catch (e) {
+          // Ignore individual failures
         }
-
-        results.push({ title, url, sourceCount, createdDate });
       }
-
       return results;
     });
 
@@ -447,7 +461,7 @@ export class NotebookSync {
     });
 
     await randomDelay(2000, 3000);
-    await this.page.waitForLoadState("networkidle").catch(() => {});
+    await this.page.waitForLoadState("networkidle").catch(() => { });
 
     log.success("✅ Browser initialized");
   }
