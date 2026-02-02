@@ -302,7 +302,21 @@ export class QuotaManager {
    */
   async countNotebooksFromPage(page: Page): Promise<number> {
     const count = await page.evaluate(() => {
-      // Count table rows that have "Source" in them (notebook rows)
+      // Strategy 1: Grid view project-button cards
+      // @ts-expect-error - DOM types
+      const projectButtons = document.querySelectorAll("project-button");
+      if (projectButtons.length > 0) {
+        return projectButtons.length;
+      }
+
+      // Strategy 2: project-action-button (one per notebook in both views)
+      // @ts-expect-error - DOM types
+      const actionButtons = document.querySelectorAll("project-action-button");
+      if (actionButtons.length > 0) {
+        return actionButtons.length;
+      }
+
+      // Strategy 3: Table rows with "Source" text (legacy UI)
       // @ts-expect-error - DOM types
       const rows = document.querySelectorAll("tr");
       let count = 0;
