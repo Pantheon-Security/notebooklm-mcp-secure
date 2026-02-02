@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.1.11] - 2026-02-02
+
+### Fixed - Notebook Sync Extraction for New Angular UI
+- **sync_library** now correctly extracts notebook UUIDs from NotebookLM's Angular Material UI
+  - Automatically switches to grid view where notebook UUIDs are available in DOM element IDs
+  - Primary strategy: extract from `project-button` card elements in grid view
+  - Fallback: click-navigation through table rows to capture URLs
+  - Last resort: basic table row extraction with placeholder URLs
+- **quota_manager** updated to detect notebooks via `project-button` (grid) and `project-action-button` (table)
+- Resolves issue reported in PR #3 — thanks @robert-merrill for identifying the UI change
+
+### Added - Disable Gemini Tools Environment Variable
+- **NOTEBOOKLM_NO_GEMINI** - New environment variable to disable all Gemini API tools
+  - Set `NOTEBOOKLM_NO_GEMINI=true` to hide 8 Gemini tools from tool list
+  - Useful for clients with context window limitations (e.g., OpenCode)
+  - Reduces tool count for clients that don't need Gemini features
+  - Disabled tools: `deep_research`, `gemini_query`, `get_research_status`, `upload_document`, `query_document`, `list_documents`, `delete_document`, `query_chunked_document`
+
 ## [2026.1.10] - 2026-01-28
 
 ### Fixed - Tool Description Clarity for Multi-LLM Compatibility

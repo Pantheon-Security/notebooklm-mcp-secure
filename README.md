@@ -898,6 +898,7 @@ GEMINI_API_KEY=your-api-key
 GEMINI_DEFAULT_MODEL=gemini-2.5-flash
 GEMINI_DEEP_RESEARCH_ENABLED=true
 GEMINI_TIMEOUT_MS=30000
+NOTEBOOKLM_NO_GEMINI=false       # Set to true to disable all Gemini tools
 
 # Encryption
 NLMCP_USE_POST_QUANTUM=true
