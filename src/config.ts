@@ -83,6 +83,9 @@ export interface Config {
   geminiDefaultModel: string;
   geminiDeepResearchEnabled: boolean;
   geminiTimeoutMs: number;
+
+  // Disable all Gemini API tools (for clients with context limitations)
+  noGemini: boolean;
 }
 
 /**
@@ -143,6 +146,9 @@ const DEFAULTS: Config = {
   geminiDefaultModel: "gemini-2.5-flash",
   geminiDeepResearchEnabled: true,
   geminiTimeoutMs: 30000,
+
+  // Disable all Gemini API tools
+  noGemini: false,
 };
 
 
@@ -214,6 +220,9 @@ function applyEnvOverrides(config: Config): Config {
     geminiDefaultModel: process.env.GEMINI_DEFAULT_MODEL || config.geminiDefaultModel,
     geminiDeepResearchEnabled: parseBoolean(process.env.GEMINI_DEEP_RESEARCH_ENABLED, config.geminiDeepResearchEnabled),
     geminiTimeoutMs: parseInteger(process.env.GEMINI_TIMEOUT_MS, config.geminiTimeoutMs),
+
+    // Disable Gemini tools
+    noGemini: parseBoolean(process.env.NOTEBOOKLM_NO_GEMINI, config.noGemini),
   };
 }
 
