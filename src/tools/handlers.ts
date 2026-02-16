@@ -186,11 +186,6 @@ export class ToolHandlers {
       // Progress: Getting or creating session
       await sendProgress?.("Getting or creating browser session...", 1, 5);
 
-      // Apply browser options temporarily
-      const originalConfig = { ...CONFIG };
-      const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
-      Object.assign(CONFIG, effectiveConfig);
-
       // Calculate overrideHeadless parameter for session manager
       // show_browser takes precedence over browser_options.headless
       let overrideHeadless: boolean | undefined = undefined;
@@ -202,9 +197,8 @@ export class ToolHandlers {
         overrideHeadless = !browser_options.headless;
       }
 
-      try {
-        // Get or create session (with headless override to handle mode changes)
-        const session = await this.sessionManager.getOrCreateSession(
+      // Get or create session (with headless override to handle mode changes)
+      const session = await this.sessionManager.getOrCreateSession(
           safeSessionId,
           resolvedNotebookUrl,
           overrideHeadless
@@ -303,14 +297,10 @@ export class ToolHandlers {
           notebook_id: safeNotebookId,
         }, true, Date.now() - startTime);
 
-        return {
-          success: true,
-          data: result,
-        };
-      } finally {
-        // Restore original CONFIG
-        Object.assign(CONFIG, originalConfig);
-      }
+      return {
+        success: true,
+        data: result,
+      };
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -660,7 +650,7 @@ export class ToolHandlers {
       duration_seconds?: number;
     }> 
   > {
-    const { show_browser, browser_options } = args;
+    const { show_browser } = args;
 
     // CRITICAL: Send immediate progress to reset timeout from the very start
     await sendProgress?.("Initializing authentication setup...", 0, 10);
@@ -671,11 +661,6 @@ export class ToolHandlers {
     }
 
     const startTime = Date.now();
-
-    // Apply browser options temporarily
-    const originalConfig = { ...CONFIG };
-    const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
-    Object.assign(CONFIG, effectiveConfig);
 
     try {
       // Progress: Starting
@@ -736,9 +721,6 @@ export class ToolHandlers {
         success: false,
         error: errorMessage,
       };
-    } finally {
-      // Restore original CONFIG
-      Object.assign(CONFIG, originalConfig);
     }
   }
 
@@ -766,7 +748,7 @@ export class ToolHandlers {
       duration_seconds?: number;
     }> 
   > {
-    const { show_browser, browser_options } = args;
+    const { show_browser } = args;
 
     await sendProgress?.("Preparing re-authentication...", 0, 12);
     log.info(`🔧 [TOOL] re_auth called`);
@@ -775,11 +757,6 @@ export class ToolHandlers {
     }
 
     const startTime = Date.now();
-
-    // Apply browser options temporarily
-    const originalConfig = { ...CONFIG };
-    const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
-    Object.assign(CONFIG, effectiveConfig);
 
     try {
       // 1. Close all active sessions
@@ -846,9 +823,6 @@ export class ToolHandlers {
         success: false,
         error: errorMessage,
       };
-    } finally {
-      // Restore original CONFIG
-      Object.assign(CONFIG, originalConfig);
     }
   }
 

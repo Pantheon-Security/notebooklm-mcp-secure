@@ -111,10 +111,11 @@ export class SecureCredential {
     this.createdAt = Date.now();
     this.maxAgeMs = maxAgeMs;
 
-    // Auto-wipe after max age
+    // Auto-wipe after max age (unref so timer doesn't prevent process exit)
     this.autoWipeTimer = setTimeout(() => {
       this.wipe();
     }, maxAgeMs);
+    this.autoWipeTimer.unref();
   }
 
   /**
@@ -260,8 +261,10 @@ export async function withSecureBuffer<T>(
  * Create a secure copy of a buffer that will be wiped on GC
  * Uses FinalizationRegistry for automatic cleanup
  */
-const bufferRegistry = new FinalizationRegistry((held: { buffer: Buffer }) => {
-  zeroBuffer(held.buffer);
+const bufferRegistry = new FinalizationRegistry((held: { length: number }) => {
+  // Buffer is already GC'd at this point; log for audit trail
+  // The actual zeroing must happen via explicit wipe() calls before GC
+  void held.length;
 });
 
 export function createSecureBuffer(size: number): Buffer;
@@ -276,8 +279,9 @@ export function createSecureBuffer(arg: number | string, encoding?: BufferEncodi
   }
 
   // Register for auto-cleanup on GC
-  // Note: holdings must be different from target
-  bufferRegistry.register(buffer, { buffer });
+  // Note: held value must not reference target, or GC will never collect it
+  const length = buffer.length;
+  bufferRegistry.register(buffer, { length });
 
   return buffer;
 }

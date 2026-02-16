@@ -5,6 +5,18 @@
  * Added by Pantheon Security for hardened fork.
  */
 
+import path from "path";
+
+// Pre-compiled regex patterns for sanitizeForLogging (avoid recompilation per call)
+const EMAIL_SANITIZE_PATTERN = /([a-zA-Z0-9._%+-])([a-zA-Z0-9._%+-]*)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+const SECRET_SANITIZE_PATTERNS = [
+  /password[=:]\s*["']?([^"'\s]+)/gi,
+  /secret[=:]\s*["']?([^"'\s]+)/gi,
+  /token[=:]\s*["']?([^"'\s]+)/gi,
+  /api[_-]?key[=:]\s*["']?([^"'\s]+)/gi,
+  /auth[=:]\s*["']?([^"'\s]+)/gi,
+];
+
 /**
  * Allowed URL patterns for NotebookLM
  */
@@ -164,22 +176,16 @@ export function sanitizeForLogging(value: string): string {
   }
 
   // Mask email addresses (show first char and domain)
+  EMAIL_SANITIZE_PATTERN.lastIndex = 0;
   const emailMasked = value.replace(
-    /([a-zA-Z0-9._%+-])([a-zA-Z0-9._%+-]*)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g,
+    EMAIL_SANITIZE_PATTERN,
     (_, first, rest, domain) => `${first}${'*'.repeat(Math.min(rest.length, 8))}@${domain}`
   );
 
   // Mask anything that looks like a password or secret
-  const secretPatterns = [
-    /password[=:]\s*["']?([^"'\s]+)/gi,
-    /secret[=:]\s*["']?([^"'\s]+)/gi,
-    /token[=:]\s*["']?([^"'\s]+)/gi,
-    /api[_-]?key[=:]\s*["']?([^"'\s]+)/gi,
-    /auth[=:]\s*["']?([^"'\s]+)/gi,
-  ];
-
   let result = emailMasked;
-  for (const pattern of secretPatterns) {
+  for (const pattern of SECRET_SANITIZE_PATTERNS) {
+    pattern.lastIndex = 0;
     result = result.replace(pattern, (match, _secret) => {
       const prefix = match.split(/[=:]/)[0];
       return `${prefix}=[REDACTED]`;
@@ -208,8 +214,6 @@ export function maskEmail(email: string): string {
  * Validate file path to prevent path traversal
  */
 export function validateFilePath(basePath: string, filePath: string): string {
-  const path = require('path');
-
   // Resolve to absolute path
   const resolved = path.resolve(basePath, filePath);
 
@@ -251,6 +255,11 @@ export class RateLimiter {
 
     // Filter to only requests within the window
     requests = requests.filter(timestamp => timestamp > windowStart);
+
+    // Evict empty keys to prevent unbounded Map growth
+    if (requests.length === 0) {
+      this.requests.delete(key);
+    }
 
     // Check if under limit
     if (requests.length >= this.maxRequests) {

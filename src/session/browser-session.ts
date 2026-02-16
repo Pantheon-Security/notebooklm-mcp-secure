@@ -346,6 +346,14 @@ export class BrowserSession {
     };
 
     this.page.on("framenavigated", handleNavigation);
+
+    // Safety: Remove listener after 30 seconds to prevent leak if origin never matches
+    setTimeout(() => {
+      if (!restored && this.page) {
+        this.page.off("framenavigated", handleNavigation);
+        log.warning("  ⚠️  Timeout waiting for sessionStorage restore origin");
+      }
+    }, 30000).unref();
   }
 
   /**
@@ -513,83 +521,50 @@ export class BrowserSession {
       return false;
     }
 
-    // Error message selectors (common patterns for error containers)
-    const errorSelectors = [
-      ".error-message",
-      ".error-container",
-      "[role='alert']",
-      ".rate-limit-message",
-      "[data-error]",
-      ".notification-error",
-      ".alert-error",
-      ".toast-error",
-    ];
-
-    // Keywords that indicate rate limiting
-    const keywords = [
-      "rate limit",
-      "limit exceeded",
-      "quota exhausted",
-      "daily limit",
-      "limit reached",
-      "too many requests",
-      "ratenlimit",
-      "quota",
-      "query limit",
-      "request limit",
-    ];
-
-    // Check error containers for rate limit messages
-    for (const selector of errorSelectors) {
-      try {
-        const elements = await this.page.$$(selector);
-        for (const el of elements) {
-          try {
-            const text = await el.innerText();
-            const lower = text.toLowerCase();
-
-            if (keywords.some((k) => lower.includes(k))) {
-              log.error(`🚫 Rate limit detected: ${text.slice(0, 100)}`);
-              return true;
-            }
-          } catch {
-            continue;
-          }
-        }
-      } catch {
-        continue;
-      }
-    }
-
-    // Also check if chat input is disabled (sometimes NotebookLM disables input when rate limited)
     try {
-      const inputSelector = "textarea.query-box-input";
-      const input = await this.page.$(inputSelector);
-      if (input) {
-        const isDisabled = await input.evaluate((el: any) => {
-          return el.disabled || el.hasAttribute("disabled");
-        });
+      // Single page.evaluate() call instead of 8+ IPC round-trips
+      const result = await this.page.evaluate(() => {
+        const selectors = [
+          ".error-message", ".error-container", "[role='alert']",
+          ".rate-limit-message", "[data-error]", ".notification-error",
+          ".alert-error", ".toast-error",
+        ];
+        const keywords = [
+          "rate limit", "limit exceeded", "quota exhausted",
+          "daily limit", "limit reached", "too many requests",
+          "ratenlimit", "quota", "query limit", "request limit",
+        ];
 
-        if (isDisabled) {
-          // Check if there's an error message near the input
-          const parent = await input.evaluateHandle((el) => el.parentElement);
-          const parentEl = parent.asElement();
-          if (parentEl) {
-            try {
-              const parentText = await parentEl.innerText();
-              const lower = parentText.toLowerCase();
-              if (keywords.some((k) => lower.includes(k))) {
-                log.error(`🚫 Rate limit detected: Chat input disabled with error message`);
-                return true;
-              }
-            } catch {
-              // Ignore
+        // Check error containers
+        for (const sel of selectors) {
+          // @ts-expect-error - DOM types in browser context
+          for (const el of document.querySelectorAll(sel)) {
+            const text = (el as any).innerText?.toLowerCase() || "";
+            if (keywords.some((k: string) => text.includes(k))) {
+              return (el as any).innerText?.slice(0, 100) || "Rate limit detected";
             }
           }
         }
+
+        // Check disabled chat input with error message nearby
+        // @ts-expect-error - DOM types in browser context
+        const input = document.querySelector("textarea.query-box-input") as HTMLTextAreaElement | null;
+        if (input?.disabled) {
+          const parentText = input.parentElement?.innerText?.toLowerCase() || "";
+          if (keywords.some(k => parentText.includes(k))) {
+            return "Chat input disabled with error message";
+          }
+        }
+
+        return null;
+      });
+
+      if (result) {
+        log.error(`🚫 Rate limit detected: ${result}`);
+        return true;
       }
     } catch {
-      // Ignore errors checking input state
+      // Ignore errors checking rate limit state
     }
 
     return false;
