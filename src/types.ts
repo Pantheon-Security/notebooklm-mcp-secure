@@ -49,7 +49,7 @@ export interface AskQuestionResult {
 /**
  * Tool call result for MCP (generic wrapper for tool responses)
  */
-export interface ToolResult<T = any> {
+export interface ToolResult<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;

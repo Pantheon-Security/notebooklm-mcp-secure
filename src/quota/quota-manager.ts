@@ -69,7 +69,7 @@ export class QuotaManager {
   private settingsPath: string;
 
   constructor() {
-    this.settingsPath = path.join(CONFIG.configDir, "quota.json");
+    this.settingsPath = path.join(CONFIG.dataDir, "quota.json");
     this.settings = this.loadSettings();
   }
 

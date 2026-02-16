@@ -119,6 +119,7 @@ export class NotebookLibrary {
   private library: Library;
   private projectInfo: ProjectInfo | null;
   private useProjectLibrary: boolean;
+  private saveTimer: NodeJS.Timeout | null = null;
 
   constructor(options?: { projectId?: string; useProjectLibrary?: boolean }) {
     // Determine if we should use per-project libraries
@@ -458,17 +459,28 @@ export class NotebookLibrary {
     }
 
     const notebook = this.library.notebooks[notebookIndex];
-    const updated = { ...this.library };
     const updatedNotebook: NotebookEntry = {
       ...notebook,
       use_count: notebook.use_count + 1,
       last_used: new Date().toISOString(),
     };
 
-    updated.notebooks[notebookIndex] = updatedNotebook;
-    this.saveLibrary(updated);
+    this.library.notebooks[notebookIndex] = updatedNotebook;
+    this.debouncedSave();
 
     return updatedNotebook;
+  }
+
+  /**
+   * Debounced save — avoids writing to disk on every single query
+   */
+  private debouncedSave(): void {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.saveLibrary(this.library);
+    }, 5000);
+    this.saveTimer.unref();
   }
 
   /**
