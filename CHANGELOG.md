@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.1.12] - 2026-02-15
+
+### Security — Code Review & Medusa Scan Remediation
+- **Constant-time auth token comparison** using `secureCompare` (prevents timing attacks)
+- **Command injection fix** in `file-permissions.ts` — replaced `execSync()` with `execFileSync()` (array args)
+- **MCP SDK updated** to 1.26.0 — patches HIGH severity cross-client data leak (GHSA-345p-7cg4-v4c7)
+- **Audit hash chain** increased from 64-bit to 128-bit truncation for stronger collision resistance
+- **Settings JSON validation** — parsed settings now validated before merge (prevents property injection)
+- **Error message sanitization** — internal identifiers removed from error responses
+- **Dockerfile hardened** with `--no-install-recommends`
+- **Config env var validation** — `NOTEBOOK_PROFILE_STRATEGY` validated against allowed values
+
+### Fixed — Memory Leaks & Concurrency
+- **CONFIG mutation race condition eliminated** — removed all 6 `Object.assign(CONFIG, ...)` call sites that could corrupt global state during concurrent requests
+- **RateLimiter memory leak** — empty keys now evicted from Map to prevent unbounded growth
+- **FinalizationRegistry self-reference** — fixed held value that prevented GC of secure buffers
+- **Event listener leak** — `framenavigated` listener now cleaned up after 30s timeout
+- **SecureCredential timer** — `.unref()` added so auto-wipe timer doesn't prevent process exit
+
+### Performance
+- **Regex precompilation** in `sanitizeForLogging` — 5 patterns + email regex moved to module scope
+- **Response validator** — eliminated regex recompilation in `detectSuspiciousUrls` loop
+- **Rate limit detection** — consolidated 8+ IPC round-trips into single `page.evaluate()` call
+- **ESM import fix** — removed inline `require('path')` in favor of module-level import
+- **O(n) dedup** — notebook extraction uses Set-based deduplication instead of O(n^2)
+
+### Code Quality
+- **Version strings unified** — MCP server and audit log now use `package.json` version
+- **Debounced library save** — `incrementUseCount` no longer writes to disk on every query
+- **Data URI pattern** — tightened false-positive-prone `data:` regex in response validator
+- **Quota storage** — moved from `configDir` to `dataDir` for consistency with directory lifecycle
+
 ## [2026.1.11] - 2026-02-02
 
 ### Fixed - Notebook Sync Extraction for New Angular UI
