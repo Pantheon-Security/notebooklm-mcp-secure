@@ -154,7 +154,7 @@ const SUSPICIOUS_URL_PATTERNS: Array<{ pattern: RegExp; description: string }> =
   { pattern: /https?:\/\/(anonfiles\.com|mediafire\.com|zippyshare\.com|sendspace\.com)\//i, description: "File sharing service" },
   // Dangerous protocols
   { pattern: /javascript:/i, description: "JavaScript protocol" },
-  { pattern: /data:/i, description: "Data protocol" },
+  { pattern: /\bdata:[a-z]+\/[a-z][\w+-]+/i, description: "Data protocol" },
   { pattern: /file:\/\//i, description: "File protocol" },
   { pattern: /vbscript:/i, description: "VBScript protocol" },
   // IP addresses (potential C2)
@@ -324,7 +324,9 @@ export class ResponseValidator {
     const results: Array<{ pattern: RegExp; description: string; url: string }> = [];
 
     for (const { pattern, description } of SUSPICIOUS_URL_PATTERNS) {
-      const matches = text.matchAll(new RegExp(pattern, "gi"));
+      // Use source to create a new RegExp with global flag for matchAll
+      const globalPattern = new RegExp(pattern.source, "gi");
+      const matches = text.matchAll(globalPattern);
       for (const match of matches) {
         results.push({
           pattern,

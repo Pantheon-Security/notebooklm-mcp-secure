@@ -190,10 +190,13 @@ export class NotebookSync {
       log.dim(`  [diag] ${d.substring(0, 200)}`);
     }
 
-    // Deduplicate by URL
-    const uniqueNotebooks = notebooks.filter((notebook, index, self) =>
-      index === self.findIndex(n => n.url === notebook.url)
-    );
+    // Deduplicate by URL (O(n) using Set)
+    const seenUrls = new Set<string>();
+    const uniqueNotebooks = notebooks.filter(notebook => {
+      if (seenUrls.has(notebook.url)) return false;
+      seenUrls.add(notebook.url);
+      return true;
+    });
 
     log.success(`✅ Extracted ${uniqueNotebooks.length} notebooks`);
     return { notebooks: uniqueNotebooks, diagnostic };
