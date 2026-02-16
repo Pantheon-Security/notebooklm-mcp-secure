@@ -21,7 +21,7 @@ export interface Settings {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  profile: "full",
+  profile: "standard",
   disabledTools: [],
 };
 

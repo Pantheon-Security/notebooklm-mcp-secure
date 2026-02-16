@@ -26,6 +26,7 @@ exclude:
     - "*.min.js"
     - "*.map"
     - package-lock.json
+    - medusa-fp-analysis.md
 
 # Worker threads (null = auto-detect CPU cores)
 workers: null
