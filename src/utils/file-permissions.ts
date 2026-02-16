@@ -15,7 +15,7 @@
 
 import fs from "fs";
 import path from "path";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 
 /**
  * Platform detection
@@ -175,10 +175,9 @@ function setWindowsFilePermissions(targetPath: string, ownerOnly: boolean): bool
       // /inheritance:r - Remove inherited ACLs
       // /grant:r - Replace existing permissions with specified ones
       // (F) - Full control
-      execSync(
-        `icacls "${normalizedPath}" /inheritance:r /grant:r "${username}:(F)" /q`,
-        { stdio: "pipe" }
-      );
+      execFileSync("icacls", [
+        normalizedPath, "/inheritance:r", "/grant:r", `${username}:(F)`, "/q"
+      ], { stdio: "pipe" });
     }
 
     return true;

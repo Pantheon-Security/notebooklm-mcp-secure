@@ -75,7 +75,7 @@ class NotebookLMMCPServer {
     this.server = new Server(
       {
         name: "notebooklm-mcp",
-        version: "1.1.0",
+        version: VERSION,
       },
       {
         capabilities: {
@@ -647,7 +647,7 @@ class NotebookLMMCPServer {
 
     // Audit: Log server startup
     await audit.system("server_start", {
-      version: "1.2.0-secure.1",
+      version: VERSION,
       security_warnings: securityCheck.warnings,
       mcp_auth_enabled: authStatus.enabled,
       config: {

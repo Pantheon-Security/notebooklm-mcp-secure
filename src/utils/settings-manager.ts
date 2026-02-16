@@ -85,7 +85,21 @@ export class SettingsManager {
 
       if (existsSync(this.settingsPath)) {
         const data = readFileSync(this.settingsPath, "utf-8");
-        return { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+        const parsed = JSON.parse(data);
+
+        // Validate parsed settings to prevent property injection
+        const validated: Partial<Settings> = {};
+        if (parsed.profile && ["minimal", "standard", "full"].includes(parsed.profile)) {
+          validated.profile = parsed.profile;
+        }
+        if (Array.isArray(parsed.disabledTools)) {
+          validated.disabledTools = parsed.disabledTools.filter((t: unknown) => typeof t === "string");
+        }
+        if (parsed.customSettings && typeof parsed.customSettings === "object" && !Array.isArray(parsed.customSettings)) {
+          validated.customSettings = parsed.customSettings;
+        }
+
+        return { ...DEFAULT_SETTINGS, ...validated };
       }
     } catch (error) {
       log.warning(`⚠️  Failed to load settings: ${error}. Using defaults.`);

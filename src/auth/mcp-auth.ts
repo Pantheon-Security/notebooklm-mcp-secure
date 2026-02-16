@@ -13,6 +13,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { secureCompare } from "../utils/secure-memory.js";
 import { CONFIG } from "../config.js";
 import { log } from "../utils/logger.js";
 import { audit } from "../utils/audit-logger.js";
@@ -272,7 +273,7 @@ export class MCPAuthenticator {
     }
 
     const providedHash = this.hashToken(token);
-    const valid = providedHash === this.tokenHash;
+    const valid = secureCompare(providedHash, this.tokenHash ?? "");
 
     if (valid) {
       this.clearFailedAttempts(clientId);

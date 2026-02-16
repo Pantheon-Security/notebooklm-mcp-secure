@@ -183,7 +183,7 @@ export class AuditLogger {
       previousHash: event.previousHash,
     });
 
-    return crypto.createHash("sha256").update(data).digest("hex").slice(0, 16);
+    return crypto.createHash("sha256").update(data).digest("hex").slice(0, 32);
   }
 
   /**

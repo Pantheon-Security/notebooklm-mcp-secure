@@ -2,7 +2,7 @@
 FROM node:20-slim
 
 # Install dependencies for Chromium (required by patchright)
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libnss3 \
     libnspr4 \
     libatk1.0-0 \

@@ -493,7 +493,7 @@ Use \`get_health()\` to check security status.`,
           };
 
         default:
-          throw new Error(`Unknown prompt: ${name}`);
+          throw new Error("Unknown prompt requested");
       }
     });
   }

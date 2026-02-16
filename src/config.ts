@@ -208,7 +208,9 @@ function applyEnvOverrides(config: Config): Config {
     notebookTopics: parseArray(process.env.NOTEBOOK_TOPICS, config.notebookTopics),
     notebookContentTypes: parseArray(process.env.NOTEBOOK_CONTENT_TYPES, config.notebookContentTypes),
     notebookUseCases: parseArray(process.env.NOTEBOOK_USE_CASES, config.notebookUseCases),
-    profileStrategy: (process.env.NOTEBOOK_PROFILE_STRATEGY as any) || config.profileStrategy,
+    profileStrategy: (["auto", "single", "isolated"].includes(process.env.NOTEBOOK_PROFILE_STRATEGY ?? "")
+      ? process.env.NOTEBOOK_PROFILE_STRATEGY as Config["profileStrategy"]
+      : config.profileStrategy),
     cloneProfileOnIsolated: parseBoolean(process.env.NOTEBOOK_CLONE_PROFILE, config.cloneProfileOnIsolated),
     cleanupInstancesOnStartup: parseBoolean(process.env.NOTEBOOK_CLEANUP_ON_STARTUP, config.cleanupInstancesOnStartup),
     cleanupInstancesOnShutdown: parseBoolean(process.env.NOTEBOOK_CLEANUP_ON_SHUTDOWN, config.cleanupInstancesOnShutdown),
