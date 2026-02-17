@@ -17,6 +17,8 @@ import { notebookManagementTools } from "./definitions/notebook-management.js";
 import { sessionManagementTools } from "./definitions/session-management.js";
 import { systemTools } from "./definitions/system.js";
 import { geminiTools } from "./definitions/gemini.js";
+import { videoTools } from "./definitions/video.js";
+import { dataTableTools } from "./definitions/data-tables.js";
 import { queryHistoryTools } from "./definitions/query-history.js";
 import { chatHistoryTools } from "./definitions/chat-history.js";
 import { getToolIcons } from "./icons.js";
@@ -60,6 +62,8 @@ export function buildToolDefinitions(library: NotebookLibrary): Tool[] {
     ...sessionManagementTools,
     ...systemTools,
     ...geminiTools,
+    ...videoTools,
+    ...dataTableTools,
     ...queryHistoryTools,
     ...chatHistoryTools,
   ];

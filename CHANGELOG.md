@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.2.0] - 2026-02-17
+
+### Added — Gemini 3 Model Support
+- **Gemini 3 models** — `gemini-3-flash-preview` and `gemini-3-pro-preview` now available as default models
+- **Deprecation warnings** — Using `gemini-2.5-flash` or `gemini-2.5-pro` now returns a warning that these models retire March 31, 2026
+- **Incomplete status handling** — Deep Research now handles `"incomplete"` status from the API as a terminal state with partial results
+
+### Added — Thinking Level Control
+- **`thinking_level` parameter** — New optional parameter for `gemini_query` and `deep_research` tools
+- Supports `minimal`, `low`, `medium`, and `high` levels for controlling response thoroughness vs speed
+
+### Added — Structured JSON Output
+- **`response_schema` parameter** — New optional parameter for `gemini_query` tool
+- Pass a JSON schema to get structured, validated JSON responses from Gemini 3
+- Automatically sets `responseMimeType: "application/json"` when schema is provided
+
+### Added — Video Overview Generation
+- **`generate_video_overview`** — Generate AI-powered Video Overviews through NotebookLM's Studio panel
+- **`get_video_status`** — Check Video Overview generation progress
+- 6 visual styles: whiteboard, classroom, abstract, documentary, corporate, casual
+- 2 formats: explainer (full, 5-15 min) and brief (summary, 1-3 min)
+
+### Added — Data Table Extraction
+- **`generate_data_table`** — Generate structured Data Tables from notebook sources via Studio panel
+- **`get_data_table`** — Extract generated table data as structured JSON (headers + rows)
+
+### Changed
+- **Default model** changed from `gemini-2.5-flash` to `gemini-3-flash-preview`
+- **@google/genai SDK** upgraded from 1.38.0 to 1.41.0
+- **Server banner** updated to reflect Gemini 3
+
 ## [2026.1.12] - 2026-02-15
 
 ### Security — Code Review & Medusa Scan Remediation

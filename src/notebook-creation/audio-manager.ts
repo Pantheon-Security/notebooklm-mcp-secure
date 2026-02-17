@@ -122,9 +122,9 @@ export class AudioManager {
       // Try to find and click the generate button
       let generateClicked = false;
 
-      // Try primary selector first
+      // Try primary selector first — check visibility to avoid timeout on hidden elements
       const primaryBtn = await page.$(AUDIO_SELECTORS.generateButton.primary);
-      if (primaryBtn) {
+      if (primaryBtn && (await primaryBtn.isVisible())) {
         await primaryBtn.click();
         generateClicked = true;
       } else {
@@ -132,7 +132,7 @@ export class AudioManager {
         for (const selector of AUDIO_SELECTORS.generateButton.fallbacks) {
           try {
             const btn = await page.$(selector);
-            if (btn) {
+            if (btn && (await btn.isVisible())) {
               await btn.click();
               generateClicked = true;
               break;

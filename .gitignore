@@ -54,3 +54,6 @@ venv/
 # MCP Registry tokens
 .mcpregistry_github_token
 .mcpregistry_registry_token
+
+# Local MCP dev config
+.mcp.json

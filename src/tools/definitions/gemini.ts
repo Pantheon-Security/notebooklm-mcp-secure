@@ -50,6 +50,11 @@ This runs in the background and can take 1-5 minutes to complete.
         default: 300,
         description: "Maximum wait time in seconds (default 5 min, max 10 min)",
       },
+      thinking_level: {
+        type: "string",
+        enum: ["minimal", "low", "medium", "high"],
+        description: "Controls thinking depth for research. Higher levels produce more thorough results.",
+      },
     },
     required: ["query"],
   },
@@ -89,9 +94,9 @@ Supports:
       },
       model: {
         type: "string",
-        enum: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-flash-preview"],
-        default: "gemini-2.5-flash",
-        description: "Model to use (flash is faster, pro is more capable)",
+        enum: ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
+        default: "gemini-3-flash-preview",
+        description: "Model to use. Gemini 3 recommended. Note: gemini-2.5-* models retire March 31, 2026.",
       },
       tools: {
         type: "array",
@@ -109,6 +114,15 @@ Supports:
       previous_interaction_id: {
         type: "string",
         description: "Continue a previous conversation (for multi-turn)",
+      },
+      thinking_level: {
+        type: "string",
+        enum: ["minimal", "low", "medium", "high"],
+        description: "Controls thinking depth. Higher levels produce more thorough but slower responses.",
+      },
+      response_schema: {
+        type: "object",
+        description: "JSON schema for structured output. When provided, Gemini returns valid JSON matching this schema. Example: { type: 'object', properties: { name: { type: 'string' }, score: { type: 'number' } }, required: ['name'] }",
       },
     },
     required: ["query"],
@@ -237,9 +251,9 @@ const queryDocumentTool: Tool = {
       },
       model: {
         type: "string",
-        enum: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-flash-preview"],
-        default: "gemini-2.5-flash",
-        description: "Model to use (flash is faster, pro is more capable)",
+        enum: ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
+        default: "gemini-3-flash-preview",
+        description: "Model to use. Gemini 3 recommended. Note: gemini-2.5-* models retire March 31, 2026.",
       },
       additional_files: {
         type: "array",
@@ -359,9 +373,9 @@ Call this tool with:
       },
       model: {
         type: "string",
-        enum: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-flash-preview"],
-        default: "gemini-2.5-flash",
-        description: "Model to use for querying and aggregation",
+        enum: ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
+        default: "gemini-3-flash-preview",
+        description: "Model to use for querying and aggregation. Note: gemini-2.5-* models retire March 31, 2026.",
       },
     },
     required: ["file_names", "query"],

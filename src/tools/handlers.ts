@@ -32,6 +32,8 @@ import { NotebookCreator } from "../notebook-creation/notebook-creator.js";
 import { NotebookSync, type SyncResult } from "../notebook-creation/notebook-sync.js";
 import { SourceManager, type ListSourcesResult, type AddSourceResult, type RemoveSourceResult } from "../notebook-creation/source-manager.js";
 import { AudioManager, type AudioStatus, type GenerateAudioResult, type DownloadAudioResult } from "../notebook-creation/audio-manager.js";
+import { VideoManager, type VideoStatus, type GenerateVideoResult, type VideoStyle, type VideoFormat } from "../notebook-creation/video-manager.js";
+import { DataTableManager, type GenerateDataTableResult, type GetDataTableResult } from "../notebook-creation/data-table-manager.js";
 import type { CreateNotebookInput, CreatedNotebook, NotebookSource } from "../notebook-creation/types.js";
 import { getWebhookDispatcher, type WebhookConfig, type WebhookStats } from "../webhooks/index.js";
 import type { EventType } from "../events/event-types.js";
@@ -2351,6 +2353,7 @@ export class ToolHandlers {
           answer,
           tokensUsed: interaction.usage?.totalTokens,
           durationMs,
+          ...(interaction.deprecationWarning && { deprecationWarning: interaction.deprecationWarning }),
         },
       };
     } catch (error) {
@@ -2373,6 +2376,8 @@ export class ToolHandlers {
     tools?: GeminiTool[];
     urls?: string[];
     previous_interaction_id?: string;
+    thinking_level?: "minimal" | "low" | "medium" | "high";
+    response_schema?: Record<string, unknown>;
   }): Promise<ToolResult<GeminiQueryResult>> {
     const startTime = Date.now();
     log.info(`🔧 [TOOL] gemini_query called`);
@@ -2413,12 +2418,23 @@ export class ToolHandlers {
         }
       }
 
+      // Build generationConfig from thinking_level and response_schema
+      const hasGenConfig = args.thinking_level || args.response_schema;
+      const generationConfig = hasGenConfig ? {
+        ...(args.thinking_level && { thinkingLevel: args.thinking_level }),
+        ...(args.response_schema && {
+          responseMimeType: "application/json" as const,
+          responseSchema: args.response_schema,
+        }),
+      } : undefined;
+
       const interaction = await this.geminiClient.query({
         query: args.query,
         model: args.model,
         tools,
         urls: args.urls,
         previousInteractionId: args.previous_interaction_id,
+        generationConfig,
       });
 
       const durationMs = Date.now() - startTime;
@@ -2449,6 +2465,7 @@ export class ToolHandlers {
           model: interaction.model || args.model || CONFIG.geminiDefaultModel,
           tokensUsed: interaction.usage?.totalTokens,
           toolsUsed: toolsUsed.length > 0 ? toolsUsed : undefined,
+          ...(interaction.deprecationWarning && { deprecationWarning: interaction.deprecationWarning }),
         },
       };
     } catch (error) {
@@ -3042,6 +3059,263 @@ export class ToolHandlers {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       log.error(`❌ [TOOL] get_notebook_chat_history failed: ${errorMessage}`);
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  // ==================== VIDEO OVERVIEW ====================
+
+  /**
+   * Handle generate_video_overview tool
+   *
+   * Generates a Video Overview via the Studio panel in NotebookLM.
+   */
+  async handleGenerateVideoOverview(args: {
+    notebook_id?: string;
+    notebook_url?: string;
+    style?: VideoStyle;
+    format?: VideoFormat;
+  }): Promise<ToolResult<GenerateVideoResult>> {
+    log.info(`🔧 [TOOL] generate_video_overview called`);
+
+    try {
+      // Resolve notebook URL
+      let notebookUrl = args.notebook_url;
+
+      if (!notebookUrl && args.notebook_id) {
+        const notebook = this.library.getNotebook(args.notebook_id);
+        if (!notebook) {
+          throw new Error(`Notebook not found in library: ${args.notebook_id}`);
+        }
+        notebookUrl = notebook.url;
+        log.info(`  Resolved notebook: ${notebook.name}`);
+      } else if (!notebookUrl) {
+        const active = this.library.getActiveNotebook();
+        if (active) {
+          notebookUrl = active.url;
+          log.info(`  Using active notebook: ${active.name}`);
+        } else {
+          throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
+        }
+      }
+
+      // Validate URL
+      const safeUrl = validateNotebookUrl(notebookUrl);
+
+      // Get the shared context manager from session manager
+      const contextManager = this.sessionManager.getContextManager();
+
+      // Generate video
+      const videoManager = new VideoManager(this.authManager, contextManager);
+      const result = await videoManager.generateVideoOverview(
+        safeUrl,
+        args.style || "auto-select",
+        args.format || "explainer"
+      );
+
+      if (result.success) {
+        log.success(`✅ [TOOL] generate_video_overview completed (status: ${result.status.status})`);
+      } else {
+        log.warning(`⚠️ [TOOL] generate_video_overview: ${result.error}`);
+      }
+
+      return {
+        success: result.success,
+        data: result,
+        ...(result.error && { error: result.error }),
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] generate_video_overview failed: ${errorMessage}`);
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Handle get_video_status tool
+   *
+   * Checks the video generation status for a notebook.
+   */
+  async handleGetVideoStatus(args: {
+    notebook_id?: string;
+    notebook_url?: string;
+  }): Promise<ToolResult<VideoStatus>> {
+    log.info(`🔧 [TOOL] get_video_status called`);
+
+    try {
+      // Resolve notebook URL
+      let notebookUrl = args.notebook_url;
+
+      if (!notebookUrl && args.notebook_id) {
+        const notebook = this.library.getNotebook(args.notebook_id);
+        if (!notebook) {
+          throw new Error(`Notebook not found in library: ${args.notebook_id}`);
+        }
+        notebookUrl = notebook.url;
+        log.info(`  Resolved notebook: ${notebook.name}`);
+      } else if (!notebookUrl) {
+        const active = this.library.getActiveNotebook();
+        if (active) {
+          notebookUrl = active.url;
+          log.info(`  Using active notebook: ${active.name}`);
+        } else {
+          throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
+        }
+      }
+
+      // Validate URL
+      const safeUrl = validateNotebookUrl(notebookUrl);
+
+      // Get the shared context manager from session manager
+      const contextManager = this.sessionManager.getContextManager();
+
+      // Get status
+      const videoManager = new VideoManager(this.authManager, contextManager);
+      const status = await videoManager.getVideoStatus(safeUrl);
+
+      log.success(`✅ [TOOL] get_video_status completed (status: ${status.status})`);
+
+      return {
+        success: true,
+        data: status,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] get_video_status failed: ${errorMessage}`);
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  // ==================== DATA TABLES ====================
+
+  /**
+   * Handle generate_data_table tool
+   *
+   * Generates a structured Data Table via the Studio panel in NotebookLM.
+   */
+  async handleGenerateDataTable(args: {
+    notebook_id?: string;
+    notebook_url?: string;
+  }): Promise<ToolResult<GenerateDataTableResult>> {
+    log.info(`🔧 [TOOL] generate_data_table called`);
+
+    try {
+      // Resolve notebook URL
+      let notebookUrl = args.notebook_url;
+
+      if (!notebookUrl && args.notebook_id) {
+        const notebook = this.library.getNotebook(args.notebook_id);
+        if (!notebook) {
+          throw new Error(`Notebook not found in library: ${args.notebook_id}`);
+        }
+        notebookUrl = notebook.url;
+        log.info(`  Resolved notebook: ${notebook.name}`);
+      } else if (!notebookUrl) {
+        const active = this.library.getActiveNotebook();
+        if (active) {
+          notebookUrl = active.url;
+          log.info(`  Using active notebook: ${active.name}`);
+        } else {
+          throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
+        }
+      }
+
+      // Validate URL
+      const safeUrl = validateNotebookUrl(notebookUrl);
+
+      // Get the shared context manager from session manager
+      const contextManager = this.sessionManager.getContextManager();
+
+      // Generate data table
+      const dataTableManager = new DataTableManager(this.authManager, contextManager);
+      const result = await dataTableManager.generateDataTable(safeUrl);
+
+      if (result.success) {
+        log.success(`✅ [TOOL] generate_data_table completed (status: ${result.status.status})`);
+      } else {
+        log.warning(`⚠️ [TOOL] generate_data_table: ${result.error}`);
+      }
+
+      return {
+        success: result.success,
+        data: result,
+        ...(result.error && { error: result.error }),
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] generate_data_table failed: ${errorMessage}`);
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Handle get_data_table tool
+   *
+   * Extracts the generated Data Table content from a notebook.
+   */
+  async handleGetDataTable(args: {
+    notebook_id?: string;
+    notebook_url?: string;
+  }): Promise<ToolResult<GetDataTableResult>> {
+    log.info(`🔧 [TOOL] get_data_table called`);
+
+    try {
+      // Resolve notebook URL
+      let notebookUrl = args.notebook_url;
+
+      if (!notebookUrl && args.notebook_id) {
+        const notebook = this.library.getNotebook(args.notebook_id);
+        if (!notebook) {
+          throw new Error(`Notebook not found in library: ${args.notebook_id}`);
+        }
+        notebookUrl = notebook.url;
+        log.info(`  Resolved notebook: ${notebook.name}`);
+      } else if (!notebookUrl) {
+        const active = this.library.getActiveNotebook();
+        if (active) {
+          notebookUrl = active.url;
+          log.info(`  Using active notebook: ${active.name}`);
+        } else {
+          throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
+        }
+      }
+
+      // Validate URL
+      const safeUrl = validateNotebookUrl(notebookUrl);
+
+      // Get the shared context manager from session manager
+      const contextManager = this.sessionManager.getContextManager();
+
+      // Get data table
+      const dataTableManager = new DataTableManager(this.authManager, contextManager);
+      const result = await dataTableManager.getDataTable(safeUrl);
+
+      if (result.success) {
+        log.success(`✅ [TOOL] get_data_table completed (${result.table?.totalRows} rows x ${result.table?.totalColumns} cols)`);
+      } else {
+        log.warning(`⚠️ [TOOL] get_data_table: ${result.error}`);
+      }
+
+      return {
+        success: result.success,
+        data: result,
+        ...(result.error && { error: result.error }),
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] get_data_table failed: ${errorMessage}`);
       return {
         success: false,
         error: errorMessage,

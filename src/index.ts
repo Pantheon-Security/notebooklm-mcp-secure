@@ -3,7 +3,7 @@
 /**
  * NotebookLM MCP Server
  *
- * MCP Server for Google NotebookLM - Chat with Gemini 2.5 through NotebookLM
+ * MCP Server for Google NotebookLM - Chat with Gemini 3 through NotebookLM
  * with session support and human-like behavior!
  *
  * Features:
@@ -397,6 +397,37 @@ class NotebookLMMCPServer {
             );
             break;
 
+          // Video Overview tools
+          case "generate_video_overview":
+            result = await this.toolHandlers.handleGenerateVideoOverview(
+              args as {
+                notebook_id?: string;
+                notebook_url?: string;
+                style?: import("./notebook-creation/video-manager.js").VideoStyle;
+                format?: import("./notebook-creation/video-manager.js").VideoFormat;
+              }
+            );
+            break;
+
+          case "get_video_status":
+            result = await this.toolHandlers.handleGetVideoStatus(
+              args as { notebook_id?: string; notebook_url?: string }
+            );
+            break;
+
+          // Data Table tools
+          case "generate_data_table":
+            result = await this.toolHandlers.handleGenerateDataTable(
+              args as { notebook_id?: string; notebook_url?: string }
+            );
+            break;
+
+          case "get_data_table":
+            result = await this.toolHandlers.handleGetDataTable(
+              args as { notebook_id?: string; notebook_url?: string }
+            );
+            break;
+
           case "configure_webhook":
             result = await this.toolHandlers.handleConfigureWebhook(
               args as {
@@ -447,6 +478,8 @@ class NotebookLMMCPServer {
               tools: (args as { tools?: string[] }).tools as import("./gemini/types.js").GeminiTool[] | undefined,
               urls: (args as { urls?: string[] }).urls,
               previous_interaction_id: (args as { previous_interaction_id?: string }).previous_interaction_id,
+              thinking_level: (args as { thinking_level?: string }).thinking_level as "minimal" | "low" | "medium" | "high" | undefined,
+              response_schema: (args as { response_schema?: Record<string, unknown> }).response_schema,
             });
             break;
 
@@ -707,7 +740,7 @@ async function main() {
   console.error("║                                                          ║");
   console.error(`║           NotebookLM MCP Server v${VERSION.padEnd(23)}║`);
   console.error("║                                                          ║");
-  console.error("║   Chat with Gemini 2.5 through NotebookLM via MCP       ║");
+  console.error("║   Chat with Gemini 3 through NotebookLM via MCP         ║");
   console.error("║                                                          ║");
   console.error("╚══════════════════════════════════════════════════════════╝");
   console.error("");

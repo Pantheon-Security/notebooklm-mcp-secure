@@ -43,7 +43,11 @@ const PROFILES: Record<ProfileName, string[]> = {
     "list_sessions",
     "add_notebook",
     "update_notebook",
-    "search_notebooks"
+    "search_notebooks",
+    "generate_video_overview",
+    "get_video_status",
+    "generate_data_table",
+    "get_data_table"
   ],
   full: ["*"] // All tools
 };

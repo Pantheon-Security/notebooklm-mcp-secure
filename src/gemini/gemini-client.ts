@@ -62,8 +62,14 @@ export class GeminiClient {
       throw new Error("Gemini API key not configured. Set GEMINI_API_KEY environment variable.");
     }
 
-    const model = options.model || CONFIG.geminiDefaultModel || "gemini-2.5-flash";
+    const model = options.model || CONFIG.geminiDefaultModel || "gemini-3-flash-preview";
     log.info(`Gemini query to ${model}: ${options.query.substring(0, 50)}...`);
+
+    // Check for deprecated model
+    const deprecationWarning = this.getDeprecationWarning(model);
+    if (deprecationWarning) {
+      log.warning(`[DEPRECATION] ${deprecationWarning}`);
+    }
 
     try {
       // Build tools array - use 'as any' to bypass strict SDK typing
@@ -93,15 +99,36 @@ export class GeminiClient {
           temperature: options.generationConfig.temperature,
           maxOutputTokens: options.generationConfig.maxOutputTokens,
           thinkingLevel: options.generationConfig.thinkingLevel,
+          ...(options.generationConfig.responseMimeType && {
+            responseMimeType: options.generationConfig.responseMimeType,
+          }),
+          ...(options.generationConfig.responseSchema && {
+            responseSchema: options.generationConfig.responseSchema,
+          }),
         } : undefined,
       });
 
-      return this.mapInteraction(response);
+      const interaction = this.mapInteraction(response);
+      if (deprecationWarning) {
+        interaction.deprecationWarning = deprecationWarning;
+      }
+      return interaction;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       log.error(`Gemini query failed: ${msg}`);
       throw error;
     }
+  }
+
+  /**
+   * Check if a model is deprecated and return a warning message
+   */
+  private getDeprecationWarning(model: string): string | null {
+    const DEPRECATED_MODELS: Record<string, string> = {
+      "gemini-2.5-flash": "gemini-2.5-flash is retiring March 31, 2026. Migrate to gemini-3-flash-preview.",
+      "gemini-2.5-pro": "gemini-2.5-pro is retiring March 31, 2026. Migrate to gemini-3-pro-preview.",
+    };
+    return DEPRECATED_MODELS[model] || null;
   }
 
   /**
@@ -200,6 +227,14 @@ export class GeminiClient {
           await progressCallback("Research complete", 100, 100);
         }
         log.success(`Research completed in ${elapsed}s`);
+        return interaction;
+      }
+
+      if (interaction.status === "incomplete") {
+        if (progressCallback) {
+          await progressCallback("Research completed with partial results", 100, 100);
+        }
+        log.warning(`Research incomplete after ${elapsed}s (partial results)`);
         return interaction;
       }
 

@@ -17,7 +17,8 @@ export type GeminiTool = "google_search" | "code_execution" | "url_context";
 export type GeminiModel =
   | "gemini-2.5-flash"
   | "gemini-2.5-pro"
-  | "gemini-3-flash-preview";
+  | "gemini-3-flash-preview"
+  | "gemini-3-pro-preview";
 
 /**
  * Deep Research agent ID
@@ -30,7 +31,7 @@ export const DEEP_RESEARCH_AGENT = "deep-research-pro-preview-12-2025";
 export interface GeminiQueryOptions {
   /** The query/prompt to send */
   query: string;
-  /** Model to use (default: gemini-2.5-flash) */
+  /** Model to use (default: gemini-3-flash-preview) */
   model?: GeminiModel;
   /** Built-in tools to enable */
   tools?: GeminiTool[];
@@ -54,6 +55,10 @@ export interface GeminiGenerationConfig {
   maxOutputTokens?: number;
   /** Thinking level: minimal, low, medium, high */
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
+  /** Response MIME type for structured output */
+  responseMimeType?: string;
+  /** JSON schema for structured output (requires responseMimeType: "application/json") */
+  responseSchema?: Record<string, unknown>;
 }
 
 /**
@@ -75,7 +80,7 @@ export interface DeepResearchOptions {
 /**
  * Interaction status
  */
-export type InteractionStatus = "pending" | "running" | "completed" | "failed";
+export type InteractionStatus = "pending" | "running" | "completed" | "failed" | "incomplete";
 
 /**
  * Output types from Gemini
@@ -113,6 +118,8 @@ export interface GeminiInteraction {
   };
   /** Error message (if failed) */
   error?: string;
+  /** Deprecation warning if using a retiring model */
+  deprecationWarning?: string;
 }
 
 /**
@@ -147,6 +154,8 @@ export interface GeminiQueryResult {
   tokensUsed?: number;
   /** Tools that were used */
   toolsUsed?: string[];
+  /** Deprecation warning if model is retiring */
+  deprecationWarning?: string;
 }
 
 // =============================================================================
@@ -202,7 +211,7 @@ export interface QueryDocumentOptions {
   fileName: string;
   /** The question to ask about the document */
   query: string;
-  /** Model to use (default: gemini-2.5-flash) */
+  /** Model to use (default: gemini-3-flash-preview) */
   model?: GeminiModel;
   /** Additional files to include in query */
   additionalFiles?: string[];

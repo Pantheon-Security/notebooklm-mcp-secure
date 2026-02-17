@@ -143,7 +143,7 @@ const DEFAULTS: Config = {
 
   // Gemini API defaults
   geminiApiKey: null,
-  geminiDefaultModel: "gemini-2.5-flash",
+  geminiDefaultModel: "gemini-3-flash-preview",
   geminiDeepResearchEnabled: true,
   geminiTimeoutMs: 30000,
 

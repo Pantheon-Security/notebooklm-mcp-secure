@@ -231,6 +231,54 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   },
 
   // ==========================================================================
+  // Video
+  // ==========================================================================
+  generate_video_overview: {
+    title: "Generate Video",
+    annotations: {
+      title: "Generate Video Overview",
+      readOnlyHint: false, // Creates video
+      destructiveHint: false,
+      idempotentHint: false, // Regenerates each time
+      openWorldHint: true,
+    },
+  },
+  get_video_status: {
+    title: "Video Status",
+    annotations: {
+      title: "Check Video Generation Status",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+
+  // ==========================================================================
+  // Data Tables
+  // ==========================================================================
+  generate_data_table: {
+    title: "Generate Table",
+    annotations: {
+      title: "Generate Data Table",
+      readOnlyHint: false, // Creates table
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  get_data_table: {
+    title: "Get Table",
+    annotations: {
+      title: "Extract Data Table Content",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+
+  // ==========================================================================
   // Session Management
   // ==========================================================================
   list_sessions: {

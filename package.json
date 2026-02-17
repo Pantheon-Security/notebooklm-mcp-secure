@@ -1,6 +1,6 @@
 {
   "name": "@pan-sec/notebooklm-mcp",
-  "version": "2026.1.12",
+  "version": "2026.2.0",
   "mcpName": "io.github.Pantheon-Security/notebooklm-mcp-secure",
   "description": "Security-hardened MCP server for NotebookLM API with enterprise compliance (GDPR, SOC2, CSSF)",
   "type": "module",
@@ -55,7 +55,7 @@
     "docs"
   ],
   "dependencies": {
-    "@google/genai": "^1.38.0",
+    "@google/genai": "^1.41.0",
     "@modelcontextprotocol/sdk": "^1.25.3",
     "@noble/post-quantum": "^0.5.4",
     "dotenv": "^17.2.3",

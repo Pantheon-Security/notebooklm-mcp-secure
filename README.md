@@ -42,10 +42,11 @@
 
 ## 🚀 What's New in 2026
 
-**Latest: v2026.1.12** — Major security hardening from code review and Medusa scan remediation
+**Latest: v2026.2.0** — Gemini 3 models, Video Overviews, Data Tables, thinking level control, structured JSON output
 
 | Version | Highlights |
 |---------|------------|
+| **v2026.2.0** | Gemini 3 models (2.5 retiring March 31), Video Overviews, Data Tables, thinking level, structured JSON, SDK 1.41 |
 | **v2026.1.12** | Security hardening: constant-time auth, command injection fix, memory leak fixes, MCP SDK 1.26.0 |
 | **v2026.1.11** | Notebook sync extraction for new Angular UI, `NOTEBOOKLM_NO_GEMINI` env var |
 | **v2026.1.10** | Tool description clarity for multi-LLM compatibility |
@@ -74,7 +75,7 @@ claude mcp add notebooklm -- npx @pan-sec/notebooklm-mcp@latest
 | Deep health verification | ❌ | ✅ **NEW** |
 
 <details>
-<summary><b>📋 Full Feature List (43 Tools)</b></summary>
+<summary><b>📋 Full Feature List (47 Tools)</b></summary>
 
 #### Core NotebookLM (No API Key Required)
 | Tool | Description |
@@ -94,6 +95,10 @@ claude mcp add notebooklm -- npx @pan-sec/notebooklm-mcp@latest
 | `generate_audio_overview` | Create podcast-style audio |
 | `get_audio_status` | Check audio generation status |
 | `download_audio` | Download generated audio |
+| `generate_video_overview` | Create AI video overview (6 styles) |
+| `get_video_status` | Check video generation status |
+| `generate_data_table` | Generate structured data table |
+| `get_data_table` | Extract data table as JSON |
 | `list_sessions` | List active sessions |
 | `close_session` | Close a session |
 | `reset_session` | Reset session history |
@@ -1014,6 +1019,7 @@ Or integrate in CI/CD:
 
 | Version | Highlights |
 |---------|------------|
+| **v2026.2.0** | Gemini 3 models, Video Overviews, Data Tables, thinking level control, structured JSON output, SDK 1.41 |
 | **v2026.1.12** | 🔒 Security hardening — timing attack fix, command injection fix, 6 memory leak fixes, MCP SDK 1.26.0 |
 | **v2026.1.11** | 🔄 Notebook sync extraction for Angular UI, `NOTEBOOKLM_NO_GEMINI` env var |
 | **v2026.1.10** | 📝 Tool descriptions clarified for multi-LLM compatibility (OpenCode fix) |
