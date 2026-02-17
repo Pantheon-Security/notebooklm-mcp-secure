@@ -42,10 +42,14 @@
 
 ## 🚀 What's New in 2026
 
-**Latest: v2026.1.8** — Updated dependencies, post-quantum crypto improvements
+**Latest: v2026.1.12** — Major security hardening from code review and Medusa scan remediation
 
 | Version | Highlights |
 |---------|------------|
+| **v2026.1.12** | Security hardening: constant-time auth, command injection fix, memory leak fixes, MCP SDK 1.26.0 |
+| **v2026.1.11** | Notebook sync extraction for new Angular UI, `NOTEBOOKLM_NO_GEMINI` env var |
+| **v2026.1.10** | Tool description clarity for multi-LLM compatibility |
+| **v2026.1.9** | Documentation & UX improvements, npm audit fix |
 | **v2026.1.8** | Major dependency updates (zod 4.x, dotenv 17.x, post-quantum 0.5.4) |
 | **v2026.1.7** | MCP Protocol UX: tool icons, human-friendly titles, behavior annotations |
 | **v2026.1.4** | Defense-in-depth path validation, security hardening |
@@ -1010,6 +1014,14 @@ Or integrate in CI/CD:
 
 | Version | Highlights |
 |---------|------------|
+| **v2026.1.12** | 🔒 Security hardening — timing attack fix, command injection fix, 6 memory leak fixes, MCP SDK 1.26.0 |
+| **v2026.1.11** | 🔄 Notebook sync extraction for Angular UI, `NOTEBOOKLM_NO_GEMINI` env var |
+| **v2026.1.10** | 📝 Tool descriptions clarified for multi-LLM compatibility (OpenCode fix) |
+| **v2026.1.9** | 📄 Documentation & UX improvements, npm audit fix |
+| **v2026.1.8** | 📦 Major dependency updates (zod 4.x, dotenv 17.x, post-quantum 0.5.4) |
+| **v2026.1.7** | 🎨 MCP Protocol UX — tool icons, titles, behavior annotations |
+| **v2026.1.4** | 🛡️ Defense-in-depth path validation, security hardening |
+| **v2026.1.2** | 🔗 Multi-session auth coordination — lock system for concurrent sessions |
 | **v2026.1.1** | 🔍 Deep health check — verifies NotebookLM chat UI actually loads |
 | **v2026.1.0** | 📊 Chat history extraction with context management, CalVer versioning |
 | **v1.10.8** | Query history logging, quota tracking |
