@@ -32,7 +32,9 @@
 - 🔍 **Query your NotebookLM notebooks** — source-grounded, zero-hallucination answers
 - 📚 **Create & manage notebooks programmatically** — no manual clicking
 - 🎙️ **Generate audio overviews** — podcast-style summaries of your docs
-- 🔬 **Gemini Deep Research** — comprehensive multi-source research (optional API)
+- 🎬 **Generate video overviews** — AI video summaries with 10 visual styles **NEW**
+- 📊 **Extract data tables** — structured JSON from notebook sources **NEW**
+- 🔬 **Gemini 3 + Deep Research** — latest models with thinking control (optional API) **NEW**
 - 📄 **Document API** — upload & query PDFs without browser (optional API)
 - 🔐 **14 security layers** — post-quantum encryption, audit logs, secrets scanning
 - ✅ **Enterprise compliance** — GDPR, SOC2, CSSF ready
@@ -71,8 +73,10 @@ claude mcp add notebooklm -- npx @pan-sec/notebooklm-mcp@latest
 | Document API (no browser) | ❌ | ✅ **EXCLUSIVE** |
 | Post-quantum encryption | ❌ | ✅ **Future-proof** |
 | Enterprise compliance | ❌ | ✅ **GDPR/SOC2/CSSF** |
-| Chat history extraction | ❌ | ✅ **NEW** |
-| Deep health verification | ❌ | ✅ **NEW** |
+| Video Overview generation | ❌ | ✅ **NEW** |
+| Data Table extraction | ❌ | ✅ **NEW** |
+| Chat history extraction | ❌ | ✅ |
+| Deep health verification | ❌ | ✅ |
 
 <details>
 <summary><b>📋 Full Feature List (47 Tools)</b></summary>
@@ -95,7 +99,7 @@ claude mcp add notebooklm -- npx @pan-sec/notebooklm-mcp@latest
 | `generate_audio_overview` | Create podcast-style audio |
 | `get_audio_status` | Check audio generation status |
 | `download_audio` | Download generated audio |
-| `generate_video_overview` | Create AI video overview (6 styles) |
+| `generate_video_overview` | Create AI video overview (10 styles) |
 | `get_video_status` | Check video generation status |
 | `generate_data_table` | Generate structured data table |
 | `get_data_table` | Extract data table as JSON |
@@ -179,7 +183,7 @@ v1.8.0 introduces the **Gemini Interactions API** as a stable, API-based researc
 - **Google Search grounding** — Current information, not just training data
 - **Code execution** — Run calculations, data analysis
 - **URL context** — Analyze web pages on demand
-- Models: `gemini-2.5-flash` (fast), `gemini-2.5-pro` (powerful), `gemini-3-flash-preview` (latest)
+- Models: `gemini-3-flash-preview` (default), `gemini-3-pro-preview` (powerful), `gemini-2.5-flash` (legacy)
 
 #### `get_research_status` — Background Task Monitoring
 
@@ -194,7 +198,7 @@ Run deep research in the background and check progress:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                      NotebookLM MCP Server v2026.1.x                         │
+│                      NotebookLM MCP Server v2026.2.x                         │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌────────────────────────────────┐    ┌──────────────────────────────────┐  │
@@ -211,7 +215,9 @@ Run deep research in the background and check progress:
 │  │  • batch_create_notebooks      │    │  • upload_document               │  │
 │  │  • manage_sources              │    │  • query_document                │  │
 │  │  • generate_audio              │    │  • query_chunked_document        │  │
-│  │  • sync_notebook               │    │  • list/delete_document          │  │
+│  │  • generate_video_overview     │    │  • list/delete_document          │  │
+│  │  • generate_data_table         │    │                                  │  │
+│  │  • sync_notebook               │    │                                  │  │
 │  │                                │    │                                  │  │
 │  │  HEALTH & SESSIONS     v2026   │    │                                  │  │
 │  │  • get_health (deep_check)     │    │  Fast API • 48h retention        │  │
@@ -236,9 +242,9 @@ Run deep research in the background and check progress:
 GEMINI_API_KEY=your-api-key          # Get from https://aistudio.google.com/apikey
 
 # Optional settings
-GEMINI_DEFAULT_MODEL=gemini-2.5-flash    # Default model
-GEMINI_DEEP_RESEARCH_ENABLED=true        # Enable Deep Research
-GEMINI_TIMEOUT_MS=30000                  # API timeout
+GEMINI_DEFAULT_MODEL=gemini-3-flash-preview  # Default model (was gemini-2.5-flash)
+GEMINI_DEEP_RESEARCH_ENABLED=true            # Enable Deep Research
+GEMINI_TIMEOUT_MS=30000                      # API timeout
 ```
 
 ### When to Use Which
@@ -474,6 +480,80 @@ Sync notebook sources from a local directory:
 
 ---
 
+## 🎬 Video Overviews & Data Tables (v2026.2.0)
+
+**Generate AI-powered visual summaries and extract structured data from any notebook — all programmatically.**
+
+NotebookLM's Studio panel now offers Video Overviews and Data Tables alongside Audio Overviews. This release brings full automation for both.
+
+### `generate_video_overview` — AI Video Summaries
+
+Generate visual video overviews of your notebook content with **10 visual styles**:
+
+| Style | Description |
+|-------|-------------|
+| `auto-select` | Let NotebookLM choose the best style (default) |
+| `classic` | Clean presentation style |
+| `whiteboard` | Hand-drawn whiteboard aesthetic |
+| `kawaii` | Cute illustrated style |
+| `anime` | Anime-inspired visuals |
+| `watercolour` | Watercolour painting style |
+| `retro-print` | Retro print aesthetic |
+| `heritage` | Traditional heritage style |
+| `paper-craft` | Paper-craft visual style |
+| `custom` | Custom visual style |
+
+**Two formats:**
+- **Explainer** — Full explanation (5-15 min)
+- **Brief** — Quick summary (1-3 min)
+
+```
+"Generate a kawaii-style brief video overview for my Security Research notebook"
+```
+
+### `get_video_status` — Check Generation Progress
+
+Video generation takes 3-10 minutes. Check progress:
+
+```
+"Check video status for my Security Research notebook"
+→ { "status": "generating", "progress": 0 }
+→ { "status": "ready" }
+```
+
+### `generate_data_table` — Structured Data Extraction
+
+Generate a structured table from your notebook sources. NotebookLM extracts key information into rows and columns:
+
+```
+"Generate a data table for my research notebook"
+```
+
+### `get_data_table` — Extract Table as JSON
+
+Extract the generated table as structured JSON for processing:
+
+```
+"Get the data table from my research notebook"
+→ {
+    "headers": ["Title", "Year", "Key Finding", "Methodology", ...],
+    "rows": [["Paper A", "2025", "Finding X", "Survey", ...], ...],
+    "totalRows": 27,
+    "totalColumns": 7
+  }
+```
+
+### When to Use Which Studio Feature
+
+| Task | Best Tool | Why |
+|------|-----------|-----|
+| Podcast-style audio summary | `generate_audio_overview` | Shareable audio content |
+| Visual presentation of research | `generate_video_overview` | Engaging video summary |
+| Structured data for analysis | `generate_data_table` + `get_data_table` | Machine-readable JSON |
+| Quick status check | `get_audio_status` / `get_video_status` | Non-blocking progress |
+
+---
+
 ## 📊 Query History & Chat Extraction (v2026.1.0)
 
 **Track your research and recover conversations from NotebookLM notebooks.**
@@ -631,6 +711,8 @@ All core NotebookLM features work immediately with just browser authentication:
 | 🔍 Query notebooks | `ask_question` | Get source-grounded answers from your documents |
 | 📚 Manage library | `add_notebook`, `list_notebooks`, etc. | Organize your notebook collection |
 | 🎙️ Audio overviews | `generate_audio_overview` | Create podcast-style summaries |
+| 🎬 Video overviews | `generate_video_overview` | AI video summaries with 10 visual styles **NEW** |
+| 📊 Data tables | `generate_data_table`, `get_data_table` | Structured data extraction as JSON **NEW** |
 | 📝 Create notebooks | `create_notebook` | Programmatically create new notebooks |
 | 🔄 Session management | `list_sessions`, `reset_session` | Manage conversation context |
 | 📊 Chat history | `get_notebook_chat_history` | Extract past conversations |
@@ -859,6 +941,14 @@ Go to [notebooklm.google.com](https://notebooklm.google.com) → Create notebook
 | `generate_audio` | Create Audio Overview |
 | `sync_notebook` | Sync sources from local files |
 
+### Studio Features (v2026.2.0)
+| Tool | Description |
+|------|-------------|
+| `generate_video_overview` | Create AI video overview (10 visual styles, 2 formats) |
+| `get_video_status` | Check video generation progress |
+| `generate_data_table` | Generate structured data table from sources |
+| `get_data_table` | Extract data table as JSON (headers + rows) |
+
 ### Session & System
 | Tool | Description |
 |------|-------------|
@@ -904,7 +994,7 @@ NLMCP_AUTH_TOKEN=your-secret-token
 
 # Gemini API (v1.8.0+)
 GEMINI_API_KEY=your-api-key
-GEMINI_DEFAULT_MODEL=gemini-2.5-flash
+GEMINI_DEFAULT_MODEL=gemini-3-flash-preview  # Default (was gemini-2.5-flash)
 GEMINI_DEEP_RESEARCH_ENABLED=true
 GEMINI_TIMEOUT_MS=30000
 NOTEBOOKLM_NO_GEMINI=false       # Set to true to disable all Gemini tools
@@ -993,6 +1083,10 @@ Or integrate in CI/CD:
 | **Quota Management** | ❌ | ✅ |
 | Source Management (add/remove) | ❌ | ✅ |
 | Audio Overview Generation | ❌ | ✅ |
+| **Video Overview Generation (10 styles)** | ❌ | ✅ **NEW** |
+| **Data Table Extraction (JSON)** | ❌ | ✅ **NEW** |
+| **Gemini 3 + Thinking Control** | ❌ | ✅ **NEW** |
+| **Structured JSON Output** | ❌ | ✅ **NEW** |
 | Sync from Local Directories | ❌ | ✅ |
 
 ### Security & Compliance (Unique to This Fork)
@@ -1019,7 +1113,7 @@ Or integrate in CI/CD:
 
 | Version | Highlights |
 |---------|------------|
-| **v2026.2.0** | Gemini 3 models, Video Overviews, Data Tables, thinking level control, structured JSON output, SDK 1.41 |
+| **v2026.2.0** | 🚀 Gemini 3 models (2.5 retiring March 31), Video Overviews (10 styles), Data Table extraction (JSON), thinking level control, structured JSON output, SDK 1.41 |
 | **v2026.1.12** | 🔒 Security hardening — timing attack fix, command injection fix, 6 memory leak fixes, MCP SDK 1.26.0 |
 | **v2026.1.11** | 🔄 Notebook sync extraction for Angular UI, `NOTEBOOKLM_NO_GEMINI` env var |
 | **v2026.1.10** | 📝 Tool descriptions clarified for multi-LLM compatibility (OpenCode fix) |
@@ -1066,7 +1160,7 @@ MIT — Same as original.
 
 **Security hardened with 🔒 by [Pantheon Security](https://pantheonsecurity.io)**
 
-**Powered by Google Gemini 🚀**
+**Powered by Google Gemini 3 🚀**
 
 [Full Security Documentation](./SECURITY.md) • [Compliance Guide](./docs/COMPLIANCE-SPEC.md) • [Report Vulnerability](mailto:support@pantheonsecurity.io)
 

@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added — Video Overview Generation
 - **`generate_video_overview`** — Generate AI-powered Video Overviews through NotebookLM's Studio panel
 - **`get_video_status`** — Check Video Overview generation progress
-- 6 visual styles: whiteboard, classroom, abstract, documentary, corporate, casual
+- 10 visual styles: auto-select, custom, classic, whiteboard, kawaii, anime, watercolour, retro-print, heritage, paper-craft
 - 2 formats: explainer (full, 5-15 min) and brief (summary, 1-3 min)
 
 ### Added — Data Table Extraction
