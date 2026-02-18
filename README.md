@@ -44,10 +44,11 @@
 
 ## 🚀 What's New in 2026
 
-**Latest: v2026.2.0** — Gemini 3 models, Video Overviews, Data Tables, thinking level control, structured JSON output
+**Latest: v2026.2.1** — Standard profile now exposes all key features (33 tools by default)
 
 | Version | Highlights |
 |---------|------------|
+| **v2026.2.1** | Standard profile expanded: 14 → 33 tools — notebook creation, audio, source management now visible by default |
 | **v2026.2.0** | Gemini 3 models (2.5 retiring March 31), Video Overviews, Data Tables, thinking level, structured JSON, SDK 1.41 |
 | **v2026.1.12** | Security hardening: constant-time auth, command injection fix, memory leak fixes, MCP SDK 1.26.0 |
 | **v2026.1.11** | Notebook sync extraction for new Angular UI, `NOTEBOOKLM_NO_GEMINI` env var |
@@ -999,6 +1000,10 @@ GEMINI_DEEP_RESEARCH_ENABLED=true
 GEMINI_TIMEOUT_MS=30000
 NOTEBOOKLM_NO_GEMINI=false       # Set to true to disable all Gemini tools
 
+# Tool Profiles
+NOTEBOOKLM_PROFILE=standard      # minimal (5 tools) | standard (33 tools) | full (all 47)
+NOTEBOOKLM_DISABLED_TOOLS=       # Comma-separated list of tools to hide
+
 # Encryption
 NLMCP_USE_POST_QUANTUM=true
 NLMCP_ENCRYPTION_KEY=base64-32-bytes  # Optional custom key
@@ -1113,6 +1118,7 @@ Or integrate in CI/CD:
 
 | Version | Highlights |
 |---------|------------|
+| **v2026.2.1** | 🔧 Standard profile expanded: 14 → 33 tools — all key features now visible by default |
 | **v2026.2.0** | 🚀 Gemini 3 models (2.5 retiring March 31), Video Overviews (10 styles), Data Table extraction (JSON), thinking level control, structured JSON output, SDK 1.41 |
 | **v2026.1.12** | 🔒 Security hardening — timing attack fix, command injection fix, 6 memory leak fixes, MCP SDK 1.26.0 |
 | **v2026.1.11** | 🔄 Notebook sync extraction for Angular UI, `NOTEBOOKLM_NO_GEMINI` env var |

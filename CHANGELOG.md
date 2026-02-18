@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.2.1] - 2026-02-18
+
+### Fixed — Standard Profile Missing Key Tools
+- **Standard profile expanded** from 14 to 33 tools — all browser-based features now visible by default
+- Previously hidden tools now in standard: `create_notebook`, `batch_create_notebooks`, `add_source`, `remove_source`, `list_sources`, `generate_audio_overview`, `get_audio_status`, `download_audio`, `sync_library`, `remove_notebook`, `get_notebook_chat_history`, `get_query_history`, `re_auth`, `close_session`, `reset_session`, `get_quota`, `cleanup_data`
+- **Root cause**: The `standard` profile was never updated as new features were added, so key advertised features (notebook creation, source management, audio) were only available with `NOTEBOOKLM_PROFILE=full`
+- Gemini API tools remain in `full` profile only — keeps standard aligned with the "no API key required" promise
+- Full profile (`NOTEBOOKLM_PROFILE=full`) still includes all 47 tools (adds Gemini API, webhooks, compliance, export)
+
 ## [2026.2.0] - 2026-02-17
 
 ### Added — Gemini 3 Model Support

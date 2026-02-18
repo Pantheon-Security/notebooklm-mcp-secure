@@ -34,20 +34,42 @@ const PROFILES: Record<ProfileName, string[]> = {
     "get_notebook" // Added as it is read-only and useful
   ],
   standard: [
+    // Query & research
     "ask_question",
-    "get_health",
+    "get_notebook_chat_history",
+    "get_query_history",
+    // Library management
     "list_notebooks",
     "select_notebook",
     "get_notebook",
-    "setup_auth",
-    "list_sessions",
     "add_notebook",
     "update_notebook",
+    "remove_notebook",
     "search_notebooks",
+    "sync_library",
+    // Notebook creation & source management
+    "create_notebook",
+    "batch_create_notebooks",
+    "list_sources",
+    "add_source",
+    "remove_source",
+    // Studio features (audio, video, data tables)
+    "generate_audio_overview",
+    "get_audio_status",
+    "download_audio",
     "generate_video_overview",
     "get_video_status",
     "generate_data_table",
-    "get_data_table"
+    "get_data_table",
+    // Session & system
+    "get_health",
+    "setup_auth",
+    "re_auth",
+    "list_sessions",
+    "close_session",
+    "reset_session",
+    "get_quota",
+    "cleanup_data"
   ],
   full: ["*"] // All tools
 };
