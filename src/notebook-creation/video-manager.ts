@@ -407,6 +407,41 @@ export class VideoManager {
       await this.ensureStudioPanelOpen(page);
       await randomDelay(500, 800);
 
+      // DEBUG: dump Studio panel area to help diagnose selector issues
+      const debugInfo = await page.evaluate(() => {
+        // @ts-expect-error - DOM types
+        const bodyHTML = document.body?.innerHTML || "";
+        // Extract anything that looks like it could be the studio toggle
+        const studioMatches: string[] = [];
+        // @ts-expect-error - DOM types
+        const allButtons = document.querySelectorAll("button, [role='button']");
+        for (const el of allButtons) {
+          const aria = (el as any).getAttribute("aria-label") || "";
+          const cls = (el as any).className || "";
+          const testid = (el as any).getAttribute("data-testid") || "";
+          if (
+            aria.toLowerCase().includes("studio") ||
+            cls.toLowerCase().includes("studio") ||
+            testid.toLowerCase().includes("studio") ||
+            aria.toLowerCase().includes("expand") ||
+            aria.toLowerCase().includes("collapse")
+          ) {
+            studioMatches.push(
+              `tag=${(el as any).tagName} aria-label="${aria}" class="${cls}" data-testid="${testid}"`
+            );
+          }
+        }
+        // Also check if .create-artifact-button-container is present
+        // @ts-expect-error - DOM types
+        const tilesPresent = !!document.querySelector(".create-artifact-button-container");
+        // @ts-expect-error - DOM types
+        const togglePresent = !!document.querySelector(".toggle-studio-panel-button");
+        return { studioMatches, tilesPresent, togglePresent };
+      });
+      log.info(`  [DEBUG] .toggle-studio-panel-button present: ${debugInfo.togglePresent}`);
+      log.info(`  [DEBUG] .create-artifact-button-container present: ${debugInfo.tilesPresent}`);
+      log.info(`  [DEBUG] Studio-related buttons found: ${JSON.stringify(debugInfo.studioMatches, null, 2)}`);
+
       const status = await this.checkVideoStatusInternal(page);
       log.info(`  Status: ${status.status}`);
       return status;
