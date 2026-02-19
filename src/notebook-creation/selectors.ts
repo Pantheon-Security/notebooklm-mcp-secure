@@ -35,41 +35,51 @@ export const NOTEBOOKLM_SELECTORS = {
   },
 
   /** Add source / Upload source button
-   * Discovered: aria="Add source" with class "add-source-button" */
+   * Discovered: aria="Add source" with class "add-source-button"
+   * Locale note: class selector is locale-independent; aria-label is English-only */
   addSourceButton: {
-    primary: 'button[aria-label="Add source"]',
+    primary: 'button.add-source-button',                          // Class: locale-independent
     fallbacks: [
-      'button.add-source-button',
-      'button[aria-label*="Add source"]',
-      'button[aria-label="Opens the upload source dialogue"]',
+      'button[aria-label="Add source"]',                          // English aria-label
+      'button[aria-label*="Add source"]',                         // English partial match
+      'button[aria-label="Opens the upload source dialogue"]',    // English full match
     ],
     confirmed: true, // December 2025 - Updated
   },
 
   /** URL/Discover sources option (for adding URLs)
-   * Discovered: "search_sparkDiscover sources" button */
+   * Discovered: "search_sparkDiscover sources" button
+   * Locale note: aria-label text is locale-dependent */
   urlSourceOption: {
-    primary: 'button[aria-label*="Discover"]',
-    fallbacks: [],
+    primary: 'button[class*="url-source"], button[class*="discover"]', // Class: locale-independent
+    fallbacks: [
+      'button[aria-label*="Discover"]',     // English aria-label
+      'button[aria-label*="URL" i]',        // "URL" is same in most languages
+      'mat-chip[value="url"]',              // Angular Material value attribute
+    ],
     confirmed: true, // December 2025
   },
 
-  /** Text/Paste source option */
+  /** Text/Paste source option
+   * Locale note: aria-label text is locale-dependent */
   textSourceOption: {
-    primary: 'button[aria-label*="Copied text"]',
+    primary: 'mat-chip[value="text"], button[value="text"]',     // Value attr: locale-independent
     fallbacks: [
-      'button[aria-label*="Paste"]',
-      'button[aria-label*="text" i]',
+      'button[aria-label*="Copied text"]',  // English aria-label
+      'button[aria-label*="Paste"]',        // English
+      'button[class*="text-source"]',       // Class: locale-independent
     ],
     confirmed: false,
   },
 
   /** File upload source option
-   * Discovered: aria="Upload sources from your computer" */
+   * Discovered: aria="Upload sources from your computer"
+   * Locale note: aria-label text is locale-dependent */
   fileSourceOption: {
-    primary: 'button[aria-label="Upload sources from your computer"]',
+    primary: 'button[class*="upload"], input[type="file"] + button', // Class: locale-independent
     fallbacks: [
-      'button[aria-label*="Upload"]',
+      'button[aria-label="Upload sources from your computer"]',   // English full match
+      'button[aria-label*="Upload"]',       // English partial match
       'span[role="button"]',
     ],
     confirmed: true, // December 2025

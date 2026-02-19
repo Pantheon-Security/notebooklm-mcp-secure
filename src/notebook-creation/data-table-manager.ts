@@ -138,7 +138,8 @@ export class DataTableManager {
         const title = (item as any).querySelector(".artifact-title");
         const titleText = title?.textContent?.trim() || "";
 
-        // Check if generating (shimmer-blue class or "Generating" in title)
+        // Check if generating — shimmer-blue class is locale-independent (primary);
+        // title text fallback is English-only ("Generating data table…")
         if ((item as any).classList.contains("shimmer-blue") || titleText.toLowerCase().includes("generating")) {
           return { status: "generating" as const, progress: 0 };
         }

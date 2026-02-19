@@ -147,16 +147,22 @@ export class VideoManager {
         const title = (item as any).querySelector(".artifact-title");
         const titleText = title?.textContent?.trim().toLowerCase() || "";
 
-        // Match video artifacts by icon or title
+        // Detect video artifacts using locale-independent signals first:
+        // - Ready: Material icon "subscriptions" (icon name, never translated)
+        // - Generating: Material icon "sync" + shimmer animation class (CSS, never translated)
+        // - English title fallback: won't match French "résumé vidéo" but kept for extra confidence
         const isVideoByIcon = iconText === "subscriptions";
-        const isVideoByTitle = titleText.includes("video overview");
-        const isGeneratingSync = iconText === "sync" && titleText.includes("video");
+        const isVideoGenerating = iconText === "sync" && (
+          (item as any).classList.contains("shimmer-green") ||
+          (item as any).classList.contains("shimmer-blue")
+        );
+        const isVideoByTitle = titleText.includes("video overview"); // English fallback only
 
-        if (!isVideoByIcon && !isVideoByTitle && !isGeneratingSync) continue;
+        if (!isVideoByIcon && !isVideoGenerating && !isVideoByTitle) continue;
 
-        // Found a video artifact — check if still generating
+        // Determine generating vs ready state — class checks are locale-independent
         if (
-          titleText.includes("generating") ||
+          isVideoGenerating ||
           iconText === "sync" ||
           (item as any).classList.contains("shimmer-blue") ||
           (item as any).classList.contains("shimmer-green")
@@ -230,6 +236,15 @@ export class VideoManager {
       const radioGroup = document.querySelector("mat-radio-group.tile-group");
       if (!radioGroup) return false;
 
+      // Primary: value attribute (locale-independent if Angular Material uses stable values)
+      const byValue = radioGroup.querySelector(`[value="${fmt}"]`) as any;
+      if (byValue) {
+        byValue.click();
+        return true;
+      }
+
+      // Fallback: text match (English only — may not work in non-English locales,
+      // but selectFormat is best-effort; generation will use default format if this fails)
       const labels = radioGroup.querySelectorAll("mat-radio-button, label, [role='radio']");
       for (const label of labels) {
         const text = label.textContent?.toLowerCase() || "";
@@ -252,7 +267,16 @@ export class VideoManager {
       const radioGroup = document.querySelector("mat-radio-group.carousel-group");
       if (!radioGroup) return false;
 
-      // Normalize style name for matching (e.g., "retro-print" → "retro print")
+      // Primary: value attribute (locale-independent)
+      const byValue = radioGroup.querySelector(`[value="${styleName}"]`) as any;
+      if (byValue) {
+        byValue.click();
+        return true;
+      }
+
+      // Fallback: text match (English only — style labels are translated in non-English UIs,
+      // but selectStyle is best-effort; generation will use default style if this fails)
+      // Normalize: "retro-print" → "retro print"
       const normalized = styleName.replace(/-/g, " ").toLowerCase();
 
       const labels = radioGroup.querySelectorAll("mat-radio-button, label, [role='radio']");
@@ -289,15 +313,15 @@ export class VideoManager {
         primaryBtn.click();
         return true;
       }
-      // Last resort: find Generate text in visible dialog buttons
+      // Last resort: click the last enabled button in the dialog (locale-independent —
+      // Material Design places the primary action button last in the DOM)
       // @ts-expect-error - DOM types
       const dialog = document.querySelector("mat-dialog-container");
       if (dialog) {
-        const buttons = dialog.querySelectorAll("button");
-        for (const btn of buttons) {
-          const text = (btn as any).textContent?.trim().toLowerCase() || "";
-          if (text === "generate") {
-            (btn as any).click();
+        const buttons = Array.from(dialog.querySelectorAll("button")) as any[];
+        for (let i = buttons.length - 1; i >= 0; i--) {
+          if (!buttons[i].disabled) {
+            buttons[i].click();
             return true;
           }
         }
