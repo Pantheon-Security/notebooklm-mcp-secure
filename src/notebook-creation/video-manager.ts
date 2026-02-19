@@ -84,24 +84,36 @@ export class VideoManager {
    * Ensure the Studio panel is visible (expand if collapsed).
    *
    * Live DOM inspection (Feb 2026) confirms:
-   *   - Toggle button: .toggle-studio-panel-button, aria-label="Collapse/Expand studio panel"
-   *   - Tiles container: .create-artifact-button-container (visible when panel is open)
+   *   - Toggle button: .toggle-studio-panel-button
+   *   - Tiles container: .create-artifact-button-container (present only when panel is open)
    *
-   * Strategy:
-   * 1. If tiles are already visible the panel is open — return true immediately
-   * 2. Try the toggle button via a prioritised selector chain (guards against future renames)
-   * 3. Click the button only when the panel is collapsed (aria includes "expand")
+   * Locale-agnostic strategy — no aria-label text matching:
+   * 1. Wait for either tiles or toggle button to appear in the DOM (guards timing issues)
+   * 2. If tiles are visible the panel is open — return true immediately
+   * 3. If tiles absent but toggle button found, click it to open — no aria-label check needed
    */
   private async ensureStudioPanelOpen(page: Page): Promise<boolean> {
+    // Wait for either the tiles (panel open) or the toggle button (panel closed) to appear.
+    // This guards against the panel not having rendered yet, especially on slower machines.
+    try {
+      await page.waitForSelector(
+        ".create-artifact-button-container, .toggle-studio-panel-button",
+        { timeout: 10000 }
+      );
+    } catch {
+      // Neither element appeared — fall through to the evaluate below which will return false
+    }
+
     return await page.evaluate(() => {
-      // 1. Tiles already visible — panel is open, nothing to do
+      // 1. Tiles present — panel is open, nothing to do
       // @ts-expect-error - DOM types
       if (document.querySelector(".create-artifact-button-container")) return true;
 
-      // 2. Find the toggle button (primary selector first, then fallbacks for DOM changes)
+      // 2. Tiles absent — panel is collapsed. Find toggle and click to open.
+      // No aria-label text matching: labels are locale-dependent (e.g. "Réduire" in French).
       const candidateSelectors = [
         ".toggle-studio-panel-button",   // Confirmed present as of Feb 2026
-        '[aria-label*="studio" i]',      // Aria-label fallback (case-insensitive)
+        '[aria-label*="studio" i]',      // Class-name fallback (still locale-safe for "studio")
         'button[class*="studio"]',       // Class-name fallback
       ];
 
@@ -109,18 +121,8 @@ export class VideoManager {
         // @ts-expect-error - DOM types
         const toggleBtn = document.querySelector(selector) as any;
         if (!toggleBtn) continue;
-
-        const aria = toggleBtn.getAttribute("aria-label")?.toLowerCase() || "";
-
-        // Panel is collapsed — click to open
-        if (aria.includes("expand")) {
-          toggleBtn.click();
-          return true;
-        }
-        // Panel is already open (aria says "collapse")
-        if (aria.includes("collapse")) {
-          return true;
-        }
+        toggleBtn.click();
+        return true;
       }
 
       return false;
@@ -176,14 +178,22 @@ export class VideoManager {
    */
   private async clickVideoTile(page: Page): Promise<boolean> {
     return await page.evaluate(() => {
-      // Primary: aria-label selector
+      // Primary: color class (locale-independent — video tile uses "green" accent class)
+      // Confirmed via DOM inspection Feb 2026; no data-create-button-type on video tile
       // @ts-expect-error - DOM types
-      const tile = document.querySelector('[aria-label="Video Overview"][role="button"]') as any;
-      if (tile) {
-        tile.click();
+      const tileByClass = document.querySelector('.create-artifact-button-container.green[role="button"]') as any;
+      if (tileByClass) {
+        tileByClass.click();
         return true;
       }
-      // Fallback: find by text in create-artifact tiles
+      // Fallback: English aria-label
+      // @ts-expect-error - DOM types
+      const tileByAria = document.querySelector('[aria-label="Video Overview"][role="button"]') as any;
+      if (tileByAria) {
+        tileByAria.click();
+        return true;
+      }
+      // Last resort: text search (English only)
       // @ts-expect-error - DOM types
       const tiles = document.querySelectorAll(".create-artifact-button-container");
       for (const t of tiles) {
@@ -372,7 +382,10 @@ export class VideoManager {
         };
       }
 
-      await randomDelay(3000, 4000);
+      // Wait for the generating artifact to appear in the sidebar (shimmer-blue = in progress).
+      // Falls back gracefully if it doesn't appear within 15s (slow machines, large notebooks).
+      await page.waitForSelector(".artifact-item-button.shimmer-blue", { timeout: 15000 }).catch(() => {});
+      await randomDelay(500, 800);
 
       // Check if generation started
       const newStatus = await this.checkVideoStatusInternal(page);

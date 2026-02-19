@@ -84,6 +84,17 @@ export class DataTableManager {
    * 3. Click the button only when the panel is collapsed (aria includes "expand")
    */
   private async ensureStudioPanelOpen(page: Page): Promise<boolean> {
+    // Wait for either the tiles (panel open) or the toggle button (panel closed) to appear.
+    // This guards against the panel not having rendered yet, especially on slower machines.
+    try {
+      await page.waitForSelector(
+        ".create-artifact-button-container, .toggle-studio-panel-button",
+        { timeout: 10000 }
+      );
+    } catch {
+      // Neither element appeared — fall through to the evaluate below which will return false
+    }
+
     return await page.evaluate(() => {
       // 1. Tiles already visible — panel is open, nothing to do
       // @ts-expect-error - DOM types
@@ -96,22 +107,14 @@ export class DataTableManager {
         'button[class*="studio"]',       // Class-name fallback
       ];
 
+      // 2. Tiles absent — panel is collapsed. Find toggle and click to open.
+      // No aria-label text matching: labels are locale-dependent (e.g. "Réduire" in French).
       for (const selector of candidateSelectors) {
         // @ts-expect-error - DOM types
         const toggleBtn = document.querySelector(selector) as any;
         if (!toggleBtn) continue;
-
-        const aria = toggleBtn.getAttribute("aria-label")?.toLowerCase() || "";
-
-        // Panel is collapsed — click to open
-        if (aria.includes("expand")) {
-          toggleBtn.click();
-          return true;
-        }
-        // Panel is already open (aria says "collapse")
-        if (aria.includes("collapse")) {
-          return true;
-        }
+        toggleBtn.click();
+        return true;
       }
 
       return false;
@@ -155,14 +158,21 @@ export class DataTableManager {
    */
   private async clickDataTableTile(page: Page): Promise<boolean> {
     return await page.evaluate(() => {
-      // Primary: aria-label selector
+      // Primary: data-create-button-type (locale-independent, confirmed by CBR-75 Feb 2026)
       // @ts-expect-error - DOM types
-      const tile = document.querySelector('[aria-label="Data table"][role="button"]') as any;
-      if (tile) {
-        tile.click();
+      const tileByType = document.querySelector('[data-create-button-type="9"][role="button"]') as any;
+      if (tileByType) {
+        tileByType.click();
         return true;
       }
-      // Fallback: find by text in create-artifact tiles
+      // Fallback: English aria-label
+      // @ts-expect-error - DOM types
+      const tileByAria = document.querySelector('[aria-label="Data table"][role="button"]') as any;
+      if (tileByAria) {
+        tileByAria.click();
+        return true;
+      }
+      // Last resort: text search (English only)
       // @ts-expect-error - DOM types
       const tiles = document.querySelectorAll(".create-artifact-button-container");
       for (const t of tiles) {
@@ -248,7 +258,10 @@ export class DataTableManager {
         };
       }
 
-      await randomDelay(3000, 4000);
+      // Wait for the generating artifact to appear in the sidebar (shimmer-blue = in progress).
+      // Falls back gracefully if it doesn't appear within 15s (slow machines, large notebooks).
+      await page.waitForSelector(".artifact-item-button.shimmer-blue", { timeout: 15000 }).catch(() => {});
+      await randomDelay(500, 800);
 
       // Check if generation started
       const newStatus = await this.checkDataTableStatusInternal(page);
