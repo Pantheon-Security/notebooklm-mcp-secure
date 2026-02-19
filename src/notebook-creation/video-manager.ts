@@ -83,23 +83,26 @@ export class VideoManager {
   /**
    * Ensure the Studio panel is visible (expand if collapsed).
    *
-   * Uses a resilient multi-selector strategy to handle NotebookLM DOM changes:
-   * 1. If Studio panel tiles are already visible, return true immediately
-   * 2. Try known toggle button selectors in priority order
-   * 3. For each candidate button, click it if collapsed or confirm open if expanded
+   * Live DOM inspection (Feb 2026) confirms:
+   *   - Toggle button: .toggle-studio-panel-button, aria-label="Collapse/Expand studio panel"
+   *   - Tiles container: .create-artifact-button-container (visible when panel is open)
+   *
+   * Strategy:
+   * 1. If tiles are already visible the panel is open — return true immediately
+   * 2. Try the toggle button via a prioritised selector chain (guards against future renames)
+   * 3. Click the button only when the panel is collapsed (aria includes "expand")
    */
   private async ensureStudioPanelOpen(page: Page): Promise<boolean> {
     return await page.evaluate(() => {
-      // 1. If the Studio panel tiles are already visible, we're done
+      // 1. Tiles already visible — panel is open, nothing to do
       // @ts-expect-error - DOM types
       if (document.querySelector(".create-artifact-button-container")) return true;
 
-      // 2. Try selectors for the toggle button in priority order
+      // 2. Find the toggle button (primary selector first, then fallbacks for DOM changes)
       const candidateSelectors = [
-        ".toggle-studio-panel-button",    // Original selector (may be renamed by Google)
-        '[aria-label*="studio" i]',       // Aria-label contains "studio" (case-insensitive)
-        'button[class*="studio"]',        // Class name contains "studio"
-        '[data-testid*="studio" i]',      // Data test ID contains "studio"
+        ".toggle-studio-panel-button",   // Confirmed present as of Feb 2026
+        '[aria-label*="studio" i]',      // Aria-label fallback (case-insensitive)
+        'button[class*="studio"]',       // Class-name fallback
       ];
 
       for (const selector of candidateSelectors) {
@@ -108,21 +111,16 @@ export class VideoManager {
         if (!toggleBtn) continue;
 
         const aria = toggleBtn.getAttribute("aria-label")?.toLowerCase() || "";
-        // @ts-expect-error - DOM types
-        const tilesVisible = !!document.querySelector(".create-artifact-button-container");
 
         // Panel is collapsed — click to open
-        if (aria.includes("expand") || (!aria.includes("collapse") && !tilesVisible)) {
+        if (aria.includes("expand")) {
           toggleBtn.click();
           return true;
         }
-        // Panel is already open
-        if (aria.includes("collapse") || aria.includes("studio")) {
+        // Panel is already open (aria says "collapse")
+        if (aria.includes("collapse")) {
           return true;
         }
-        // Found a button but aria-label is ambiguous — click it and hope for the best
-        toggleBtn.click();
-        return true;
       }
 
       return false;
@@ -406,41 +404,6 @@ export class VideoManager {
       // Ensure Studio panel is visible
       await this.ensureStudioPanelOpen(page);
       await randomDelay(500, 800);
-
-      // DEBUG: dump Studio panel area to help diagnose selector issues
-      const debugInfo = await page.evaluate(() => {
-        // @ts-expect-error - DOM types
-        const bodyHTML = document.body?.innerHTML || "";
-        // Extract anything that looks like it could be the studio toggle
-        const studioMatches: string[] = [];
-        // @ts-expect-error - DOM types
-        const allButtons = document.querySelectorAll("button, [role='button']");
-        for (const el of allButtons) {
-          const aria = (el as any).getAttribute("aria-label") || "";
-          const cls = (el as any).className || "";
-          const testid = (el as any).getAttribute("data-testid") || "";
-          if (
-            aria.toLowerCase().includes("studio") ||
-            cls.toLowerCase().includes("studio") ||
-            testid.toLowerCase().includes("studio") ||
-            aria.toLowerCase().includes("expand") ||
-            aria.toLowerCase().includes("collapse")
-          ) {
-            studioMatches.push(
-              `tag=${(el as any).tagName} aria-label="${aria}" class="${cls}" data-testid="${testid}"`
-            );
-          }
-        }
-        // Also check if .create-artifact-button-container is present
-        // @ts-expect-error - DOM types
-        const tilesPresent = !!document.querySelector(".create-artifact-button-container");
-        // @ts-expect-error - DOM types
-        const togglePresent = !!document.querySelector(".toggle-studio-panel-button");
-        return { studioMatches, tilesPresent, togglePresent };
-      });
-      log.info(`  [DEBUG] .toggle-studio-panel-button present: ${debugInfo.togglePresent}`);
-      log.info(`  [DEBUG] .create-artifact-button-container present: ${debugInfo.tilesPresent}`);
-      log.info(`  [DEBUG] Studio-related buttons found: ${JSON.stringify(debugInfo.studioMatches, null, 2)}`);
 
       const status = await this.checkVideoStatusInternal(page);
       log.info(`  Status: ${status.status}`);
