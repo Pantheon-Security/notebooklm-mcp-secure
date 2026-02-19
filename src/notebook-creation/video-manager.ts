@@ -81,24 +81,50 @@ export class VideoManager {
   }
 
   /**
-   * Ensure the Studio panel is visible (expand if collapsed)
+   * Ensure the Studio panel is visible (expand if collapsed).
+   *
+   * Uses a resilient multi-selector strategy to handle NotebookLM DOM changes:
+   * 1. If Studio panel tiles are already visible, return true immediately
+   * 2. Try known toggle button selectors in priority order
+   * 3. For each candidate button, click it if collapsed or confirm open if expanded
    */
   private async ensureStudioPanelOpen(page: Page): Promise<boolean> {
     return await page.evaluate(() => {
+      // 1. If the Studio panel tiles are already visible, we're done
       // @ts-expect-error - DOM types
-      const toggleBtn = document.querySelector(".toggle-studio-panel-button") as any;
-      if (!toggleBtn) return false;
+      if (document.querySelector(".create-artifact-button-container")) return true;
 
-      const aria = toggleBtn.getAttribute("aria-label")?.toLowerCase() || "";
-      // If it says "Expand", the panel is collapsed — click to open
-      if (aria.includes("expand")) {
+      // 2. Try selectors for the toggle button in priority order
+      const candidateSelectors = [
+        ".toggle-studio-panel-button",    // Original selector (may be renamed by Google)
+        '[aria-label*="studio" i]',       // Aria-label contains "studio" (case-insensitive)
+        'button[class*="studio"]',        // Class name contains "studio"
+        '[data-testid*="studio" i]',      // Data test ID contains "studio"
+      ];
+
+      for (const selector of candidateSelectors) {
+        // @ts-expect-error - DOM types
+        const toggleBtn = document.querySelector(selector) as any;
+        if (!toggleBtn) continue;
+
+        const aria = toggleBtn.getAttribute("aria-label")?.toLowerCase() || "";
+        // @ts-expect-error - DOM types
+        const tilesVisible = !!document.querySelector(".create-artifact-button-container");
+
+        // Panel is collapsed — click to open
+        if (aria.includes("expand") || (!aria.includes("collapse") && !tilesVisible)) {
+          toggleBtn.click();
+          return true;
+        }
+        // Panel is already open
+        if (aria.includes("collapse") || aria.includes("studio")) {
+          return true;
+        }
+        // Found a button but aria-label is ambiguous — click it and hope for the best
         toggleBtn.click();
         return true;
       }
-      // If it says "Collapse", the panel is already open
-      if (aria.includes("collapse")) {
-        return true;
-      }
+
       return false;
     });
   }
