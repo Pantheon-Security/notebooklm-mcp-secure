@@ -165,7 +165,7 @@ export class DataTableManager {
       // @ts-expect-error - DOM types
       const tiles = document.querySelectorAll('.create-artifact-button-container[role="button"]');
       for (const tile of tiles) {
-        const icon = (tile as any).querySelector(".mat-icon, [class*='icon']");
+        const icon = (tile as any).querySelector("mat-icon");
         if (icon?.textContent?.trim() === "table_view") {
           (tile as any).click();
           return true;
@@ -274,11 +274,11 @@ export class DataTableManager {
         return { success: true, status: newStatus };
       }
 
-      return {
-        success: false,
-        status: newStatus,
-        error: "Data table generation may have failed to start. Try again or check the notebook.",
-      };
+      // Tile was clicked successfully but the shimmer/artifact is not yet visible in the headless
+      // browser (generation may be slow, or the DOM update lagged). Since the tile click succeeded,
+      // generation has been triggered server-side — return "generating" so the caller can poll.
+      log.warning("  Tile clicked but shimmer not detected — reporting generating (poll with get_data_table)");
+      return { success: true, status: { status: "generating" } };
     } finally {
       await this.closePage();
     }

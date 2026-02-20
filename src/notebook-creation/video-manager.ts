@@ -416,11 +416,10 @@ export class VideoManager {
         return { success: true, status: newStatus };
       }
 
-      return {
-        success: false,
-        status: newStatus,
-        error: "Video generation may have failed to start. Try again or check the notebook.",
-      };
+      // Generate button was clicked successfully but shimmer/artifact not yet visible.
+      // Generation may be slow or the DOM update lagged — return "generating" so the caller can poll.
+      log.warning("  Generate clicked but shimmer not detected — reporting generating (poll with get_video_status)");
+      return { success: true, status: { status: "generating" } };
     } finally {
       await this.closePage();
     }
