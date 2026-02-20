@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.2.3] - 2026-02-20
+
+### Fixed — Studio Panel Tools Fully Restored
+- **`generate_data_table` and `generate_video_overview`** now work correctly end-to-end, confirmed on macOS M4 (French locale, headless mode)
+- **Dead tile selector**: `clickDataTableTile` used `.mat-icon, [class*='icon']` which matched `SPAN.icon-container` before `<mat-icon>`, so `=== "table_view"` always failed silently. Fixed to `mat-icon` element tag (textContent is exactly `"table_view"`)
+- **False failure on slow shimmer**: after clicking the tile, if `shimmer-blue` didn't appear within 15s the tools returned `success: false`. Generation was triggering server-side but headless DOM update lagged. Now returns `{ success: true, status: "generating" }` so callers can poll
+- **`data-create-button-type` removed by Google** (Feb 2026): replaced with `mat-icon` text check and `jslog` numeric ID (`282298`) as locale-independent fallback
+- **Studio panel timeout** increased from 10s to 30s for slower machines and larger notebooks
+- **Full i18n pass**: all browser automation uses locale-independent signals first (CSS classes, Material icon names, element structure, `jslog` IDs) with English text as last-resort fallback only
+
+### Added — CI / Branch Protection
+- GitHub Actions CI (`.github/workflows/ci.yml`) runs TypeScript build on every PR and push to `main`
+- `main` branch protection: force pushes blocked, branch deletion blocked, `Build` check required before merge
+
 ## [2026.2.2] - 2026-02-19
 
 ### Fixed — Studio Panel Reliability on Slower Machines
