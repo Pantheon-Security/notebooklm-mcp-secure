@@ -98,7 +98,7 @@ export class VideoManager {
     try {
       await page.waitForSelector(
         ".create-artifact-button-container, .toggle-studio-panel-button",
-        { timeout: 10000 }
+        { timeout: 30000 }
       );
     } catch {
       // Neither element appeared — fall through to the evaluate below which will return false
@@ -184,12 +184,19 @@ export class VideoManager {
    */
   private async clickVideoTile(page: Page): Promise<boolean> {
     return await page.evaluate(() => {
-      // Primary: color class (locale-independent — video tile uses "green" accent class)
-      // Confirmed via DOM inspection Feb 2026; no data-create-button-type on video tile
+      // Primary: green CSS class (locale-independent — video tile always uses "green" accent)
+      // Confirmed via live DOM inspection Feb 2026
       // @ts-expect-error - DOM types
       const tileByClass = document.querySelector('.create-artifact-button-container.green[role="button"]') as any;
       if (tileByClass) {
         tileByClass.click();
+        return true;
+      }
+      // Secondary: jslog numeric ID (locale-independent, confirmed stable Feb 2026)
+      // @ts-expect-error - DOM types
+      const tileByJslog = document.querySelector('[jslog^="261214"][role="button"]') as any;
+      if (tileByJslog) {
+        tileByJslog.click();
         return true;
       }
       // Fallback: English aria-label
@@ -198,16 +205,6 @@ export class VideoManager {
       if (tileByAria) {
         tileByAria.click();
         return true;
-      }
-      // Last resort: text search (English only)
-      // @ts-expect-error - DOM types
-      const tiles = document.querySelectorAll(".create-artifact-button-container");
-      for (const t of tiles) {
-        const text = t.textContent?.toLowerCase() || "";
-        if (text.includes("video overview")) {
-          (t as any).click();
-          return true;
-        }
       }
       return false;
     });

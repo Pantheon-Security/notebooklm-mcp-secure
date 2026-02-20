@@ -6,8 +6,9 @@
  * extracted from notebook sources, available through the Studio panel.
  *
  * Selectors derived from live NotebookLM DOM inspection (Feb 2026):
- * - Studio panel is visible by default (toggle: .toggle-studio-panel-button)
- * - Data table tile: aria-label="Data table", role="button", class="create-artifact-button-container blue"
+ * - Studio panel toggle: .toggle-studio-panel-button (jslog="243457")
+ * - Data table tile: icon text "table_view" inside .create-artifact-button-container[role="button"]
+ *   jslog="282298" (locale-independent). Note: data-create-button-type removed by Google Feb 2026.
  * - Clicking tile immediately starts generation (no customise dialog)
  * - Generating state: .artifact-item-button.shimmer-blue with .rotate sync icon
  * - Artifact title during generation: "Generating data table…"
@@ -81,7 +82,7 @@ export class DataTableManager {
    * Strategy:
    * 1. If tiles are already visible the panel is open — return true immediately
    * 2. Try the toggle button via a prioritised selector chain (guards against future renames)
-   * 3. Click the button only when the panel is collapsed (aria includes "expand")
+   * 3. Click the button if tiles not visible — no aria-label text check (locale-agnostic)
    */
   private async ensureStudioPanelOpen(page: Page): Promise<boolean> {
     // Wait for either the tiles (panel open) or the toggle button (panel closed) to appear.
@@ -89,7 +90,7 @@ export class DataTableManager {
     try {
       await page.waitForSelector(
         ".create-artifact-button-container, .toggle-studio-panel-button",
-        { timeout: 10000 }
+        { timeout: 30000 }
       );
     } catch {
       // Neither element appeared — fall through to the evaluate below which will return false
@@ -159,11 +160,22 @@ export class DataTableManager {
    */
   private async clickDataTableTile(page: Page): Promise<boolean> {
     return await page.evaluate(() => {
-      // Primary: data-create-button-type (locale-independent, confirmed by CBR-75 Feb 2026)
+      // Primary: Material icon name inside tile (locale-independent — icon names are never translated)
+      // Confirmed Feb 2026: Data table tile contains icon text "table_view"
       // @ts-expect-error - DOM types
-      const tileByType = document.querySelector('[data-create-button-type="9"][role="button"]') as any;
-      if (tileByType) {
-        tileByType.click();
+      const tiles = document.querySelectorAll('.create-artifact-button-container[role="button"]');
+      for (const tile of tiles) {
+        const icon = (tile as any).querySelector(".mat-icon, [class*='icon']");
+        if (icon?.textContent?.trim() === "table_view") {
+          (tile as any).click();
+          return true;
+        }
+      }
+      // Secondary: jslog attribute (locale-independent numeric ID, confirmed stable Feb 2026)
+      // @ts-expect-error - DOM types
+      const tileByJslog = document.querySelector('[jslog^="282298"][role="button"]') as any;
+      if (tileByJslog) {
+        tileByJslog.click();
         return true;
       }
       // Fallback: English aria-label
@@ -172,16 +184,6 @@ export class DataTableManager {
       if (tileByAria) {
         tileByAria.click();
         return true;
-      }
-      // Last resort: text search (English only)
-      // @ts-expect-error - DOM types
-      const tiles = document.querySelectorAll(".create-artifact-button-container");
-      for (const t of tiles) {
-        const text = t.textContent?.toLowerCase() || "";
-        if (text.includes("data table")) {
-          (t as any).click();
-          return true;
-        }
       }
       return false;
     });
