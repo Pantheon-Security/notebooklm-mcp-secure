@@ -408,15 +408,23 @@ export class SourceManager {
    * Internal: Add URL source
    */
   private async addUrlSourceInternal(page: Page, url: string): Promise<void> {
-    // Click URL/Website option
+    // Click URL/Website source type option — prefer locale-independent signals
     const urlOptionClicked = await page.evaluate(() => {
+      // Primary: data/value attribute (locale-independent)
+      // @ts-expect-error - DOM types
+      const byData = document.querySelector('[data-source-type="url"], [value="url"], mat-chip[value="url"]') as any;
+      if (byData) {
+        byData.click();
+        return true;
+      }
+      // Fallback: text/aria match ("URL" is the same word in most languages)
       // @ts-expect-error - DOM types
       const buttons = document.querySelectorAll("button, [role='button'], mat-chip");
       for (const btn of buttons) {
         const text = (btn as any).textContent?.toLowerCase() || "";
         const aria = (btn as any).getAttribute("aria-label")?.toLowerCase() || "";
-        if (text.includes("website") || text.includes("url") || text.includes("link") ||
-            aria.includes("website") || aria.includes("discover")) {
+        if (text.includes("url") || aria.includes("url") ||
+            text.includes("website") || text.includes("link") || aria.includes("discover")) {
           (btn as any).click();
           return true;
         }
@@ -491,8 +499,23 @@ export class SourceManager {
 
     await randomDelay(500, 800);
 
-    // Click Insert button
+    // Click Insert button — prefer locale-independent selectors
     const insertClicked = await page.evaluate(() => {
+      // Primary: type=submit (locale-independent)
+      // @ts-expect-error - DOM types
+      const submitBtn = document.querySelector("button[type='submit']:not([disabled])") as any;
+      if (submitBtn && submitBtn.offsetParent !== null) {
+        submitBtn.click();
+        return true;
+      }
+      // Secondary: primary color class (locale-independent NotebookLM convention)
+      // @ts-expect-error - DOM types
+      const primaryBtn = document.querySelector("button.button-color--primary:not([disabled])") as any;
+      if (primaryBtn && primaryBtn.offsetParent !== null) {
+        primaryBtn.click();
+        return true;
+      }
+      // Fallback: text match (English only)
       // @ts-expect-error - DOM types
       const buttons = document.querySelectorAll("button");
       for (const btn of buttons) {

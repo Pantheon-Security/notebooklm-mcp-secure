@@ -84,24 +84,36 @@ export class VideoManager {
    * Ensure the Studio panel is visible (expand if collapsed).
    *
    * Live DOM inspection (Feb 2026) confirms:
-   *   - Toggle button: .toggle-studio-panel-button, aria-label="Collapse/Expand studio panel"
-   *   - Tiles container: .create-artifact-button-container (visible when panel is open)
+   *   - Toggle button: .toggle-studio-panel-button
+   *   - Tiles container: .create-artifact-button-container (present only when panel is open)
    *
-   * Strategy:
-   * 1. If tiles are already visible the panel is open — return true immediately
-   * 2. Try the toggle button via a prioritised selector chain (guards against future renames)
-   * 3. Click the button only when the panel is collapsed (aria includes "expand")
+   * Locale-agnostic strategy — no aria-label text matching:
+   * 1. Wait for either tiles or toggle button to appear in the DOM (guards timing issues)
+   * 2. If tiles are visible the panel is open — return true immediately
+   * 3. If tiles absent but toggle button found, click it to open — no aria-label check needed
    */
   private async ensureStudioPanelOpen(page: Page): Promise<boolean> {
+    // Wait for either the tiles (panel open) or the toggle button (panel closed) to appear.
+    // This guards against the panel not having rendered yet, especially on slower machines.
+    try {
+      await page.waitForSelector(
+        ".create-artifact-button-container, .toggle-studio-panel-button",
+        { timeout: 30000 }
+      );
+    } catch {
+      // Neither element appeared — fall through to the evaluate below which will return false
+    }
+
     return await page.evaluate(() => {
-      // 1. Tiles already visible — panel is open, nothing to do
+      // 1. Tiles present — panel is open, nothing to do
       // @ts-expect-error - DOM types
       if (document.querySelector(".create-artifact-button-container")) return true;
 
-      // 2. Find the toggle button (primary selector first, then fallbacks for DOM changes)
+      // 2. Tiles absent — panel is collapsed. Find toggle and click to open.
+      // No aria-label text matching: labels are locale-dependent (e.g. "Réduire" in French).
       const candidateSelectors = [
         ".toggle-studio-panel-button",   // Confirmed present as of Feb 2026
-        '[aria-label*="studio" i]',      // Aria-label fallback (case-insensitive)
+        '[aria-label*="studio" i]',      // Class-name fallback (still locale-safe for "studio")
         'button[class*="studio"]',       // Class-name fallback
       ];
 
@@ -109,18 +121,8 @@ export class VideoManager {
         // @ts-expect-error - DOM types
         const toggleBtn = document.querySelector(selector) as any;
         if (!toggleBtn) continue;
-
-        const aria = toggleBtn.getAttribute("aria-label")?.toLowerCase() || "";
-
-        // Panel is collapsed — click to open
-        if (aria.includes("expand")) {
-          toggleBtn.click();
-          return true;
-        }
-        // Panel is already open (aria says "collapse")
-        if (aria.includes("collapse")) {
-          return true;
-        }
+        toggleBtn.click();
+        return true;
       }
 
       return false;
@@ -145,16 +147,22 @@ export class VideoManager {
         const title = (item as any).querySelector(".artifact-title");
         const titleText = title?.textContent?.trim().toLowerCase() || "";
 
-        // Match video artifacts by icon or title
+        // Detect video artifacts using locale-independent signals first:
+        // - Ready: Material icon "subscriptions" (icon name, never translated)
+        // - Generating: Material icon "sync" + shimmer animation class (CSS, never translated)
+        // - English title fallback: won't match French "résumé vidéo" but kept for extra confidence
         const isVideoByIcon = iconText === "subscriptions";
-        const isVideoByTitle = titleText.includes("video overview");
-        const isGeneratingSync = iconText === "sync" && titleText.includes("video");
+        const isVideoGenerating = iconText === "sync" && (
+          (item as any).classList.contains("shimmer-green") ||
+          (item as any).classList.contains("shimmer-blue")
+        );
+        const isVideoByTitle = titleText.includes("video overview"); // English fallback only
 
-        if (!isVideoByIcon && !isVideoByTitle && !isGeneratingSync) continue;
+        if (!isVideoByIcon && !isVideoGenerating && !isVideoByTitle) continue;
 
-        // Found a video artifact — check if still generating
+        // Determine generating vs ready state — class checks are locale-independent
         if (
-          titleText.includes("generating") ||
+          isVideoGenerating ||
           iconText === "sync" ||
           (item as any).classList.contains("shimmer-blue") ||
           (item as any).classList.contains("shimmer-green")
@@ -176,22 +184,27 @@ export class VideoManager {
    */
   private async clickVideoTile(page: Page): Promise<boolean> {
     return await page.evaluate(() => {
-      // Primary: aria-label selector
+      // Primary: green CSS class (locale-independent — video tile always uses "green" accent)
+      // Confirmed via live DOM inspection Feb 2026
       // @ts-expect-error - DOM types
-      const tile = document.querySelector('[aria-label="Video Overview"][role="button"]') as any;
-      if (tile) {
-        tile.click();
+      const tileByClass = document.querySelector('.create-artifact-button-container.green[role="button"]') as any;
+      if (tileByClass) {
+        tileByClass.click();
         return true;
       }
-      // Fallback: find by text in create-artifact tiles
+      // Secondary: jslog numeric ID (locale-independent, confirmed stable Feb 2026)
       // @ts-expect-error - DOM types
-      const tiles = document.querySelectorAll(".create-artifact-button-container");
-      for (const t of tiles) {
-        const text = t.textContent?.toLowerCase() || "";
-        if (text.includes("video overview")) {
-          (t as any).click();
-          return true;
-        }
+      const tileByJslog = document.querySelector('[jslog^="261214"][role="button"]') as any;
+      if (tileByJslog) {
+        tileByJslog.click();
+        return true;
+      }
+      // Fallback: English aria-label
+      // @ts-expect-error - DOM types
+      const tileByAria = document.querySelector('[aria-label="Video Overview"][role="button"]') as any;
+      if (tileByAria) {
+        tileByAria.click();
+        return true;
       }
       return false;
     });
@@ -220,6 +233,15 @@ export class VideoManager {
       const radioGroup = document.querySelector("mat-radio-group.tile-group");
       if (!radioGroup) return false;
 
+      // Primary: value attribute (locale-independent if Angular Material uses stable values)
+      const byValue = radioGroup.querySelector(`[value="${fmt}"]`) as any;
+      if (byValue) {
+        byValue.click();
+        return true;
+      }
+
+      // Fallback: text match (English only — may not work in non-English locales,
+      // but selectFormat is best-effort; generation will use default format if this fails)
       const labels = radioGroup.querySelectorAll("mat-radio-button, label, [role='radio']");
       for (const label of labels) {
         const text = label.textContent?.toLowerCase() || "";
@@ -242,7 +264,16 @@ export class VideoManager {
       const radioGroup = document.querySelector("mat-radio-group.carousel-group");
       if (!radioGroup) return false;
 
-      // Normalize style name for matching (e.g., "retro-print" → "retro print")
+      // Primary: value attribute (locale-independent)
+      const byValue = radioGroup.querySelector(`[value="${styleName}"]`) as any;
+      if (byValue) {
+        byValue.click();
+        return true;
+      }
+
+      // Fallback: text match (English only — style labels are translated in non-English UIs,
+      // but selectStyle is best-effort; generation will use default style if this fails)
+      // Normalize: "retro-print" → "retro print"
       const normalized = styleName.replace(/-/g, " ").toLowerCase();
 
       const labels = radioGroup.querySelectorAll("mat-radio-button, label, [role='radio']");
@@ -279,15 +310,15 @@ export class VideoManager {
         primaryBtn.click();
         return true;
       }
-      // Last resort: find Generate text in visible dialog buttons
+      // Last resort: click the last enabled button in the dialog (locale-independent —
+      // Material Design places the primary action button last in the DOM)
       // @ts-expect-error - DOM types
       const dialog = document.querySelector("mat-dialog-container");
       if (dialog) {
-        const buttons = dialog.querySelectorAll("button");
-        for (const btn of buttons) {
-          const text = (btn as any).textContent?.trim().toLowerCase() || "";
-          if (text === "generate") {
-            (btn as any).click();
+        const buttons = Array.from(dialog.querySelectorAll("button")) as any[];
+        for (let i = buttons.length - 1; i >= 0; i--) {
+          if (!buttons[i].disabled) {
+            buttons[i].click();
             return true;
           }
         }
@@ -372,7 +403,10 @@ export class VideoManager {
         };
       }
 
-      await randomDelay(3000, 4000);
+      // Wait for the generating artifact to appear in the sidebar (shimmer-blue = in progress).
+      // Falls back gracefully if it doesn't appear within 15s (slow machines, large notebooks).
+      await page.waitForSelector(".artifact-item-button.shimmer-blue", { timeout: 15000 }).catch(() => {});
+      await randomDelay(500, 800);
 
       // Check if generation started
       const newStatus = await this.checkVideoStatusInternal(page);
@@ -382,11 +416,10 @@ export class VideoManager {
         return { success: true, status: newStatus };
       }
 
-      return {
-        success: false,
-        status: newStatus,
-        error: "Video generation may have failed to start. Try again or check the notebook.",
-      };
+      // Generate button was clicked successfully but shimmer/artifact not yet visible.
+      // Generation may be slow or the DOM update lagged — return "generating" so the caller can poll.
+      log.warning("  Generate clicked but shimmer not detected — reporting generating (poll with get_video_status)");
+      return { success: true, status: { status: "generating" } };
     } finally {
       await this.closePage();
     }

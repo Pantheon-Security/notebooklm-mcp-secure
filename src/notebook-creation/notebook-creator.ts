@@ -304,39 +304,39 @@ export class NotebookCreator {
 
     // Check for source dialog indicators
     const dialogIndicators = await this.page.evaluate(() => {
-      // Method 1: Check for specific source type options (standard dialog)
+      // Method 0: Structural check — any visible mat-dialog-container means a dialog is open
+      // Locale-independent (class name, not translated text)
       // @ts-expect-error - DOM types
-      const spans = document.querySelectorAll('span');
-      for (const span of spans) {
-        const text = (span as any).textContent?.trim() || "";
-        // These texts only appear when the source dialog is open
-        if (text === "Copied text" || text === "Website" || text === "Discover sources") {
-          return { open: true, reason: "source_type_options" };
+      const dialogs = document.querySelectorAll("mat-dialog-container");
+      for (const d of dialogs) {
+        if ((d as any).offsetParent !== null && d.textContent?.trim()) {
+          return { open: true, reason: "dialog_container_visible" };
         }
       }
 
-      // Method 2: Check for file upload dropzone (initial notebook state)
+      // Method 1: Check for source type chip group (locale-independent structural check)
+      // @ts-expect-error - DOM types
+      const chipGroup = document.querySelector("mat-chip-listbox, mat-chip-group, mat-chip-set");
+      if (chipGroup && (chipGroup as any).offsetParent !== null) {
+        return { open: true, reason: "chip_group_visible" };
+      }
+
+      // Method 2: Check for file upload dropzone (initial notebook state, locale-independent)
       // @ts-expect-error - DOM types
       const dropzones = document.querySelectorAll('.dropzone, [class*="dropzone"]');
       if (dropzones.length > 0) {
         for (const dz of dropzones) {
-          if ((dz as any).offsetParent !== null) { // Check if visible
+          if ((dz as any).offsetParent !== null) {
             return { open: true, reason: "dropzone_visible" };
           }
         }
       }
 
-      // Method 3: Check for "Upload sources" button in dialog
+      // Method 3: Check for file upload button (locale-independent: class/type, not text)
       // @ts-expect-error - DOM types
-      const buttons = document.querySelectorAll('button');
-      for (const btn of buttons) {
-        const ariaLabel = (btn as any).getAttribute("aria-label")?.toLowerCase() || "";
-        if (ariaLabel.includes("upload sources from your computer")) {
-          const visible = (btn as any).offsetParent !== null;
-          if (visible) {
-            return { open: true, reason: "upload_button_visible" };
-          }
-        }
+      const uploadBtn = document.querySelector('button[class*="upload"], input[type="file"]');
+      if (uploadBtn && (uploadBtn as any).offsetParent !== null) {
+        return { open: true, reason: "upload_button_visible" };
       }
 
       return { open: false };
@@ -538,9 +538,19 @@ export class NotebookCreator {
 
     log.info(`📝 Adding text source${title ? `: ${title}` : ""}`);
 
-    // Click "Copied text" option - look for mat-chip or span with exact text
+    // Click "Copied text" source type chip.
+    // NOTE: This chip label is locale-dependent ("Texte copié" in French etc.).
+    // We try locale-independent data attributes first, then fall back to English text.
     const textOptionClicked = await this.page.evaluate(() => {
-      // First, try to find mat-chip elements (Angular Material chips)
+      // Primary: data attribute (locale-independent, if NotebookLM uses stable data-type values)
+      // @ts-expect-error - DOM types
+      const byData = document.querySelector('[data-source-type="text"], [data-type="text"], mat-chip[value="text"]') as any;
+      if (byData) {
+        byData.click();
+        return { clicked: true, method: "data-attr", text: byData.textContent?.substring(0, 30) };
+      }
+
+      // Fallback: text match (English only — may miss French/other locales)
       // @ts-expect-error - DOM types
       const chips = document.querySelectorAll('mat-chip, mat-chip-option, [mat-chip-option]');
       for (const chip of chips) {
@@ -686,8 +696,10 @@ export class NotebookCreator {
         return;
       }
 
-      // Try the upload icon button
-      const uploadBtnLocator = this.page.locator('button[aria-label="Upload sources from your computer"]');
+      // Try the upload icon button (class-based first for locale-independence, then English aria-label)
+      const uploadBtnLocator = this.page.locator(
+        'button[class*="upload"], button[aria-label="Upload sources from your computer"]'
+      );
       if (await uploadBtnLocator.count() > 0 && await uploadBtnLocator.first().isVisible()) {
         await uploadBtnLocator.first().click();
         log.info("  Clicked upload button with Playwright");
@@ -814,10 +826,25 @@ export class NotebookCreator {
   private async clickInsertButton(): Promise<void> {
     if (!this.page) throw new Error("Page not initialized");
 
-    // Find and click the "Insert" button by text
+    // Find and click the "Insert" button — prefer locale-independent selectors
     const clicked = await this.page.evaluate(() => {
+      // Primary: type=submit (locale-independent)
       // @ts-expect-error - DOM types
-      const buttons = document.querySelectorAll('button');
+      const submitBtn = document.querySelector("button[type='submit']:not([disabled])") as any;
+      if (submitBtn && submitBtn.offsetParent !== null) {
+        submitBtn.click();
+        return true;
+      }
+      // Secondary: primary color class (locale-independent NotebookLM convention)
+      // @ts-expect-error - DOM types
+      const primaryBtn = document.querySelector("button.button-color--primary:not([disabled])") as any;
+      if (primaryBtn && primaryBtn.offsetParent !== null) {
+        primaryBtn.click();
+        return true;
+      }
+      // Fallback: text match (English only)
+      // @ts-expect-error - DOM types
+      const buttons = document.querySelectorAll("button");
       for (const btn of buttons) {
         const text = (btn as any).textContent?.trim() || "";
         if (text === "Insert" || text.toLowerCase() === "insert") {

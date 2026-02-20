@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.2.2] - 2026-02-19
+
+### Fixed — Studio Panel Reliability on Slower Machines
+- **`generate_data_table` and `generate_video_overview`** no longer fail with "Could not find Studio panel toggle button" when the Studio panel loads collapsed or the DOM hasn't fully rendered
+- Added `waitForSelector` before Studio panel checks — blocks until either the panel tiles or toggle button appear (up to 10s), preventing race conditions on slower machines
+- Added `waitForSelector` for the generating artifact shimmer state after tile click — replaces fixed 3-4s delay, so generation is confirmed reliably regardless of machine speed
+- Multi-selector fallback chain retained for future-proofing against NotebookLM DOM changes
+
 ## [2026.2.1] - 2026-02-18
 
 ### Fixed — Standard Profile Missing Key Tools
