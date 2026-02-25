@@ -97,7 +97,7 @@ export class BrowserSession {
       await randomDelay(2000, 3000);
 
       // Check if we need to login
-      const isAuthenticated = await this.authManager.validateCookiesExpiry(
+      const isAuthenticated = await this.authManager.validateWithRetry(
         this.context
       );
 
@@ -211,7 +211,7 @@ export class BrowserSession {
     log.info(`🔑 Checking authentication for session ${this.sessionId}...`);
 
     // Check cookie validity
-    const isValid = await this.authManager.validateCookiesExpiry(this.context);
+    const isValid = await this.authManager.validateWithRetry(this.context);
 
     if (isValid) {
       log.success(`  ✅ Cookies valid`);
@@ -234,7 +234,7 @@ export class BrowserSession {
       await randomDelay(2000, 3000);
 
       // Check if it worked
-      const nowValid = await this.authManager.validateCookiesExpiry(
+      const nowValid = await this.authManager.validateWithRetry(
         this.context
       );
       if (nowValid) {
@@ -370,7 +370,7 @@ export class BrowserSession {
       const page = this.page!;
       // Ensure we're still authenticated
       await sendProgress?.("Verifying authentication...", 2, 5);
-      const isAuth = await this.authManager.validateCookiesExpiry(this.context);
+      const isAuth = await this.authManager.validateWithRetry(this.context);
       if (!isAuth) {
         log.warning(`  🔑 Session expired, re-authenticating...`);
         await sendProgress?.("Re-authenticating session...", 2, 5);

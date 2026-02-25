@@ -27,7 +27,7 @@ import {
 import type { ProgressCallback } from "../types.js";
 import { maskEmail } from "../utils/security.js";
 import { getSecureStorage } from "../utils/crypto.js";
-import { withLock } from "../utils/file-lock.js";
+import { withLock, isLocked } from "../utils/file-lock.js";
 
 /**
  * Critical cookie names for Google authentication
@@ -269,6 +269,113 @@ export class AuthManager {
       return true;
     } catch (error) {
       log.warning(`⚠️  Cookie validation failed: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Race-condition-aware auth validation with automatic retry.
+   *
+   * In concurrent deployments each session runs its own isolated Chrome profile
+   * cloned from the shared base. When Google refreshes OAuth tokens for session A,
+   * the cookies held by sessions B/C become invalid even though the credentials
+   * themselves are fine. This method distinguishes that scenario from genuine
+   * cookie expiry and self-heals by reloading fresh cookies from state.json.pqenc.
+   *
+   * Decision logic per attempt:
+   *   1. Cookies valid → return true immediately (fast path).
+   *   2. .auth-in-progress lock is held OR state.json.pqenc was written within
+   *      the last 2 minutes → race condition. Wait random jitter, reload cookies,
+   *      re-validate, and repeat up to maxRetries times.
+   *   3. Neither signal present → genuine expiry. Break early, return false so
+   *      the caller can prompt for setup_auth.
+   */
+  async validateWithRetry(
+    context: BrowserContext,
+    maxRetries = 3
+  ): Promise<boolean> {
+    // Fast path — cookies already valid
+    if (await this.validateCookiesExpiry(context)) return true;
+
+    const RECENT_STATE_MS = 120_000; // 2 min — state updated this recently = race condition
+    const AUTH_STALE_MS   = 720_000; // 12 min stale threshold (matches shared-context-manager)
+    const BASE_JITTER_MS  = 3_000;
+    const MAX_JITTER_MS   = 15_000;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      // Diagnose: is this a race condition or genuine expiry?
+      const lockHeld   = isLocked(this.authLockPath, AUTH_STALE_MS);
+      const stateMtime = await this.getStateFileMtimeMs();
+      const stateRecent = stateMtime !== null && (Date.now() - stateMtime) < RECENT_STATE_MS;
+
+      if (!lockHeld && !stateRecent) {
+        log.warning(`⚠️  Auth failed — no concurrent session signal detected. Cookies likely genuinely expired.`);
+        break;
+      }
+
+      const reason = lockHeld && stateRecent
+        ? "auth lock held + state recently refreshed"
+        : lockHeld ? "auth lock held by another session"
+                   : "state.json.pqenc refreshed by another session";
+
+      const jitter = BASE_JITTER_MS + Math.random() * (MAX_JITTER_MS - BASE_JITTER_MS);
+      log.warning(`⚠️  Auth race condition detected (${reason}). Waiting ${(jitter / 1000).toFixed(1)}s then reloading cookies… (attempt ${attempt}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, jitter));
+
+      const reloaded = await this.reloadCookiesFromState(context);
+      if (!reloaded) {
+        log.warning("  ⚠️  Could not reload cookies from state file — will retry");
+        continue;
+      }
+
+      if (await this.validateCookiesExpiry(context)) {
+        log.success(`  ✅ Auth recovered after race condition (attempt ${attempt})`);
+        return true;
+      }
+    }
+
+    log.warning("⚠️  Auth validation failed after retries.");
+    log.info("💡 Run setup_auth tool to re-authenticate");
+    return false;
+  }
+
+  /**
+   * Get the mtime of the auth state file (tries .pqenc, .enc, plain in order).
+   * Returns null if no state file found.
+   */
+  private async getStateFileMtimeMs(): Promise<number | null> {
+    for (const ext of [".pqenc", ".enc", ""]) {
+      try {
+        const stats = await fs.stat(this.stateFilePath + ext);
+        return stats.mtimeMs;
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Reload fresh cookies from state.json.pqenc into the browser context.
+   * Uses addCookies() which overwrites existing cookies with the same key,
+   * replacing stale tokens with the latest ones saved by another session.
+   */
+  private async reloadCookiesFromState(context: BrowserContext): Promise<boolean> {
+    try {
+      const secureStorage = getSecureStorage();
+      const stateData = await secureStorage.load(this.stateFilePath);
+      if (!stateData) return false;
+
+      const state = JSON.parse(stateData) as { cookies?: Array<Record<string, unknown>> };
+      const cookies = state.cookies;
+      if (!cookies?.length) return false;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await context.addCookies(cookies as any);
+      log.info(`  🔄 Reloaded ${cookies.length} cookies from state file into context`);
+      return true;
+    } catch (error) {
+      log.warning(`  ⚠️  Failed to reload cookies: ${error}`);
       return false;
     }
   }

@@ -58,7 +58,7 @@ export class DataTableManager {
    */
   private async navigateToNotebook(notebookUrl: string): Promise<Page> {
     const context = await this.contextManager.getOrCreateContext(true);
-    const isAuth = await this.authManager.validateCookiesExpiry(context);
+    const isAuth = await this.authManager.validateWithRetry(context);
 
     if (!isAuth) {
       throw new Error("Not authenticated. Run setup_auth first.");
