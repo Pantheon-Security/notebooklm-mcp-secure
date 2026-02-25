@@ -662,6 +662,20 @@ export class ToolHandlers {
       log.info(`  Show browser: ${show_browser}`);
     }
 
+    // Guard: setup_auth ALWAYS clears all saved credentials before re-logging in.
+    // Calling it headlessly will wipe auth and then fail to restore it, leaving
+    // all sessions permanently unauthenticated. Require show_browser:true.
+    if (!show_browser) {
+      log.error("❌ setup_auth requires show_browser:true — cannot login interactively in headless mode");
+      return {
+        success: false,
+        authenticated: false,
+        error: "setup_auth requires show_browser:true. " +
+          "Calling it without a visible browser wipes your saved credentials then fails to restore them. " +
+          "Run the auth-now.mjs script instead, or pass show_browser:true.",
+      } as any;
+    }
+
     const startTime = Date.now();
 
     try {
