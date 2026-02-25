@@ -673,8 +673,9 @@ export class ToolHandlers {
       // Progress: Opening browser
       await sendProgress?.("Opening browser window...", 2, 10);
 
-      // Perform setup with progress updates (uses CONFIG internally)
-      const success = await this.authManager.performSetup(sendProgress);
+      // Perform setup with progress updates; pass show_browser so the caller
+      // can force a visible browser even when HEADLESS=true is set in env
+      const success = await this.authManager.performSetup(sendProgress, show_browser);
 
       const durationSeconds = (Date.now() - startTime) / 1000;
 
