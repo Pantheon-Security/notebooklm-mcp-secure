@@ -435,6 +435,9 @@ export class CleanupManager {
 
       // If preserveLibrary is true, don't delete the data directory itself
       // Instead, only delete subdirectories
+      // NEVER delete browser_state or chrome_profile — these contain Google auth
+      // credentials that take manual interactive login to restore. Deleting them
+      // breaks all sessions and requires a full re-authentication.
       const currentDirs = preserveLibrary
         ? [
             // Don't include data directory to preserve library.json
@@ -442,22 +445,17 @@ export class CleanupManager {
             this.currentPaths.cache,
             this.currentPaths.log,
             this.currentPaths.temp,
-            // Only delete subdirectories, not the parent
-            path.join(this.currentPaths.data, "browser_state"),
-            path.join(this.currentPaths.data, "chrome_profile"),
-            path.join(this.currentPaths.data, "chrome_profile_instances"),
           ]
         : [
-            // Delete everything including data directory
-            this.currentPaths.data,
+            // Delete everything including data directory (but NOT auth dirs)
             this.currentPaths.config,
             this.currentPaths.cache,
             this.currentPaths.log,
             this.currentPaths.temp,
-            // Specific subdirectories (only if parent doesn't exist)
-            path.join(this.currentPaths.data, "browser_state"),
-            path.join(this.currentPaths.data, "chrome_profile"),
-            path.join(this.currentPaths.data, "chrome_profile_instances"),
+            path.join(this.currentPaths.data, "sessions"),
+            path.join(this.currentPaths.data, "audit"),
+            path.join(this.currentPaths.data, "compliance"),
+            path.join(this.currentPaths.data, "security"),
           ];
 
       for (const dir of currentDirs) {

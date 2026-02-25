@@ -610,9 +610,9 @@ export class ToolHandlers {
         // Add troubleshooting tip if not authenticated or chat UI not accessible
         ...(((!authenticated) || (args?.deep_check && chatUiAccessible === false)) && {
           troubleshooting_tip: chatUiAccessible === false
-            ? "Chat UI not accessible. Session may be stale. Run re_auth to refresh authentication."
-            : "For fresh start with clean browser session: Close all Chrome instances → " +
-              "cleanup_data(confirm=true, preserve_library=true) → setup_auth"
+            ? "Chat UI not accessible. Session may be stale. Run re_auth(show_browser:true) to refresh."
+            : "Not authenticated. Run setup_auth(show_browser:true) to log in via a visible browser window. " +
+              "Do NOT call cleanup_data — it does not help with auth and is not needed here."
         }),
       };
 

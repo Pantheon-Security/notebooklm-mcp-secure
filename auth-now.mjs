@@ -17,6 +17,15 @@ await mkdir(CHROME_PROFILE_DIR, { recursive: true });
 
 console.log('');
 console.log('=== NotebookLM Auth Setup ===');
+
+// Kill any Chrome processes already holding the profile open
+import { execSync } from 'child_process';
+try {
+  execSync(`pkill -f "chrome_profile" 2>/dev/null || true`);
+  console.log('   Closed existing Chrome sessions...');
+  await new Promise(r => setTimeout(r, 2000)); // wait for cleanup
+} catch { /* ignore */ }
+
 console.log('Opening Chrome...');
 console.log('');
 
@@ -32,8 +41,15 @@ const context = await chromium.launchPersistentContext(CHROME_PROFILE_DIR, {
 });
 
 const page = context.pages()[0] ?? await context.newPage();
-await page.goto(AUTH_URL, { timeout: 60000 });
 
+console.log('Navigating to NotebookLM...');
+try {
+  await page.goto('https://notebooklm.google.com/', { timeout: 30000, waitUntil: 'domcontentloaded' });
+} catch (e) {
+  console.warn('   Initial navigation timed out — thats ok, waiting for manual login...');
+}
+
+console.log('If not already logged in, please log in to your Google account.');
 console.log('Waiting for you to reach NotebookLM... (up to 10 minutes)');
 
 let saved = false;
