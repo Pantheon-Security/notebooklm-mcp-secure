@@ -715,7 +715,7 @@ export class NotebookSync {
     );
 
     // Check authentication
-    const isAuthenticated = await this.authManager.validateCookiesExpiry(context);
+    const isAuthenticated = await this.authManager.validateWithRetry(context);
     if (!isAuthenticated) {
       throw new Error(
         "Not authenticated to NotebookLM. Please run setup_auth first."
