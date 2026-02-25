@@ -140,31 +140,41 @@ export class QuotaManager {
       // @ts-expect-error - DOM types
       const allText = document.body.innerText.toUpperCase();
 
-      // Check for ULTRA first (highest tier)
-      // @ts-expect-error - DOM types
-      const ultraBadge = document.querySelector(".ultra-badge, [class*='ultra']");
-      if (ultraBadge || allText.includes("ULTRA")) {
-        return "ultra";
-      }
+      // ── Signal 1: explicit tier badges / text ──────────────────────────────
+      if (allText.includes("ULTRA")) return "ultra";
 
-      // Look for PRO badge
-      // @ts-expect-error - DOM types
-      const proBadge = document.querySelector(".pro-badge");
-      if (proBadge) {
+      // NotebookLM Pro was rebranded to "NotebookLM Plus" / "One AI Premium"
+      if (
+        allText.includes("NOTEBOOKLM PLUS") ||
+        allText.includes("ONE AI PREMIUM") ||
+        allText.includes("GOOGLE ONE AI") ||
+        allText.includes("AI PREMIUM")
+      ) {
         return "pro";
       }
 
-      // Look for PRO text in specific elements
+      // Legacy "PRO" badge (some accounts still show this)
       // @ts-expect-error - DOM types
-      const proLabels = document.querySelectorAll(".pro-label, [class*='pro']");
-      for (const el of proLabels) {
-        if ((el as any).textContent?.toUpperCase().includes("PRO")) {
-          return "pro";
-        }
+      const proBadge = document.querySelector(".pro-badge, [data-tier='pro']");
+      if (proBadge) return "pro";
+
+      // ── Signal 2: infer from source limit shown anywhere on the page ───────
+      // NotebookLM renders "X / 300" or "X/300" next to the source list.
+      // This is the most reliable signal available without opening a dialog.
+      // @ts-expect-error - DOM types
+      const limitMatch = document.body.innerText.match(/\b(\d+)\s*\/\s*(50|300|600)\b/);
+      if (limitMatch) {
+        const limit = parseInt(limitMatch[2], 10);
+        if (limit >= 600) return "ultra";
+        if (limit >= 300) return "pro";
+        if (limit <= 50)  return "free";
       }
 
-      // Check for upgrade prompts (indicates free tier)
-      if (allText.includes("UPGRADE") && !allText.includes("PRO") && !allText.includes("ULTRA")) {
+      // ── Signal 3: upgrade prompts mean free tier ───────────────────────────
+      if (
+        allText.includes("UPGRADE TO NOTEBOOKLM PLUS") ||
+        (allText.includes("UPGRADE") && !allText.includes("PRO") && !allText.includes("PLUS") && !allText.includes("ULTRA"))
+      ) {
         return "free";
       }
 
@@ -359,6 +369,25 @@ export class QuotaManager {
     const sourceLimit = await this.extractSourceLimitFromDialog(page);
     if (sourceLimit) {
       this.settings.limits.sourcesPerNotebook = sourceLimit;
+      // If tier still unknown, infer it from the source limit
+      if (this.settings.tier === "unknown") {
+        if (sourceLimit >= 600) {
+          this.settings.tier = "ultra";
+          this.settings.limits = { ...TIER_LIMITS.ultra, sourcesPerNotebook: sourceLimit };
+          this.settings.autoDetected = true;
+          log.info(`  Inferred tier=ultra from source limit ${sourceLimit}`);
+        } else if (sourceLimit >= 300) {
+          this.settings.tier = "pro";
+          this.settings.limits = { ...TIER_LIMITS.pro, sourcesPerNotebook: sourceLimit };
+          this.settings.autoDetected = true;
+          log.info(`  Inferred tier=pro from source limit ${sourceLimit}`);
+        } else if (sourceLimit <= 50) {
+          this.settings.tier = "free";
+          this.settings.limits = { ...TIER_LIMITS.free, sourcesPerNotebook: sourceLimit };
+          this.settings.autoDetected = true;
+          log.info(`  Inferred tier=free from source limit ${sourceLimit}`);
+        }
+      }
     }
 
     // Try to extract query usage from UI

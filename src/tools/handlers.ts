@@ -1882,6 +1882,253 @@ export class ToolHandlers {
   }
 
   /**
+   * Handle add_folder tool
+   *
+   * Scans a local directory for supported files and adds them all as sources
+   * to a NotebookLM notebook. Auto-splits into multiple notebooks if the file
+   * count exceeds the tier's sourcesPerNotebook limit.
+   */
+  async handleAddFolder(
+    args: {
+      folder_path: string;
+      notebook_id?: string;
+      notebook_url?: string;
+      recursive?: boolean;
+      file_types?: string[];
+      dry_run?: boolean;
+      notebook_name_prefix?: string;
+    },
+    sendProgress?: ProgressCallback
+  ): Promise<
+    ToolResult<{
+      files_found: number;
+      files_added: number;
+      files_failed: number;
+      files_skipped: number;
+      notebooks_used: string[];
+      failed_files: Array<{ file: string; error: string }>;
+      dry_run: boolean;
+    }>
+  > {
+    const { promises: fs } = await import("fs");
+    const path = await import("path");
+
+    const folderPath = args.folder_path;
+    const recursive = args.recursive ?? false;
+    const dryRun = args.dry_run ?? false;
+    const fileTypes = (args.file_types ?? [".pdf", ".txt", ".md", ".docx"]).map((e) =>
+      e.startsWith(".") ? e.toLowerCase() : `.${e.toLowerCase()}`
+    );
+
+    log.info(`🔧 [TOOL] add_folder called`);
+    log.info(`  Folder: ${folderPath}`);
+    log.info(`  File types: ${fileTypes.join(", ")}`);
+    log.info(`  Recursive: ${recursive}`);
+    log.info(`  Dry run: ${dryRun}`);
+
+    try {
+      // ── 1. Validate folder ───────────────────────────────────────────────
+      let stat: import("fs").Stats;
+      try {
+        stat = await fs.stat(folderPath);
+      } catch {
+        throw new Error(`Folder not found: ${folderPath}`);
+      }
+      if (!stat.isDirectory()) {
+        throw new Error(`Path is not a directory: ${folderPath}`);
+      }
+
+      // ── 2. Scan files ────────────────────────────────────────────────────
+      const scanDir = async (dir: string): Promise<string[]> => {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        const files: string[] = [];
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory() && recursive) {
+            files.push(...(await scanDir(fullPath)));
+          } else if (entry.isFile()) {
+            const ext = path.extname(entry.name).toLowerCase();
+            if (fileTypes.includes(ext)) {
+              files.push(fullPath);
+            }
+          }
+        }
+        return files.sort();
+      };
+
+      await sendProgress?.("Scanning folder...", 0, 10);
+      const allFiles = await scanDir(folderPath);
+
+      if (allFiles.length === 0) {
+        return {
+          success: true,
+          data: {
+            files_found: 0,
+            files_added: 0,
+            files_failed: 0,
+            files_skipped: 0,
+            notebooks_used: [],
+            failed_files: [],
+            dry_run: dryRun,
+          },
+          error: `No supported files found in ${folderPath} (looking for: ${fileTypes.join(", ")})`,
+        };
+      }
+
+      log.info(`  Found ${allFiles.length} files`);
+      await sendProgress?.(`Found ${allFiles.length} files`, 1, 10);
+
+      // ── 3. Dry run — return preview ──────────────────────────────────────
+      if (dryRun) {
+        return {
+          success: true,
+          data: {
+            files_found: allFiles.length,
+            files_added: 0,
+            files_failed: 0,
+            files_skipped: 0,
+            notebooks_used: [],
+            failed_files: [],
+            dry_run: true,
+          },
+        };
+      }
+
+      // ── 4. Resolve target notebook ───────────────────────────────────────
+      let notebookUrl = args.notebook_url;
+      let notebookName = args.notebook_name_prefix ?? path.basename(folderPath);
+
+      if (!notebookUrl && args.notebook_id) {
+        const notebook = this.library.getNotebook(args.notebook_id);
+        if (!notebook) throw new Error(`Notebook not found: ${args.notebook_id}`);
+        notebookUrl = notebook.url;
+        notebookName = notebook.name;
+        log.info(`  Target notebook: ${notebookName}`);
+      } else if (!notebookUrl) {
+        const active = this.library.getActiveNotebook();
+        if (active) {
+          notebookUrl = active.url;
+          notebookName = active.name;
+          log.info(`  Using active notebook: ${notebookName}`);
+        } else {
+          throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
+        }
+      }
+
+      // ── 5. Check tier limit and chunk files ──────────────────────────────
+      const limits = getQuotaManager().getLimits();
+      const chunkSize = limits.sourcesPerNotebook;
+      const chunks: string[][] = [];
+      for (let i = 0; i < allFiles.length; i += chunkSize) {
+        chunks.push(allFiles.slice(i, i + chunkSize));
+      }
+      log.info(`  Tier limit: ${chunkSize} sources/notebook → ${chunks.length} chunk(s)`);
+
+      // ── 6. Add files ─────────────────────────────────────────────────────
+      const contextManager = this.sessionManager.getContextManager();
+      const notebooksUsed: string[] = [];
+      const failedFiles: Array<{ file: string; error: string }> = [];
+      let totalAdded = 0;
+
+      for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
+        const chunk = chunks[chunkIdx];
+
+        // Determine notebook URL for this chunk
+        let targetUrl: string;
+        if (chunkIdx === 0) {
+          targetUrl = validateNotebookUrl(notebookUrl!);
+        } else {
+          // Auto-create overflow notebook
+          const overflowName =
+            chunks.length === 2
+              ? `${notebookName} (2/2)`
+              : `${notebookName} (${chunkIdx + 1}/${chunks.length})`;
+          await sendProgress?.(
+            `Creating overflow notebook: ${overflowName}`,
+            2,
+            10
+          );
+          log.info(`  Creating overflow notebook: ${overflowName}`);
+          const created = await this.handleCreateNotebook(
+            { name: overflowName, sources: [], auto_add_to_library: true },
+            sendProgress
+          );
+          if (!created.success || !created.data?.url) {
+            failedFiles.push(
+              ...chunk.map((f) => ({ file: f, error: `Could not create overflow notebook ${overflowName}` }))
+            );
+            continue;
+          }
+          targetUrl = validateNotebookUrl(created.data.url);
+          notebooksUsed.push(overflowName);
+        }
+
+        if (chunkIdx === 0) {
+          notebooksUsed.unshift(notebookName);
+        }
+
+        const sourceManager = new SourceManager(this.authManager, contextManager);
+
+        for (let i = 0; i < chunk.length; i++) {
+          const filePath = chunk[i];
+          const fileName = path.basename(filePath);
+          const globalIdx = chunkIdx * chunkSize + i + 1;
+          const progressStep = Math.min(9, 2 + Math.floor((globalIdx / allFiles.length) * 7));
+
+          await sendProgress?.(
+            `Adding file ${globalIdx}/${allFiles.length}: ${fileName}`,
+            progressStep,
+            10
+          );
+          log.info(`  [${globalIdx}/${allFiles.length}] Adding: ${fileName}`);
+
+          try {
+            const result = await sourceManager.addSource(targetUrl, {
+              type: "file",
+              value: filePath,
+            });
+            if (result.success) {
+              totalAdded++;
+            } else {
+              failedFiles.push({ file: filePath, error: result.error ?? "Unknown error" });
+              log.warning(`  ⚠️  Failed: ${fileName} — ${result.error}`);
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            failedFiles.push({ file: filePath, error: msg });
+            log.warning(`  ⚠️  Error: ${fileName} — ${msg}`);
+          }
+        }
+      }
+
+      await sendProgress?.("Done!", 10, 10);
+      log.success(
+        `✅ [TOOL] add_folder complete: ${totalAdded}/${allFiles.length} added, ${failedFiles.length} failed`
+      );
+
+      return {
+        success: failedFiles.length === 0,
+        data: {
+          files_found: allFiles.length,
+          files_added: totalAdded,
+          files_failed: failedFiles.length,
+          files_skipped: allFiles.length - totalAdded - failedFiles.length,
+          notebooks_used: notebooksUsed,
+          failed_files: failedFiles,
+          dry_run: false,
+        },
+        ...(failedFiles.length > 0 && {
+          error: `${failedFiles.length} file(s) failed to add`,
+        }),
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] add_folder failed: ${errorMessage}`);
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
    * Handle remove_source tool
    *
    * Remove a source from a NotebookLM notebook.

@@ -503,6 +503,70 @@ Or with direct URL:
     },
   },
   {
+    name: "add_folder",
+    description: `Add all files from a local folder as sources to a NotebookLM notebook.
+
+## Use this when
+- User wants to add a folder of PDFs, docs, or text files to a notebook
+- Adding 5+ files at once (faster than calling add_source repeatedly)
+
+## Behaviour
+- Scans the folder for supported file types (default: .pdf, .txt, .md, .docx)
+- Adds each file one-by-one with progress updates
+- Skips files that fail and reports them in the summary
+- If file count exceeds your tier's source limit, auto-splits into multiple notebooks
+
+## Dry Run First (recommended for large folders)
+\`\`\`json
+{ "folder_path": "/path/to/docs", "notebook_id": "my-notebook", "dry_run": true }
+\`\`\`
+
+## Full Add
+\`\`\`json
+{ "folder_path": "/path/to/docs", "notebook_id": "my-notebook" }
+\`\`\`
+
+## With Subdirectories
+\`\`\`json
+{ "folder_path": "/path/to/project", "notebook_id": "my-notebook", "recursive": true }
+\`\`\``,
+    inputSchema: {
+      type: "object",
+      properties: {
+        folder_path: {
+          type: "string",
+          description: "Absolute path to the folder to scan",
+        },
+        notebook_id: {
+          type: "string",
+          description: "Library notebook ID to add sources to",
+        },
+        notebook_url: {
+          type: "string",
+          description: "Direct notebook URL (overrides notebook_id)",
+        },
+        recursive: {
+          type: "boolean",
+          description: "Scan subdirectories too (default: false)",
+        },
+        file_types: {
+          type: "array",
+          items: { type: "string" },
+          description: "File extensions to include (default: [\".pdf\", \".txt\", \".md\", \".docx\"])",
+        },
+        dry_run: {
+          type: "boolean",
+          description: "Preview files that would be added without actually adding them (default: false)",
+        },
+        notebook_name_prefix: {
+          type: "string",
+          description: "Prefix for auto-split notebooks when file count exceeds tier limit (default: folder name)",
+        },
+      },
+      required: ["folder_path"],
+    },
+  },
+  {
     name: "remove_source",
     description: `Remove a source from a NotebookLM notebook.
 

@@ -365,6 +365,21 @@ class NotebookLMMCPServer {
             );
             break;
 
+          case "add_folder":
+            result = await this.toolHandlers.handleAddFolder(
+              args as {
+                folder_path: string;
+                notebook_id?: string;
+                notebook_url?: string;
+                recursive?: boolean;
+                file_types?: string[];
+                dry_run?: boolean;
+                notebook_name_prefix?: string;
+              },
+              sendProgress
+            );
+            break;
+
           case "remove_source":
             result = await this.toolHandlers.handleRemoveSource(
               args as {
