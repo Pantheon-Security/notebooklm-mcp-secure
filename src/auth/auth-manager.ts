@@ -294,8 +294,11 @@ export class AuthManager {
     context: BrowserContext,
     maxRetries = 3
   ): Promise<boolean> {
-    // Fast path — cookies already valid
-    if (await this.validateCookiesExpiry(context)) return true;
+    // Fast path — cookies already valid; touch file to reset 7-day expiry clock
+    if (await this.validateCookiesExpiry(context)) {
+      await this.touchStateFile();
+      return true;
+    }
 
     const RECENT_STATE_MS = 120_000; // 2 min — state updated this recently = race condition
     const AUTH_STALE_MS   = 720_000; // 12 min stale threshold (matches shared-context-manager)
@@ -330,6 +333,8 @@ export class AuthManager {
 
       if (await this.validateCookiesExpiry(context)) {
         log.success(`  ✅ Auth recovered after race condition (attempt ${attempt})`);
+        // Touch state file so the 7-day expiry clock resets
+        await this.touchStateFile();
         return true;
       }
     }
@@ -353,6 +358,24 @@ export class AuthManager {
       }
     }
     return null;
+  }
+
+  /**
+   * Touch the state file to reset the 7-day expiry clock.
+   * Called after successful auth validation so sessions that use the
+   * existing credentials don't cause the file to silently expire.
+   */
+  private async touchStateFile(): Promise<void> {
+    for (const ext of [".pqenc", ".enc", ""]) {
+      const filePath = this.stateFilePath + ext;
+      try {
+        const now = new Date();
+        await fs.utimes(filePath, now, now);
+        return;
+      } catch {
+        continue;
+      }
+    }
   }
 
   /**
@@ -393,11 +416,11 @@ export class AuthManager {
       try {
         const stats = await fs.stat(filePath);
         const fileAgeSeconds = (Date.now() - stats.mtimeMs) / 1000;
-        const maxAgeSeconds = 24 * 60 * 60; // 24 hours
+        const maxAgeSeconds = 7 * 24 * 60 * 60; // 7 days (Google cookies last 2-4 weeks)
 
         if (fileAgeSeconds > maxAgeSeconds) {
           const hoursOld = fileAgeSeconds / 3600;
-          log.warning(`⚠️  Saved state is ${hoursOld.toFixed(1)}h old (max: 24h)`);
+          log.warning(`⚠️  Saved state is ${hoursOld.toFixed(1)}h old (max: 7 days)`);
           return true;
         }
 

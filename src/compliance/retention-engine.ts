@@ -50,7 +50,7 @@ const DEFAULT_POLICIES: RetentionPolicy[] = [
     id: "policy_session",
     name: "Session Data Cleanup",
     data_types: ["session_state", "browser_local_storage"],
-    retention_days: 1, // 24 hours
+    retention_days: 14, // 14 days — auth cookies are valid for 2-4 weeks
     action: "delete",
     schedule: "daily",
   },

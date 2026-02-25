@@ -758,6 +758,19 @@ export class ToolHandlers {
       log.info(`  Show browser: ${show_browser}`);
     }
 
+    // Guard: re_auth requires a visible browser — Google login is interactive.
+    // Calling without show_browser:true would wipe saved credentials then fail,
+    // leaving all sessions permanently unauthenticated.
+    if (!show_browser) {
+      log.error("❌ re_auth requires show_browser:true — cannot login interactively in headless mode");
+      return {
+        success: false,
+        error: "re_auth requires show_browser:true. Google login is interactive and cannot complete " +
+          "in headless mode. Calling re_auth headlessly wipes your saved credentials then fails to " +
+          "restore them, destroying auth for all concurrent sessions. Pass show_browser:true.",
+      };
+    }
+
     const startTime = Date.now();
 
     try {
