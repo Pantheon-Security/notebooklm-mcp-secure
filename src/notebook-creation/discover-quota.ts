@@ -200,7 +200,7 @@ async function main() {
   const contextManager = new SharedContextManager(authManager);
 
   try {
-    const context = await contextManager.getOrCreateContext(true);
+    const context = await contextManager.getOrCreateContext();
     const isAuth = await authManager.validateCookiesExpiry(context);
 
     if (!isAuth) {

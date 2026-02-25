@@ -111,7 +111,7 @@ async function main() {
 
   try {
     // Get browser context with visible window
-    const context = await contextManager.getOrCreateContext(true);
+    const context = await contextManager.getOrCreateContext();
 
     // Check auth
     const isAuth = await authManager.validateCookiesExpiry(context);

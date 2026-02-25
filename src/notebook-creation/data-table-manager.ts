@@ -57,7 +57,7 @@ export class DataTableManager {
    * Navigate to a notebook and ensure we're on the right page
    */
   private async navigateToNotebook(notebookUrl: string): Promise<Page> {
-    const context = await this.contextManager.getOrCreateContext(true);
+    const context = await this.contextManager.getOrCreateContext();
     const isAuth = await this.authManager.validateWithRetry(context);
 
     if (!isAuth) {
