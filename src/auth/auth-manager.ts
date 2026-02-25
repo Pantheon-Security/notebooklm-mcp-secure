@@ -1097,11 +1097,10 @@ export class AuthManager {
       const shouldShowBrowser = overrideHeadless !== undefined ? overrideHeadless : true;
 
       try {
-        // CRITICAL: Clear ALL old auth data FIRST (for account switching)
-        log.info("🔄 Preparing for new account authentication...");
-        await sendProgress?.("Clearing old authentication data...", 1, 10);
-        await this.clearAllAuthData();
-
+        // Do NOT call clearAllAuthData() here. Deleting the Chrome profile and
+        // state file before the new login completes leaves auth in a broken state
+        // if Chrome fails to open or the user doesn't complete login in time.
+        // For account switching, call clearAllAuthData() explicitly before setup_auth.
         log.info("🚀 Launching persistent browser for interactive setup...");
         log.info(`  📍 Profile: ${CONFIG.chromeProfileDir}`);
         await sendProgress?.("Launching persistent browser...", 2, 10);
@@ -1170,7 +1169,11 @@ export class AuthManager {
    * Use this BEFORE authenticating a new account!
    */
   async clearAllAuthData(): Promise<void> {
-    log.warning("🗑️  Clearing ALL authentication data for account switch...");
+    // Log a stack trace so we always know who called this
+    const stack = new Error("clearAllAuthData caller").stack ?? "";
+    const caller = stack.split("\n")[2]?.trim() ?? "unknown";
+    log.warning("🗑️  Clearing ALL authentication data...");
+    log.warning(`   Called from: ${caller}`);
 
     let deletedCount = 0;
     const secureStorage = getSecureStorage();
