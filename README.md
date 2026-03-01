@@ -44,10 +44,17 @@
 
 ## 🚀 What's New in 2026
 
-**Latest: v2026.2.1** — Standard profile now exposes all key features (33 tools by default)
+**Latest: v2026.2.9** — Auth stability series complete: credentials now survive restarts, cleanups, and headless calls
 
 | Version | Highlights |
 |---------|------------|
+| **v2026.2.9** | `performSetup` no longer wipes credentials before Chrome opens — prevents auth destruction on failed launch |
+| **v2026.2.8** | `cleanup_data` never deletes auth dirs (`browser_state/`, `chrome_profile/`) — auth survives all cleanup paths |
+| **v2026.2.7** | Block headless `setup_auth` calls; robust `auth-now.mjs` standalone script with Chrome profile lock handling |
+| **v2026.2.6** | New `add_folder` tool for bulk PDF/file uploads; improved tier detection for NotebookLM Plus |
+| **v2026.2.5** | Fix `show_browser` silently ignored in `setup_auth` — browser now reliably opens for auth |
+| **v2026.2.4** | Auth stability: 7-day state expiry, `touchStateFile` on validation, block headless `re_auth` |
+| **v2026.2.3** | Studio Panel tools restored: Video Overview, Data Table generation re-enabled |
 | **v2026.2.1** | Standard profile expanded: 14 → 33 tools — notebook creation, audio, source management now visible by default |
 | **v2026.2.0** | Gemini 3 models (2.5 retiring March 31), Video Overviews, Data Tables, thinking level, structured JSON, SDK 1.41 |
 | **v2026.1.12** | Security hardening: constant-time auth, command injection fix, memory leak fixes, MCP SDK 1.26.0 |
@@ -80,7 +87,7 @@ claude mcp add notebooklm -- npx @pan-sec/notebooklm-mcp@latest
 | Deep health verification | ❌ | ✅ |
 
 <details>
-<summary><b>📋 Full Feature List (47 Tools)</b></summary>
+<summary><b>📋 Full Feature List (48 Tools)</b></summary>
 
 #### Core NotebookLM (No API Key Required)
 | Tool | Description |
@@ -96,6 +103,7 @@ claude mcp add notebooklm -- npx @pan-sec/notebooklm-mcp@latest
 | `sync_library` | Sync library with NotebookLM |
 | `list_sources` | List sources in a notebook |
 | `add_source` | Add source to notebook |
+| `add_folder` | Bulk upload PDFs/files from a local folder to a notebook |
 | `remove_source` | Remove source from notebook |
 | `generate_audio_overview` | Create podcast-style audio |
 | `get_audio_status` | Check audio generation status |
@@ -1118,6 +1126,13 @@ Or integrate in CI/CD:
 
 | Version | Highlights |
 |---------|------------|
+| **v2026.2.9** | 🔐 `performSetup` no longer destroys credentials before Chrome opens — last root cause of auth loop fixed |
+| **v2026.2.8** | 🛡️ `cleanup_data` excludes `browser_state/` and `chrome_profile/` from all deletion paths — auth survives cleanup |
+| **v2026.2.7** | 🚫 Block headless `setup_auth`; `auth-now.mjs` standalone script handles Chrome profile locks and silent save failures |
+| **v2026.2.6** | 📁 New `add_folder` tool — bulk upload PDFs/files to a notebook with progress, dry_run, and auto-split support |
+| **v2026.2.5** | 🔧 Fix: `show_browser` now correctly passed to `performSetup` — browser reliably opens for auth |
+| **v2026.2.4** | 🔑 Auth stability: 7-day state expiry (was 24h), `touchStateFile` resets clock on each validation, headless `re_auth` blocked |
+| **v2026.2.3** | 🎬 Studio Panel tools restored — Video Overview generation and Data Table tools re-enabled after UI update |
 | **v2026.2.1** | 🔧 Standard profile expanded: 14 → 33 tools — all key features now visible by default |
 | **v2026.2.0** | 🚀 Gemini 3 models (2.5 retiring March 31), Video Overviews (10 styles), Data Table extraction (JSON), thinking level control, structured JSON output, SDK 1.41 |
 | **v2026.1.12** | 🔒 Security hardening — timing attack fix, command injection fix, 6 memory leak fixes, MCP SDK 1.26.0 |
