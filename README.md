@@ -44,10 +44,11 @@
 
 ## 🚀 What's New in 2026
 
-**Latest: v2026.2.9** — Auth stability series complete: credentials now survive restarts, cleanups, and headless calls
+**Latest: v2026.2.10** — 17 security layers, handler architecture overhaul, secure-by-default auth
 
 | Version | Highlights |
 |---------|------------|
+| **v2026.2.10** | **The Hardening Release** — 3 new security layers (14→17): secure-by-default auth, exponential backoff lockout, credential isolation. Architecture overhaul: 3,611-line handler split into 9 domain modules, tool registry pattern. Gemini API retry with backoff. Multi-stage Docker build. Token CLI (`token show/rotate`). 168 tests. |
 | **v2026.2.9** | `performSetup` no longer wipes credentials before Chrome opens — prevents auth destruction on failed launch |
 | **v2026.2.8** | `cleanup_data` never deletes auth dirs (`browser_state/`, `chrome_profile/`) — auth survives all cleanup paths |
 | **v2026.2.7** | Block headless `setup_auth` calls; robust `auth-now.mjs` standalone script with Chrome profile lock handling |

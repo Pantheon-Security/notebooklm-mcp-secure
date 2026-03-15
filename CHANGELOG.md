@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.2.10] - 2026-03-15
+
+### Added — 3 New Security Layers (14 → 17)
+- **Secure-by-Default Auth**: MCP authentication enabled by default — no configuration needed. Explicit opt-out via `NLMCP_AUTH_DISABLED=true`
+- **Exponential Backoff Lockout**: Failed auth lockouts escalate 5min → 15min → 45min → 4hr (capped). `lockoutCount` persists across resets
+- **Credential Isolation**: `LOGIN_PASSWORD` and `GEMINI_API_KEY` wrapped in `SecureCredential` with 30-min TTL. Original env vars scrubbed from `process.env`
+
+### Added — Architecture Overhaul
+- Split 3,611-line `handlers.ts` into 9 domain modules: ask-question, session-management, auth, notebook-management, notebook-creation, system, audio-video, webhooks, gemini
+- `HandlerContext` dependency injection pattern for testable domain functions
+- Tool registry `Map` replaces 500-line switch/case — built once at startup, O(1) dispatch
+- Filesystem tools (`add_folder`, `cleanup_data`, `export_library`) gated behind auth even when globally disabled
+- `forceValidation` parameter on `validateToken()` prevents auth bypass on sensitive tools
+
+### Added — Token Management CLI
+- `npx notebooklm-mcp token show` — check token status
+- `npx notebooklm-mcp token rotate` — generate new token, invalidate old
+- First-run token display shows copy-pasteable commands with actual token value
+
+### Added — Reliability
+- Gemini API retry with exponential backoff (429/500/502/503, 3 retries)
+- Configurable response timeout: `NLMCP_RESPONSE_TIMEOUT_MS` (default: 120s)
+- Configurable follow-up reminder: `NLMCP_FOLLOW_UP_ENABLED` / `NLMCP_FOLLOW_UP_REMINDER`
+- Config value range clamping: `maxSessions` (1-50), `sessionTimeout` (60-86400), `browserTimeout` (5000-300000)
+- File permission failures now logged and audited (no longer silently swallowed)
+
+### Added — CI/CD & Docker
+- `npm test` step added to CI pipeline
+- Multi-stage Docker build (~40-60% smaller image)
+- `.dockerignore` created
+
+### Added — Testing
+- 57 new tests: security utilities (`validateNotebookUrl`, `validateQuestion`, `RateLimiter`) and config parsing (`parseBoolean`, `parseInteger`, `parseArray`, `applyBrowserOptions`)
+- 168 total tests passing across 6 test files
+
+### Fixed
+- Locale-agnostic browser selectors — removed hardcoded German `textarea[aria-label="Feld für Anfragen"]`
+- `parseBoolean` used consistently for auth disable check (case-insensitive)
+- `parseInteger` used consistently in mcp-auth (NaN-safe)
+- Backoff comment corrected: "3rd: 1hr" → "3rd: 45min"
+
+### Security Fixes (found during 4-agent review)
+- **CRITICAL**: `forceAuth` bypass — `validateToken()` now accepts `forceValidation` to skip `!enabled` short-circuit
+- **CRITICAL**: Plaintext credentials removed from `CONFIG` — consumers use `getSecureLoginPassword()` / `getSecureGeminiApiKey()`
+
 ## [2026.2.9] - 2026-03-01
 
 ### Fixed — performSetup No Longer Destroys Auth Before Chrome Opens
