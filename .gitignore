@@ -57,3 +57,6 @@ venv/
 
 # Local MCP dev config
 .mcp.json
+
+# NPM auth
+.npmrc
