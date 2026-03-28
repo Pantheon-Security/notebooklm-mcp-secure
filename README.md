@@ -16,7 +16,7 @@
 [![Gemini](https://img.shields.io/badge/Gemini-Deep%20Research-4285F4.svg)](#-gemini-deep-research-v180)
 [![Documents](https://img.shields.io/badge/Documents-API%20Upload-34A853.svg)](#-document-api-v190)
 [![Notebooks](https://img.shields.io/badge/Notebooks-Create%20%26%20Manage-orange.svg)](#programmatic-notebook-creation-v170)
-[![Compliance](https://img.shields.io/badge/Compliance-GDPR%20%7C%20SOC2%20%7C%20CSSF-blue.svg)](./docs/COMPLIANCE-SPEC.md)
+[![Compliance](https://img.shields.io/badge/Compliance%20Ready-GDPR%20%7C%20SOC2%20%7C%20CSSF-blue.svg)](./docs/COMPLIANCE-SPEC.md)
 [![Tests](https://img.shields.io/badge/Tests-168%20Passing-brightgreen.svg)](./tests/)
 
 [**What's New 2026**](#-whats-new-in-2026) • [**Deep Research**](#-gemini-deep-research) • [**Document API**](#-document-api) • [**Create Notebooks**](#programmatic-notebook-creation) • [**Security**](#security-features) • [**Install**](#installation)
@@ -37,7 +37,7 @@
 - 🔬 **Gemini 3 + Deep Research** — latest models with thinking control (optional API) **NEW**
 - 📄 **Document API** — upload & query PDFs without browser (optional API)
 - 🔐 **17 security layers** — post-quantum encryption, audit logs, secrets scanning
-- ✅ **Enterprise compliance** — GDPR, SOC2, CSSF ready
+- ✅ **Compliance-ready architecture** — built to GDPR, SOC2, and CSSF standards (controls implemented; formal certification requires third-party audit)
 - 💡 **No API key required** — core features work with just browser auth
 
 ---
@@ -81,7 +81,7 @@ claude mcp add notebooklm -- npx @pan-sec/notebooklm-mcp@latest
 | Gemini Deep Research | ❌ | ✅ **EXCLUSIVE** |
 | Document API (no browser) | ❌ | ✅ **EXCLUSIVE** |
 | Post-quantum encryption | ❌ | ✅ **Future-proof** |
-| Enterprise compliance | ❌ | ✅ **GDPR/SOC2/CSSF** |
+| Enterprise compliance | ❌ | ✅ **GDPR/SOC2/CSSF-ready** |
 | Video Overview generation | ❌ | ✅ **NEW** |
 | Data Table extraction | ❌ | ✅ **NEW** |
 | Chat history extraction | ❌ | ✅ |
@@ -238,7 +238,7 @@ Run deep research in the background and check progress:
 │                      │       17 SECURITY LAYERS        │                     │
 │                      │   Post-Quantum • Audit Logs     │                     │
 │                      │   Cert Pinning • Memory Wipe    │                     │
-│                      │   GDPR • SOC2 • CSSF Ready      │                     │
+│                      │  GDPR • SOC2 • CSSF Ready*      │                     │
 │                      └─────────────────────────────────┘                     │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -686,11 +686,11 @@ Full native support for all major operating systems:
 
 All sensitive files (encryption keys, auth tokens, audit logs) are automatically protected with owner-only permissions on every platform.
 
-### Enterprise Compliance (v1.6.0+)
+### Enterprise Compliance-Ready Architecture (v1.6.0+)
 
-Full compliance support for regulated industries:
+Built to the standards required for regulated industries. All controls are implemented — formal certification (SOC2 Type II report, GDPR registration, CSSF submission) requires a third-party audit engagement.
 
-| Regulation | Features |
+| Regulation | Controls Implemented |
 |------------|----------|
 | **GDPR** | Consent management, DSAR handling, right to erasure, data portability |
 | **SOC2 Type II** | Hash-chained audit logs, incident response, availability monitoring |
@@ -1118,9 +1118,11 @@ Or integrate in CI/CD:
 | **Audit logging** | ❌ | ✅ Hash-chained |
 | **MCP authentication** | ❌ | ✅ Token + lockout |
 | **Prompt injection detection** | ❌ | ✅ Response validation |
-| **GDPR Compliance** | ❌ | ✅ Full |
-| **SOC2 Type II** | ❌ | ✅ Full |
-| **CSSF (Luxembourg)** | ❌ | ✅ Full |
+| **GDPR Compliance** | ❌ | ✅ Controls implemented* |
+| **SOC2 Type II** | ❌ | ✅ Controls implemented* |
+| **CSSF (Luxembourg)** | ❌ | ✅ Controls implemented* |
+
+> \* Compliance-ready: all required controls are implemented. Formal certification (SOC2 Type II report, GDPR registration, CSSF submission) requires a third-party audit engagement.
 
 > **Bottom line**: If you need more than basic queries, or care about security, there's only one choice.
 
