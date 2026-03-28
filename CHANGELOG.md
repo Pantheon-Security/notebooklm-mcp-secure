@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.2.11] - 2026-03-28
+
+### Fixed — UI Selector Hardening
+
+- **`video-manager.ts`**: Added mat-icon text scan as fallback in `clickVideoTile` (same locale-independent pattern used by data-table). Video tile is now found by icon exclusion (`!= "table_view"`) rather than relying solely on the `.green` CSS class
+- **`video-manager.ts` + `data-table-manager.ts`**: Added `[class*='create-artifact']` to `ensureStudioPanelOpen` waitForSelector and querySelector — Studio panel detection no longer breaks if Google renames `.create-artifact-button-container`
+- **`selectors.ts`** `chooseFileButton`: Added 3 new fallbacks (`[class*="file-dialog-button"]`, `button[class*="upload"][class*="trigger"]`, `span[class*="file-dialog"]`) for resilience against Dropzone class renames
+- **`selectors.ts`** `closeDialogButton`: Added US spelling `button[aria-label="Close dialog"]` alongside British `"Close dialogue"` — survives if Google normalises to US English
+- **`selectors.ts`** `chatInput`: Removed hardcoded German `aria-label="Feld für Anfragen"` fallback; replaced with locale-agnostic chain (`textarea[aria-label]`, `textarea[class*="query"]`, `.chat-input textarea`)
+
+### Docs
+
+- Compliance language updated throughout README and `package.json` to accurately reflect "compliance-ready architecture" (controls implemented) vs formal certification (requires third-party audit)
+
+---
+
 ## [2026.2.10] - 2026-03-15
 
 ### Added — 3 New Security Layers (14 → 17)
