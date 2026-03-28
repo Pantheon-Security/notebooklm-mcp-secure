@@ -89,7 +89,7 @@ export class DataTableManager {
     // This guards against the panel not having rendered yet, especially on slower machines.
     try {
       await page.waitForSelector(
-        ".create-artifact-button-container, .toggle-studio-panel-button",
+        ".create-artifact-button-container, [class*='create-artifact'][role='button'], .toggle-studio-panel-button",
         { timeout: 30000 }
       );
     } catch {
@@ -99,7 +99,7 @@ export class DataTableManager {
     return await page.evaluate(() => {
       // 1. Tiles already visible — panel is open, nothing to do
       // @ts-expect-error - DOM types
-      if (document.querySelector(".create-artifact-button-container")) return true;
+      if (document.querySelector(".create-artifact-button-container, [class*='create-artifact'][role='button']")) return true;
 
       // 2. Find the toggle button (primary selector first, then fallbacks for DOM changes)
       const candidateSelectors = [

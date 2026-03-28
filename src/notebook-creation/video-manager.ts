@@ -97,7 +97,7 @@ export class VideoManager {
     // This guards against the panel not having rendered yet, especially on slower machines.
     try {
       await page.waitForSelector(
-        ".create-artifact-button-container, .toggle-studio-panel-button",
+        ".create-artifact-button-container, [class*='create-artifact'][role='button'], .toggle-studio-panel-button",
         { timeout: 30000 }
       );
     } catch {
@@ -107,7 +107,7 @@ export class VideoManager {
     return await page.evaluate(() => {
       // 1. Tiles present — panel is open, nothing to do
       // @ts-expect-error - DOM types
-      if (document.querySelector(".create-artifact-button-container")) return true;
+      if (document.querySelector(".create-artifact-button-container, [class*='create-artifact'][role='button']")) return true;
 
       // 2. Tiles absent — panel is collapsed. Find toggle and click to open.
       // No aria-label text matching: labels are locale-dependent (e.g. "Réduire" in French).
@@ -192,7 +192,19 @@ export class VideoManager {
         tileByClass.click();
         return true;
       }
-      // Secondary: jslog numeric ID (locale-independent, confirmed stable Feb 2026)
+      // Secondary: mat-icon text scan — find tile whose icon is NOT "table_view" (data table)
+      // Locale-independent: Material icon names are never translated
+      // @ts-expect-error - DOM types
+      const tiles = document.querySelectorAll('.create-artifact-button-container[role="button"]');
+      for (const tile of tiles) {
+        const icon = (tile as any).querySelector("mat-icon");
+        const iconText = icon?.textContent?.trim();
+        if (iconText && iconText !== "table_view") {
+          (tile as any).click();
+          return true;
+        }
+      }
+      // Tertiary: jslog numeric ID (locale-independent, confirmed stable Feb 2026)
       // @ts-expect-error - DOM types
       const tileByJslog = document.querySelector('[jslog^="261214"][role="button"]') as any;
       if (tileByJslog) {

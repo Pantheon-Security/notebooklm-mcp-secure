@@ -122,8 +122,11 @@ export const NOTEBOOKLM_SELECTORS = {
   chooseFileButton: {
     primary: 'span.dropzone__file-dialog-button',
     fallbacks: [
-      'span[xapscottyuploadertrigger]',
-      'a:text("choose file")',
+      'span[xapscottyuploadertrigger]',        // Angular upload trigger attribute
+      '[class*="file-dialog-button"]',          // Class rename resilience
+      'button[class*="upload"][class*="trigger"]', // Generic upload trigger pattern
+      'span[class*="file-dialog"]',             // Partial class match
+      'a:text("choose file")',                  // Text-based (English, last resort)
     ],
     confirmed: true, // December 2025
   },
@@ -148,10 +151,12 @@ export const NOTEBOOKLM_SELECTORS = {
   },
 
   /** Close dialog button
-   * Discovered: aria="Close dialogue" */
+   * Discovered: aria="Close dialogue" (British spelling)
+   * Note: Google uses British "dialogue" — US "dialog" added as fallback */
   closeDialogButton: {
     primary: 'button[aria-label="Close dialogue"]',
     fallbacks: [
+      'button[aria-label="Close dialog"]',  // US spelling variant
       'button[aria-label="Close"]',
       'button[aria-label*="close" i]',
     ],
@@ -194,8 +199,10 @@ export const NOTEBOOKLM_SELECTORS = {
   chatInput: {
     primary: 'textarea.query-box-input',
     fallbacks: [
-      'textarea[aria-label="Feld für Anfragen"]',
-      'textarea[aria-label="Query box"]',
+      'textarea[aria-label]',           // Any textarea with aria-label (locale-agnostic)
+      'textarea[class*="query"]',       // Class partial match
+      '.chat-input textarea',           // Container-based
+      'textarea[aria-label="Query box"]', // English-only, last resort
     ],
     confirmed: true,
   },
