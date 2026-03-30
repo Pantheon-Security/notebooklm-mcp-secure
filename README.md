@@ -901,6 +901,10 @@ Most MCP clients use this standard format:
 
 ---
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/pantheon-security-notebooklm-mcp-secure).
+
 ## Quick Start
 
 ### 1. Install (see above)
