@@ -52,9 +52,12 @@ const DEFAULT_RULES: BreachRule[] = [
     notification_deadline_hours: 24,
   },
   {
+    // Rule retained as a stub for API/report-shape compatibility; the
+    // `cert_pinning_violation` event source was removed when cert pinning
+    // was deleted, so this rule never fires.
     id: "rule_cert_violation",
-    name: "Certificate Pinning Violation",
-    description: "TLS certificate does not match pinned certificates",
+    name: "Certificate Pinning Violation (disabled)",
+    description: "Dormant — cert pinning removed; no event source fires this rule",
     severity: "critical",
     event_pattern: "cert_pinning_violation",
     threshold: 1,

@@ -585,7 +585,8 @@ export class EvidenceCollector {
       security_settings: {
         encryption_enabled: process.env.NLMCP_ENCRYPTION_ENABLED !== "false",
         auth_enabled: process.env.NLMCP_AUTH_ENABLED === "true",
-        cert_pinning_enabled: process.env.NLMCP_CERT_PINNING !== "false",
+        // Certificate pinning was removed; flag is always false.
+        cert_pinning_enabled: false,
         audit_enabled: process.env.NLMCP_AUDIT_ENABLED !== "false",
         compliance_logging_enabled: process.env.NLMCP_COMPLIANCE_LOGGING !== "false",
       },

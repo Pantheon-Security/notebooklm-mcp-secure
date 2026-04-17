@@ -24,12 +24,16 @@ export const NOTEBOOKLM_SELECTORS = {
 
   /** Notebook name input field
    * Note: NotebookLM auto-creates notebook with default name.
-   * Name can be edited later via the title element. */
+   * Name can be edited later via the title element.
+   * Primary is scoped to an Angular Material dialog to avoid matching
+   * random text inputs elsewhere on the page. */
   notebookNameInput: {
-    primary: 'input[type="text"]',
+    primary: 'mat-dialog-container input[type="text"]',
     fallbacks: [
-      '[contenteditable="true"]',
+      '[role="dialog"] input[type="text"]',
+      'mat-dialog-container [contenteditable="true"]',
       'input[aria-label*="name" i]',
+      'input[aria-label*="title" i]',
     ],
     confirmed: false,
   },
@@ -131,22 +135,20 @@ export const NOTEBOOKLM_SELECTORS = {
     confirmed: true, // December 2025
   },
 
-  /** Submit/Add button
-   * Discovered: "Insert" button for text sources, "Submit" for chat */
+  /** Submit/Add button — scoped to Angular Material dialog actions so we
+   * don't match arbitrary submit buttons elsewhere on the page.
+   * Discovered: "Insert" button for text sources, "Submit" for chat.
+   * Text-engine (:has-text) kept as fallback for locale-agnostic routes. */
   submitButton: {
-    primary: 'button:has-text("Insert")', // Note: :has-text may not work, use insertButton for text
+    primary: 'mat-dialog-actions button[type="submit"]',
     fallbacks: [
+      '[role="dialog"] button[type="submit"]',
+      'mat-dialog-actions button[color="primary"]',
       'button[type="submit"]',
+      'button:has-text("Insert")',
       'button[aria-label="Submit"]',
       'button[aria-label*="Add"]',
     ],
-    confirmed: true, // December 2025
-  },
-
-  /** Insert button - specifically for adding text sources */
-  insertButton: {
-    primary: 'button',  // Will need text-based matching
-    fallbacks: [],
     confirmed: true, // December 2025
   },
 

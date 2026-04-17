@@ -24,6 +24,7 @@ import {
   PERMISSION_MODES,
 } from "../utils/file-permissions.js";
 import { log } from "../utils/logger.js";
+import { SecretsScanner } from "../utils/secrets-scanner.js";
 
 /**
  * Query log entry structure
@@ -95,6 +96,13 @@ export class QueryLogger {
   private currentLogFile: string = "";
   private writeQueue: QueryLogEntry[] = [];
   private isWriting: boolean = false;
+  /**
+   * Dedicated scanner for on-disk log redaction. Uses `medium` minimum
+   * severity so we don't redact legitimate base64 payloads (images, PDFs,
+   * JWT payloads) that frequently appear in NotebookLM answers. Real
+   * credentials live at critical/high/medium severity.
+   */
+  private scanner = new SecretsScanner({ minSeverity: "medium" });
   private stats = {
     totalQueries: 0,
     queriesThisSession: 0,
@@ -186,16 +194,29 @@ export class QueryLogger {
   }
 
   /**
-   * Log a query (Q&A pair)
+   * Log a query (Q&A pair).
+   *
+   * Question and answer text are passed through the secrets scanner before
+   * persistence so leaked credentials (API keys, tokens, private keys) are
+   * redacted at rest. The original in-memory entry is never mutated — only
+   * the on-disk record is sanitized.
    */
   async logQuery(entry: Omit<QueryLogEntry, "timestamp" | "queryId">): Promise<string> {
     if (!this.config.enabled) return "";
 
     const queryId = generateQueryId();
+
+    const [redactedQuestion, redactedAnswer] = await Promise.all([
+      this.scanner.scanAndRedact(entry.question),
+      this.scanner.scanAndRedact(entry.answer),
+    ]);
+
     const fullEntry: QueryLogEntry = {
       timestamp: new Date().toISOString(),
       queryId,
       ...entry,
+      question: redactedQuestion.clean,
+      answer: redactedAnswer.clean,
     };
 
     this.stats.totalQueries++;
@@ -203,7 +224,9 @@ export class QueryLogger {
 
     await this.writeEntry(fullEntry);
 
-    log.debug(`📝 Logged query ${queryId} (${entry.question.slice(0, 50)}...)`);
+    // Preview removed: earlier versions logged `question.slice(0, 50)` which
+    // leaked plaintext fragments to stderr and bypassed the redaction above.
+    log.debug(`📝 Logged query ${queryId}`);
 
     return queryId;
   }

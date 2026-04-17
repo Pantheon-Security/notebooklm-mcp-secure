@@ -31,7 +31,7 @@ export const toolMetadata: Record<string, ToolMetadata> = {
     title: "Ask NotebookLM",
     annotations: {
       title: "Research Question",
-      readOnlyHint: true, // Doesn't modify data, just queries
+      readOnlyHint: false, // Mutates quota counters, writes to query log
       destructiveHint: false,
       idempotentHint: false, // Same question may get different answers
       openWorldHint: true, // Interacts with external NotebookLM
@@ -47,7 +47,7 @@ export const toolMetadata: Record<string, ToolMetadata> = {
       title: "Add Notebook to Library",
       readOnlyHint: false,
       destructiveHint: false,
-      idempotentHint: true, // Adding same notebook twice is safe
+      idempotentHint: false, // Library creates a new entry per call (no dedupe)
       openWorldHint: false, // Local library operation
     },
   },
@@ -125,7 +125,7 @@ export const toolMetadata: Record<string, ToolMetadata> = {
     title: "Export Library",
     annotations: {
       title: "Export Library Backup",
-      readOnlyHint: true, // Just exports, doesn't modify
+      readOnlyHint: false, // Writes backup file to host filesystem
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
@@ -181,7 +181,7 @@ export const toolMetadata: Record<string, ToolMetadata> = {
       title: "Add Source to Notebook",
       readOnlyHint: false,
       destructiveHint: false,
-      idempotentHint: true,
+      idempotentHint: false, // NotebookLM creates a new source entry per call
       openWorldHint: true,
     },
   },
@@ -223,7 +223,7 @@ export const toolMetadata: Record<string, ToolMetadata> = {
     title: "Download Audio",
     annotations: {
       title: "Download Audio File",
-      readOnlyHint: true, // Just downloads, doesn't modify source
+      readOnlyHint: false, // Writes file to host filesystem
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: true,
@@ -330,7 +330,7 @@ export const toolMetadata: Record<string, ToolMetadata> = {
     annotations: {
       title: "Setup Google Authentication",
       readOnlyHint: false,
-      destructiveHint: false,
+      destructiveHint: true, // Clears any existing saved credentials before re-login
       idempotentHint: false, // Opens browser each time
       openWorldHint: true, // Interacts with Google
     },
@@ -362,7 +362,7 @@ export const toolMetadata: Record<string, ToolMetadata> = {
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
-      openWorldHint: false, // Local unless sync=true
+      openWorldHint: true, // sync=true navigates to notebooklm.google.com
     },
   },
   set_quota_tier: {
@@ -413,7 +413,7 @@ export const toolMetadata: Record<string, ToolMetadata> = {
     title: "Test Webhook",
     annotations: {
       title: "Send Test Event",
-      readOnlyHint: true, // Doesn't modify webhook config
+      readOnlyHint: false, // Dispatches HTTP request with side effects on the third-party receiver
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: true, // Sends HTTP request
@@ -473,7 +473,7 @@ export const toolMetadata: Record<string, ToolMetadata> = {
       title: "Upload to Gemini",
       readOnlyHint: false, // Uploads file
       destructiveHint: false,
-      idempotentHint: true, // Same file = same result
+      idempotentHint: false, // Files API creates a new resource per upload
       openWorldHint: true,
     },
   },

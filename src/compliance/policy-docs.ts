@@ -60,7 +60,6 @@ Pantheon Security acts as the data processor. The user is the data controller fo
 
 ## 7. Security Measures
 - Post-quantum encryption
-- Certificate pinning
 - Memory scrubbing
 - Tamper-evident logging
     `,
@@ -174,8 +173,7 @@ This policy is reviewed annually or upon regulatory change.
 - All sensitive data encrypted by default
 
 ## 2. Encryption in Transit
-- TLS 1.3 minimum
-- Certificate pinning for Google connections
+- TLS 1.3 minimum (system trust store)
 - HSTS enforced
 
 ## 3. Key Management
@@ -215,7 +213,7 @@ Hybrid encryption provides protection against:
 
 ## 1. Incident Classification
 - Critical: Data breach, unauthorized access
-- High: Failed encryption, cert pinning violation
+- High: Failed encryption, repeated auth failures
 - Medium: Unusual access patterns, mass export
 - Low: Policy violations, configuration errors
 

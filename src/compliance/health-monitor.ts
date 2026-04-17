@@ -469,7 +469,9 @@ export class HealthMonitor {
     return {
       encryption_enabled: process.env.NLMCP_ENCRYPTION_ENABLED !== "false",
       auth_enabled: process.env.NLMCP_AUTH_ENABLED === "true",
-      cert_pinning_enabled: process.env.NLMCP_CERT_PINNING !== "false",
+      // Certificate pinning was removed; the field is retained for API/report
+      // shape compatibility and is always false.
+      cert_pinning_enabled: false,
       open_incidents: openIncidents,
     };
   }

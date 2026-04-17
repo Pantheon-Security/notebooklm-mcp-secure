@@ -4,11 +4,54 @@
  * Handles export_library, get_project_info, get_quota, set_quota_tier, and cleanup_data tools.
  */
 
+import path from "path";
+import os from "os";
 import type { HandlerContext } from "./types.js";
 import type { ToolResult } from "../../types.js";
 import { log } from "../../utils/logger.js";
 import { getQuotaManager } from "../../quota/index.js";
 import { CleanupManager } from "../../utils/cleanup-manager.js";
+
+/**
+ * Sanitize a CSV field to prevent formula injection (CWE-1236).
+ * Cells beginning with =, +, -, @, tab, or carriage return are interpreted
+ * as formulas by Excel/LibreOffice/Google Sheets and can trigger DDE RCE.
+ */
+function csvSafe(value: string): string {
+  const escaped = value.replace(/"/g, '""');
+  if (/^[=+\-@\t\r]/.test(escaped)) {
+    return `"'${escaped}"`;
+  }
+  return `"${escaped}"`;
+}
+
+/**
+ * Resolve and validate an export path, rejecting traversal outside the
+ * configured base directory. Returns the absolute resolved path or throws.
+ */
+function resolveExportPath(userPath: string | undefined, defaultName: string): string {
+  // Allowed base directories, in priority order:
+  //   1. NLMCP_EXPORT_DIR env override
+  //   2. user home directory
+  const envDir = process.env.NLMCP_EXPORT_DIR?.trim();
+  const baseDirRaw = envDir && envDir.length > 0 ? envDir : os.homedir();
+  const baseDir = path.resolve(baseDirRaw);
+
+  // If no user path, write under baseDir with the default name.
+  const candidate = userPath && userPath.trim().length > 0
+    ? path.resolve(baseDir, userPath)
+    : path.resolve(baseDir, defaultName);
+
+  // Defence in depth: ensure resolved path is still inside the base dir.
+  const rel = path.relative(baseDir, candidate);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error(
+      `output_path must resolve inside ${baseDir} (got '${candidate}'). ` +
+      `Set NLMCP_EXPORT_DIR to allow another base directory.`
+    );
+  }
+  return candidate;
+}
 
 export async function handleExportLibrary(
   ctx: HandlerContext,
@@ -30,11 +73,9 @@ export async function handleExportLibrary(
     const notebooks = ctx.library.listNotebooks();
     const stats = ctx.library.getStats();
 
-    // Generate default output path if not provided
     const date = new Date().toISOString().split("T")[0];
-    const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
-    const defaultPath = `${homeDir}/notebooklm-library-backup-${date}.${format}`;
-    const outputPath = args.output_path || defaultPath;
+    const defaultName = `notebooklm-library-backup-${date}.${format}`;
+    const outputPath = resolveExportPath(args.output_path, defaultName);
 
     let content: string;
 
@@ -42,11 +83,11 @@ export async function handleExportLibrary(
       // CSV format: name, url, topics, last_used, use_count
       const headers = ["name", "url", "topics", "description", "last_used", "use_count"];
       const rows = notebooks.map((nb: { name?: string; url: string; topics?: string[]; description?: string; last_used?: string; use_count?: number }) => [
-        `"${(nb.name || "").replace(/"/g, '""')}"`,
-        `"${nb.url}"`,
-        `"${(nb.topics || []).join("; ")}"`,
-        `"${(nb.description || "").replace(/"/g, '""')}"`,
-        nb.last_used || "",
+        csvSafe(nb.name || ""),
+        csvSafe(nb.url),
+        csvSafe((nb.topics || []).join("; ")),
+        csvSafe(nb.description || ""),
+        csvSafe(nb.last_used || ""),
         String(nb.use_count || 0),
       ]);
       content = [headers.join(","), ...rows.map((r: string[]) => r.join(","))].join("\n");

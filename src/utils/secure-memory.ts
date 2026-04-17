@@ -164,71 +164,6 @@ export class SecureCredential {
 }
 
 /**
- * Secure object that wipes all string/buffer properties on dispose
- */
-export class SecureObject<T extends Record<string, unknown>> {
-  private data: T;
-  private disposed: boolean = false;
-
-  constructor(data: T) {
-    this.data = data;
-  }
-
-  /**
-   * Get a property value
-   */
-  get<K extends keyof T>(key: K): T[K] {
-    if (this.disposed) {
-      throw new Error("SecureObject has been disposed");
-    }
-    return this.data[key];
-  }
-
-  /**
-   * Get all data (use carefully)
-   */
-  getData(): T {
-    if (this.disposed) {
-      throw new Error("SecureObject has been disposed");
-    }
-    return this.data;
-  }
-
-  /**
-   * Dispose and wipe all sensitive data
-   */
-  dispose(): void {
-    if (this.disposed) return;
-
-    for (const key of Object.keys(this.data)) {
-      const value = this.data[key];
-
-      if (Buffer.isBuffer(value)) {
-        zeroBuffer(value);
-      } else if (value instanceof Uint8Array) {
-        zeroUint8Array(value);
-      } else if (value instanceof SecureString) {
-        value.wipe();
-      } else if (value instanceof SecureCredential) {
-        value.wipe();
-      } else if (typeof value === "string") {
-        // Can't truly wipe JS strings, but we can dereference
-        (this.data as Record<string, unknown>)[key] = "";
-      }
-    }
-
-    this.disposed = true;
-  }
-
-  /**
-   * Check if disposed
-   */
-  isDisposed(): boolean {
-    return this.disposed;
-  }
-}
-
-/**
  * Execute a function with a secure credential, auto-wiping after use
  */
 export async function withSecureCredential<T>(
@@ -241,49 +176,6 @@ export async function withSecureCredential<T>(
   } finally {
     secureCred.wipe();
   }
-}
-
-/**
- * Execute a function with a secure buffer, auto-wiping after use
- */
-export async function withSecureBuffer<T>(
-  data: Buffer,
-  fn: (buffer: Buffer) => Promise<T>
-): Promise<T> {
-  try {
-    return await fn(data);
-  } finally {
-    zeroBuffer(data);
-  }
-}
-
-/**
- * Create a secure copy of a buffer that will be wiped on GC
- * Uses FinalizationRegistry for automatic cleanup
- */
-const bufferRegistry = new FinalizationRegistry((held: { length: number }) => {
-  // Buffer is already GC'd at this point; log for audit trail
-  // The actual zeroing must happen via explicit wipe() calls before GC
-  void held.length;
-});
-
-export function createSecureBuffer(size: number): Buffer;
-export function createSecureBuffer(data: string, encoding?: BufferEncoding): Buffer;
-export function createSecureBuffer(arg: number | string, encoding?: BufferEncoding): Buffer {
-  let buffer: Buffer;
-
-  if (typeof arg === "number") {
-    buffer = Buffer.alloc(arg);
-  } else {
-    buffer = Buffer.from(arg, encoding);
-  }
-
-  // Register for auto-cleanup on GC
-  // Note: held value must not reference target, or GC will never collect it
-  const length = buffer.length;
-  bufferRegistry.register(buffer, { length });
-
-  return buffer;
 }
 
 /**

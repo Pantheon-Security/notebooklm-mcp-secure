@@ -27,3 +27,37 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  security-scan:
+    # MEDUSA scan — runs in parallel with build. Enforces the
+    # `medusaIntegration` claim in package.json. Severity threshold is
+    # `fail_on: high` per .medusa.yml.
+    # NOTE: verify the pip package name against your MEDUSA distribution;
+    # if your team uses a different install channel (homebrew, curl-install),
+    # replace the install step accordingly.
+    name: Security scan (MEDUSA)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install MEDUSA
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install medusa-security
+
+      - name: Run MEDUSA scan
+        run: medusa scan . --fail-on high

@@ -56,6 +56,12 @@ import { log } from "./utils/logger.js";
 import { audit, getAuditLogger } from "./utils/audit-logger.js";
 import { checkSecurityContext } from "./utils/security.js";
 import { getMCPAuthenticator, authenticateMCPRequest } from "./auth/mcp-auth.js";
+import {
+  getComplianceTools,
+  handleComplianceToolCall,
+} from "./compliance/compliance-tools.js";
+import { getPrivacyNoticeManager, getPrivacyNoticeCLIText } from "./compliance/privacy-notice.js";
+import { runRetentionPolicies } from "./compliance/retention-engine.js";
 
 /**
  * Main MCP Server Class
@@ -71,6 +77,8 @@ class NotebookLMMCPServer {
   private toolDefinitions: Tool[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private toolRegistry!: Map<string, (a: any, p?: (message: string, progress?: number, total?: number) => Promise<void>) => Promise<any>>;
+  private complianceToolNames: Set<string>;
+  private retentionTimer?: NodeJS.Timeout;
 
   constructor() {
     // Initialize MCP Server
@@ -107,6 +115,9 @@ class NotebookLMMCPServer {
     // Build and Filter tool definitions
     const allTools = buildToolDefinitions(this.library) as Tool[];
     this.toolDefinitions = this.settingsManager.filterTools(allTools);
+
+    // Track compliance tool names for the short-circuit dispatch path.
+    this.complianceToolNames = new Set(getComplianceTools().map((t) => t.name));
 
     // Setup handlers
     this.setupHandlers();
@@ -201,8 +212,10 @@ class NotebookLMMCPServer {
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
-      const progressToken = (args as any)?._meta?.progressToken;
-      const authToken = (args as any)?._meta?.authToken || process.env.NLMCP_AUTH_TOKEN;
+      // Per MCP spec, _meta lives on request.params, not inside arguments
+      const meta = (request.params as { _meta?: { progressToken?: string | number; authToken?: string } })._meta;
+      const progressToken = meta?.progressToken;
+      const authToken = meta?.authToken || process.env.NLMCP_AUTH_TOKEN;
 
       log.info(`🔧 [MCP] Tool call: ${name}`);
       if (progressToken) {
@@ -210,8 +223,31 @@ class NotebookLMMCPServer {
       }
 
       // === SECURITY: MCP Authentication ===
-      // Tools that access the filesystem always require auth, even if globally disabled
-      const TOOLS_REQUIRING_AUTH = ["add_folder", "cleanup_data", "export_library"];
+      // Tools that touch the filesystem, wipe credentials, dispatch outbound
+      // HTTP, delete remote resources, or exercise GDPR data-subject rights
+      // always require auth, even if globally disabled via NLMCP_AUTH_DISABLED.
+      const TOOLS_REQUIRING_AUTH = [
+        "add_folder",
+        "cleanup_data",
+        "export_library",
+        "setup_auth",
+        "re_auth",
+        "configure_webhook",
+        "remove_webhook",
+        "test_webhook",
+        "delete_document",
+        "upload_document",
+        "download_audio",
+        // Compliance — destructive or privileged operations.
+        "submit_dsar",
+        "export_user_data",
+        "request_data_erasure",
+        "grant_consent",
+        "revoke_consent",
+        "report_security_incident",
+        "collect_audit_evidence",
+        "generate_compliance_report",
+      ];
       const requiresAuth = TOOLS_REQUIRING_AUTH.includes(name);
 
       const authResult = requiresAuth
@@ -220,6 +256,7 @@ class NotebookLMMCPServer {
       if (!authResult.authenticated) {
         log.warning(`🔒 [MCP] Authentication failed for tool: ${name}`);
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -249,10 +286,19 @@ class NotebookLMMCPServer {
       };
 
       try {
+        // Compliance tools have their own dispatcher that returns MCP-shaped
+        // TextContent[] directly. Short-circuit before the generic wrapper
+        // so dashboard/report text isn't double-encoded as JSON.
+        if (this.complianceToolNames.has(name)) {
+          const content = await handleComplianceToolCall(name, (args ?? {}) as Record<string, unknown>);
+          return { content };
+        }
+
         const handler = this.toolRegistry.get(name);
         if (!handler) {
           log.error(`❌ [MCP] Unknown tool: ${name}`);
           return {
+            isError: true,
             content: [
               {
                 type: "text",
@@ -279,6 +325,7 @@ class NotebookLMMCPServer {
         log.error(`❌ [MCP] Tool execution error: ${errorMessage}`);
 
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -312,6 +359,11 @@ class NotebookLMMCPServer {
       log.info(`\n🛑 Received ${signal}, shutting down gracefully...`);
 
       try {
+        if (this.retentionTimer) {
+          clearInterval(this.retentionTimer);
+          this.retentionTimer = undefined;
+        }
+
         // Cleanup tool handlers (closes all sessions)
         await this.toolHandlers.cleanup();
 
@@ -347,6 +399,51 @@ class NotebookLMMCPServer {
   }
 
   /**
+   * Bootstrap the compliance module at startup:
+   *   1. Display the privacy notice to stderr on first run and auto-record
+   *      acknowledgment (stdio MCP cannot prompt interactively, so the
+   *      notice is informational — operators wishing for explicit consent
+   *      should call the `grant_consent` MCP tool).
+   *   2. Run the retention engine immediately and schedule it every 6 hours
+   *      so archive/delete policies actually fire. Timer is unref()'d so it
+   *      does not keep the process alive on shutdown.
+   */
+  private async bootstrapCompliance(): Promise<void> {
+    try {
+      const privacy = getPrivacyNoticeManager();
+      if (await privacy.needsDisplay()) {
+        log.info("");
+        log.info("━━━ Privacy notice (first run) ━━━");
+        // Multi-line notice — write via stderr directly so formatting survives.
+        process.stderr.write(getPrivacyNoticeCLIText() + "\n");
+        log.info("━━━ End privacy notice ━━━");
+        log.info("");
+        await privacy.acknowledge("auto");
+        log.info("📜 Privacy notice recorded (method=auto). Use grant_consent to record explicit consent.");
+      }
+    } catch (err) {
+      log.warning(`⚠️ Privacy notice bootstrap failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    try {
+      const runOnce = async () => {
+        const results = await runRetentionPolicies();
+        if (results.length > 0) {
+          log.info(`🗂️  Retention engine ran ${results.length} policy(ies)`);
+        }
+      };
+      await runOnce();
+      const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+      this.retentionTimer = setInterval(() => {
+        void runOnce().catch((err) => log.warning(`⚠️ retention policy run failed: ${err}`));
+      }, SIX_HOURS_MS);
+      this.retentionTimer.unref();
+    } catch (err) {
+      log.warning(`⚠️ Retention engine bootstrap failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /**
    * Start the MCP server
    */
   async start(): Promise<void> {
@@ -367,6 +464,9 @@ class NotebookLMMCPServer {
     const mcpAuth = getMCPAuthenticator();
     await mcpAuth.initialize();
     const authStatus = mcpAuth.getStatus();
+
+    // Compliance: surface privacy notice on first run and schedule retention.
+    await this.bootstrapCompliance();
 
     // Audit: Log server startup
     await audit.system("server_start", {

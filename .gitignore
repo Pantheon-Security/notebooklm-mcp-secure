@@ -60,3 +60,6 @@ venv/
 
 # NPM auth
 .npmrc
+
+# Stray tooling configs (do not commit)
+tools.yaml

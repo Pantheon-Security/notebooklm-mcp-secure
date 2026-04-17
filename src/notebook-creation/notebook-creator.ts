@@ -354,33 +354,40 @@ export class NotebookCreator {
 
     log.info("📎 Clicking 'Add source' button...");
 
-    // DEBUG: Log current URL to see if we're on the notebook page
-    const currentUrl = this.page.url();
-    log.info(`  Current URL: ${currentUrl}`);
+    const debugEnabled = process.env.DEBUG === "true";
+
+    if (debugEnabled) {
+      // Log current URL to see if we're on the notebook page
+      const currentUrl = this.page.url();
+      log.dim(`  Current URL: ${currentUrl}`);
+    }
 
     // Wait for page to settle and for any animations/updates to complete
     await randomDelay(2000, 3000);
 
-    // DEBUG: Log all buttons found on the page
-    const buttonsInfo = await this.page.evaluate(() => {
-      // @ts-expect-error - DOM types
-      const buttons = document.querySelectorAll('button, [role="button"]');
-      const info: Array<{text: string, aria: string, class: string, visible: boolean}> = [];
-      for (const btn of buttons) {
-        const text = (btn as any).textContent?.trim().substring(0, 50) || "";
-        const aria = (btn as any).getAttribute("aria-label") || "";
-        const cls = (btn as any).className?.substring(0, 50) || "";
-        const visible = (btn as any).offsetParent !== null;
-        // Only include buttons with relevant content
-        if (aria.toLowerCase().includes("add") || aria.toLowerCase().includes("create") ||
-            text.toLowerCase().includes("add") || text.toLowerCase().includes("create") ||
-            cls.toLowerCase().includes("add") || cls.toLowerCase().includes("create")) {
-          info.push({ text, aria, class: cls, visible });
+    // DOM enumeration is expensive and may leak user-visible button text into
+    // logs (notebook/source titles). Only dump when DEBUG=true.
+    if (debugEnabled) {
+      const buttonsInfo = await this.page.evaluate(() => {
+        // @ts-expect-error - DOM types
+        const buttons = document.querySelectorAll('button, [role="button"]');
+        const info: Array<{text: string, aria: string, class: string, visible: boolean}> = [];
+        for (const btn of buttons) {
+          const text = (btn as any).textContent?.trim().substring(0, 50) || "";
+          const aria = (btn as any).getAttribute("aria-label") || "";
+          const cls = (btn as any).className?.substring(0, 50) || "";
+          const visible = (btn as any).offsetParent !== null;
+          // Only include buttons with relevant content
+          if (aria.toLowerCase().includes("add") || aria.toLowerCase().includes("create") ||
+              text.toLowerCase().includes("add") || text.toLowerCase().includes("create") ||
+              cls.toLowerCase().includes("add") || cls.toLowerCase().includes("create")) {
+            info.push({ text, aria, class: cls, visible });
+          }
         }
-      }
-      return info;
-    });
-    log.info(`  Buttons found: ${JSON.stringify(buttonsInfo, null, 2)}`);
+        return info;
+      });
+      log.dim(`  Buttons found: ${JSON.stringify(buttonsInfo, null, 2)}`);
+    }
 
     // Method 1: Use Playwright locator with aria-label (try both singular and plural)
     try {

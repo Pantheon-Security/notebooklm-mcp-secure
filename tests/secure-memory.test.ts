@@ -8,10 +8,7 @@ import {
   zeroUint8Array,
   SecureString,
   SecureCredential,
-  SecureObject,
   withSecureCredential,
-  withSecureBuffer,
-  createSecureBuffer,
   secureCompare,
   secureRandomString,
   maskSensitive,
@@ -151,62 +148,6 @@ describe("Secure Memory Utilities", () => {
     });
   });
 
-  describe("SecureObject", () => {
-    it("should store and retrieve properties", () => {
-      const obj = new SecureObject({
-        username: "admin",
-        password: "secret123",
-      });
-
-      expect(obj.get("username")).toBe("admin");
-      expect(obj.get("password")).toBe("secret123");
-      obj.dispose();
-    });
-
-    it("should return all data", () => {
-      const data = { key: "value", num: 42 };
-      const obj = new SecureObject(data);
-
-      expect(obj.getData()).toEqual(data);
-      obj.dispose();
-    });
-
-    it("should dispose and wipe string values", () => {
-      const obj = new SecureObject({
-        secret: "password",
-      });
-
-      obj.dispose();
-      expect(obj.isDisposed()).toBe(true);
-    });
-
-    it("should dispose and wipe buffer values", () => {
-      const buffer = Buffer.from("sensitive");
-      const obj = new SecureObject({ buffer });
-
-      obj.dispose();
-
-      // Buffer should be zeroed
-      for (let i = 0; i < buffer.length; i++) {
-        expect(buffer[i]).toBe(0);
-      }
-    });
-
-    it("should throw when accessing disposed object", () => {
-      const obj = new SecureObject({ key: "value" });
-      obj.dispose();
-
-      expect(() => obj.get("key")).toThrow("SecureObject has been disposed");
-      expect(() => obj.getData()).toThrow("SecureObject has been disposed");
-    });
-
-    it("should handle multiple dispose calls", () => {
-      const obj = new SecureObject({ key: "value" });
-      obj.dispose();
-      expect(() => obj.dispose()).not.toThrow();
-    });
-  });
-
   describe("withSecureCredential", () => {
     it("should execute function with credential and auto-wipe", async () => {
       let capturedValue: string | undefined;
@@ -238,57 +179,6 @@ describe("Secure Memory Utilities", () => {
       });
 
       expect(result).toEqual({ success: true });
-    });
-  });
-
-  describe("withSecureBuffer", () => {
-    it("should execute function with buffer and auto-wipe", async () => {
-      const buffer = Buffer.from("sensitive data");
-
-      await withSecureBuffer(buffer, async (buf) => {
-        expect(buf.toString()).toBe("sensitive data");
-      });
-
-      // Buffer should be zeroed after
-      for (let i = 0; i < buffer.length; i++) {
-        expect(buffer[i]).toBe(0);
-      }
-    });
-
-    it("should wipe buffer even on error", async () => {
-      const buffer = Buffer.from("test");
-
-      await expect(
-        withSecureBuffer(buffer, async () => {
-          throw new Error("test error");
-        })
-      ).rejects.toThrow("test error");
-
-      for (let i = 0; i < buffer.length; i++) {
-        expect(buffer[i]).toBe(0);
-      }
-    });
-  });
-
-  describe("createSecureBuffer", () => {
-    it("should create buffer of specified size", () => {
-      // Note: createSecureBuffer registers with FinalizationRegistry for auto-cleanup
-      // We can't easily test the GC behavior, so we just test creation
-      const buffer = createSecureBuffer(32);
-      expect(buffer).toBeInstanceOf(Buffer);
-      expect(buffer.length).toBe(32);
-    });
-
-    it("should create buffer from string", () => {
-      const buffer = createSecureBuffer("hello");
-      expect(buffer).toBeInstanceOf(Buffer);
-      expect(buffer.toString()).toBe("hello");
-    });
-
-    it("should create buffer with encoding", () => {
-      const buffer = createSecureBuffer("68656c6c6f", "hex");
-      expect(buffer).toBeInstanceOf(Buffer);
-      expect(buffer.toString()).toBe("hello");
     });
   });
 

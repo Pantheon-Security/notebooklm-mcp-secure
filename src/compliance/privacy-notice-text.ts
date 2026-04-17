@@ -191,7 +191,6 @@ export function getProcessingAgreement(): {
     data_location: "Local device only (no cloud transfer)",
     security_measures: [
       "Post-quantum encryption (ML-KEM-768 + ChaCha20-Poly1305)",
-      "Certificate pinning for Google connections",
       "Memory scrubbing for sensitive data",
       "Tamper-evident audit logging",
       "Secure file permissions",

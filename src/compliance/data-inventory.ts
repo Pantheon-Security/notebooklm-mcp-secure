@@ -338,7 +338,6 @@ export class DataInventory {
       retention_periods: retentionPeriods,
       security_measures: [
         "Post-quantum encryption (ML-KEM-768 + ChaCha20-Poly1305)",
-        "Certificate pinning for external connections",
         "Memory scrubbing for sensitive data",
         "Tamper-evident audit logging",
         "Secure file permissions",

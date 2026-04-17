@@ -19,7 +19,6 @@ This is a security-hardened fork of [PleasePrompto/notebooklm-mcp](https://githu
 | Response Validation | ✅ | Prompt injection detection |
 | **Post-Quantum Encryption** | ✅ | ML-KEM-768 + ChaCha20-Poly1305 |
 | **Secrets Scanning** | ✅ | Detect API keys, tokens, passwords |
-| **Certificate Pinning** | ✅ | Google TLS MITM protection |
 | **Memory Scrubbing** | ✅ | Zero sensitive data after use |
 | **MEDUSA Integration** | ✅ | Automated security scanning |
 | **Cross-Platform Permissions** | ✅ | Secure file permissions on all OSes |
@@ -154,41 +153,6 @@ NLMCP_SECRETS_IGNORE=pattern1,pattern2  # Ignore specific patterns
 ```
 🔐 Secrets detected: 1 critical, 0 high
    - AWS Access Key ID at line 42
-```
-
----
-
-## Certificate Pinning
-
-Protects HTTPS connections to Google by validating server certificate chains against known-good SPKI hashes.
-
-### Why Certificate Pinning?
-
-Prevents man-in-the-middle attacks even if:
-- A rogue CA certificate is installed on the system
-- Corporate proxies attempt SSL inspection
-- DNS is compromised
-
-### Pinned Certificates
-
-- **GTS Root R1-R4** - Google Trust Services roots
-- **GlobalSign Root CA R2** - Backup root
-- **DigiCert Global Root G2** - Backup root
-
-### Configuration
-
-```bash
-NLMCP_CERT_PINNING=true          # Enable pinning (default: true)
-NLMCP_CERT_FAIL_OPEN=false       # Allow on failure (default: false)
-NLMCP_CERT_REPORT_ONLY=false     # Log but don't block (default: false)
-```
-
-### Violation Response
-
-```
-🔒 Certificate pinning violation for notebooklm.google.com
-   Chain hashes: abc123...
-   Expected one of: hxqRlP..., Vfd95B...
 ```
 
 ---
@@ -493,18 +457,10 @@ import {
   scanAndRedactSecrets,
 } from './utils/secrets-scanner.js';
 
-// Certificate pinning
-import {
-  CertificatePinningManager,
-  getCertificatePinningManager,
-  validateCertificatePin,
-} from './utils/cert-pinning.js';
-
 // Memory security
 import {
   SecureString,
   SecureCredential,
-  SecureObject,
   zeroBuffer,
   withSecureCredential,
   secureCompare,

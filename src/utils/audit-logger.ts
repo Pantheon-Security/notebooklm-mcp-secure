@@ -68,13 +68,22 @@ export interface AuditConfig {
 }
 
 /**
- * Get audit configuration from environment
+ * Get audit configuration from environment.
+ *
+ * Retention default is 7 years (2555 days) to match the CSSF claim in
+ * package.json `enterpriseCompliance.cssf.sevenYearRetention`. Operators
+ * can override via `NLMCP_AUDIT_RETENTION_DAYS` for shorter environments
+ * (dev, test) where long retention is unnecessary.
+ *
+ * Note: the audit log integrity cluster (I216–I223) is still being hardened;
+ * this default change only extends the retention window — durability and
+ * cross-process concurrency fixes are tracked separately.
  */
 function getAuditConfig(): AuditConfig {
   return {
     enabled: process.env.NLMCP_AUDIT_ENABLED !== "false",
     logDir: process.env.NLMCP_AUDIT_DIR || path.join(CONFIG.dataDir, "audit"),
-    retentionDays: parseInt(process.env.NLMCP_AUDIT_RETENTION_DAYS || "30", 10),
+    retentionDays: parseInt(process.env.NLMCP_AUDIT_RETENTION_DAYS || "2555", 10),
     includeDetails: process.env.NLMCP_AUDIT_INCLUDE_DETAILS !== "false",
     hashChainEnabled: process.env.NLMCP_AUDIT_HASH_CHAIN !== "false",
   };

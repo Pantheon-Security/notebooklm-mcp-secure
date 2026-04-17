@@ -21,6 +21,7 @@ import { videoTools } from "./definitions/video.js";
 import { dataTableTools } from "./definitions/data-tables.js";
 import { queryHistoryTools } from "./definitions/query-history.js";
 import { chatHistoryTools } from "./definitions/chat-history.js";
+import { getComplianceTools } from "../compliance/compliance-tools.js";
 import { getToolIcons } from "./icons.js";
 import { getToolMetadata } from "./annotations.js";
 
@@ -66,6 +67,9 @@ export function buildToolDefinitions(library: NotebookLibrary): Tool[] {
     ...dataTableTools,
     ...queryHistoryTools,
     ...chatHistoryTools,
+    // Compliance tools (GDPR/SOC2/CSSF) — registered so the
+    // enterpriseCompliance claims in package.json are reachable via MCP.
+    ...getComplianceTools(),
   ];
 
   // Apply enhanced metadata to all tools

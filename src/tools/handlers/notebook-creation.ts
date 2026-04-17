@@ -461,6 +461,84 @@ export async function handleAddSource(
   }
 }
 
+/**
+ * Resolve `add_folder` input path and enforce the allowlist/denylist.
+ *
+ * - Allowlist: `NLMCP_FOLDER_ALLOWLIST` (colon-separated absolute paths).
+ *   Defaults to the user's home directory when unset.
+ * - Denylist: paths that touch common credential/config dirs are rejected
+ *   even when inside an allowed base (defence in depth).
+ *
+ * Rationale: `add_folder` uploads every file it finds to Google's NotebookLM.
+ * Without constraints an authenticated caller can exfiltrate SSH keys,
+ * cloud credentials, or kernel interfaces via a legitimate-looking user
+ * action. See ISSUES.md:I316.
+ */
+async function resolveFolderPath(userPath: string): Promise<string> {
+  const path = await import("path");
+  const os = await import("os");
+
+  if (!userPath || userPath.trim().length === 0) {
+    throw new Error("folder_path is required");
+  }
+
+  const resolved = path.resolve(userPath);
+
+  // Allowlist.
+  const envList = process.env.NLMCP_FOLDER_ALLOWLIST?.trim();
+  const allowedBases = envList && envList.length > 0
+    ? envList.split(":").map((p) => path.resolve(p.trim())).filter((p) => p.length > 0)
+    : [path.resolve(os.homedir())];
+
+  const inAllowedBase = allowedBases.some((base) => {
+    const rel = path.relative(base, resolved);
+    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  });
+  if (!inAllowedBase) {
+    throw new Error(
+      `folder_path must be inside one of: ${allowedBases.join(", ")}. ` +
+      `Set NLMCP_FOLDER_ALLOWLIST to extend the list.`
+    );
+  }
+
+  // Denylist (sensitive subpaths — checked after allowlist).
+  const deniedSegments = [
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".docker",
+    ".kube",
+    ".config/gcloud",
+    ".config/git",
+    ".netrc",
+    ".npmrc",
+    ".mcpregistry_github_token",
+    ".mcpregistry_registry_token",
+  ];
+  const deniedAbsolute = ["/etc", "/root", "/proc", "/sys", "/var/log"];
+
+  const segments = resolved.split(path.sep);
+  for (const denied of deniedSegments) {
+    const parts = denied.split("/");
+    for (let i = 0; i <= segments.length - parts.length; i++) {
+      if (parts.every((p, j) => segments[i + j] === p)) {
+        throw new Error(
+          `folder_path traverses a sensitive directory (${denied}); refusing to upload.`
+        );
+      }
+    }
+  }
+  for (const denied of deniedAbsolute) {
+    if (resolved === denied || resolved.startsWith(denied + path.sep)) {
+      throw new Error(
+        `folder_path is inside a protected system directory (${denied}); refusing to upload.`
+      );
+    }
+  }
+
+  return resolved;
+}
+
 export async function handleAddFolder(
   ctx: HandlerContext,
   args: {
@@ -487,7 +565,8 @@ export async function handleAddFolder(
   const { promises: fs } = await import("fs");
   const path = await import("path");
 
-  const folderPath = args.folder_path;
+  // Validate and resolve first so the denylist runs before any filesystem read.
+  const folderPath = await resolveFolderPath(args.folder_path);
   const recursive = args.recursive ?? false;
   const dryRun = args.dry_run ?? false;
   const fileTypes = (args.file_types ?? [".pdf", ".txt", ".md", ".docx"]).map((e) =>
