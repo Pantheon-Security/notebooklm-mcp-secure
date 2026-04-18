@@ -138,7 +138,7 @@ export async function handleRemoveWebhook(
 
   try {
     const dispatcher = getWebhookDispatcher();
-    const removed = dispatcher.removeWebhook(args.id);
+    const removed = await dispatcher.removeWebhook(args.id);
 
     if (removed) {
       log.success(`✅ [TOOL] remove_webhook completed`);

@@ -420,14 +420,33 @@ export class QuotaManager {
   }
 
   /**
-   * Manually set tier (for user override)
+   * Manually set tier (for user override).
+   *
+   * Records a ChangeLog entry for SOC2 change-management audit trail.
    */
-  setTier(tier: LicenseTier): void {
+  async setTier(tier: LicenseTier): Promise<void> {
+    const oldTier = this.settings.tier;
+    if (oldTier === tier) {
+      log.info(`📊 Tier already: ${tier} (no change)`);
+      return;
+    }
     this.settings.tier = tier;
     this.settings.limits = TIER_LIMITS[tier];
     this.settings.autoDetected = false;
     this.saveSettings();
     log.info(`📊 Tier set to: ${tier}`);
+
+    try {
+      const { getChangeLog } = await import("../compliance/change-log.js");
+      await getChangeLog().recordChange("quota", "tier", oldTier, tier, {
+        changedBy: "user",
+        method: "api",
+        impact: "medium",
+        affectedCompliance: ["SOC2"],
+      });
+    } catch (err) {
+      log.warning(`ChangeLog recordChange failed (quota.tier): ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /**

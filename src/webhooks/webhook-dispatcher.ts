@@ -591,6 +591,7 @@ export class WebhookDispatcher {
   /**
    * Add a new webhook. Validates the URL before persisting; throws on
    * scheme/host/DNS-resolution failure so callers see a clear reason.
+   * Records a ChangeLog entry for SOC2 change-management audit trail.
    */
   async addWebhook(input: AddWebhookInput): Promise<WebhookConfig> {
     const validation = await validateWebhookUrl(input.url);
@@ -618,11 +619,13 @@ export class WebhookDispatcher {
     this.saveStore();
 
     log.success(`✅ Webhook added: ${webhook.name}`);
+    await this.recordWebhookChange("add", webhook.id, null, validation.url.host);
     return webhook;
   }
 
   /**
    * Update a webhook. Re-validates the URL if it is being changed.
+   * Records a ChangeLog entry for SOC2 change-management audit trail.
    */
   async updateWebhook(input: UpdateWebhookInput): Promise<WebhookConfig | null> {
     const index = this.store.webhooks.findIndex((w) => w.id === input.id);
@@ -636,6 +639,7 @@ export class WebhookDispatcher {
     }
 
     const webhook = this.store.webhooks[index];
+    const oldHost = this.safeHost(webhook.url);
     const updated: WebhookConfig = {
       ...webhook,
       ...(input.name && { name: input.name }),
@@ -652,13 +656,15 @@ export class WebhookDispatcher {
     this.saveStore();
 
     log.success(`✅ Webhook updated: ${updated.name}`);
+    await this.recordWebhookChange("update", updated.id, oldHost, this.safeHost(updated.url));
     return updated;
   }
 
   /**
-   * Remove a webhook
+   * Remove a webhook.
+   * Records a ChangeLog entry for SOC2 change-management audit trail.
    */
-  removeWebhook(id: string): boolean {
+  async removeWebhook(id: string): Promise<boolean> {
     const index = this.store.webhooks.findIndex((w) => w.id === id);
     if (index === -1) return false;
 
@@ -667,7 +673,47 @@ export class WebhookDispatcher {
     this.saveStore();
 
     log.success(`✅ Webhook removed: ${webhook.name}`);
+    await this.recordWebhookChange("remove", webhook.id, this.safeHost(webhook.url), null);
     return true;
+  }
+
+  /**
+   * Helper: extract just the host from a URL for audit records. Never
+   * log the full URL (may contain secret tokens as path components, as
+   * Slack/Discord do).
+   */
+  private safeHost(rawUrl: string): string {
+    try {
+      return new URL(rawUrl).host;
+    } catch {
+      return "[invalid-url]";
+    }
+  }
+
+  /**
+   * Helper: write a ChangeLog entry for webhook CRUD. Errors are
+   * swallowed with a warning — the webhook change itself has already
+   * succeeded and compliance logging must not break the caller.
+   */
+  private async recordWebhookChange(
+    action: "add" | "update" | "remove",
+    id: string,
+    oldHost: string | null,
+    newHost: string | null,
+  ): Promise<void> {
+    try {
+      const { getChangeLog } = await import("../compliance/change-log.js");
+      await getChangeLog().recordChange("webhooks", `webhook.${id}`, oldHost, newHost, {
+        changedBy: "user",
+        method: "api",
+        impact: action === "remove" ? "medium" : "low",
+        affectedCompliance: ["SOC2"],
+      });
+    } catch (err) {
+      log.warning(
+        `ChangeLog recordChange failed (webhooks.${action}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /**

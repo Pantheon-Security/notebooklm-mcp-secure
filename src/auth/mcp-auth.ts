@@ -357,7 +357,11 @@ export class MCPAuthenticator {
   }
 
   /**
-   * Rotate the authentication token
+   * Rotate the authentication token.
+   *
+   * Records a ChangeLog entry for SOC2 change-management audit trail.
+   * The token itself is never logged; only "[rotated]" markers appear
+   * in the change record.
    */
   async rotateToken(): Promise<string> {
     const newToken = this.generateToken();
@@ -366,6 +370,18 @@ export class MCPAuthenticator {
 
     log.info("🔄 Authentication token rotated");
     await audit.auth("token_rotated", true);
+
+    try {
+      const { getChangeLog } = await import("../compliance/change-log.js");
+      await getChangeLog().recordChange("auth", "mcp_token", "[rotated]", "[rotated]", {
+        changedBy: "admin",
+        method: "cli",
+        impact: "high",
+        affectedCompliance: ["SOC2"],
+      });
+    } catch (err) {
+      log.warning(`ChangeLog recordChange failed (auth.mcp_token): ${err instanceof Error ? err.message : String(err)}`);
+    }
 
     return newToken;
   }

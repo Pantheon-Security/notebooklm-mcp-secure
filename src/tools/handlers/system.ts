@@ -291,7 +291,7 @@ export async function handleSetQuotaTier(
 
   try {
     const quotaManager = getQuotaManager();
-    quotaManager.setTier(args.tier);
+    await quotaManager.setTier(args.tier);
     const settings = quotaManager.getSettings();
 
     log.success(`✅ [TOOL] set_quota_tier completed (tier: ${args.tier})`);
