@@ -205,7 +205,10 @@ Use create_notebook instead for permanent document storage with NotebookLM.
     properties: {
       file_path: {
         type: "string",
-        description: "Absolute path to the file to upload",
+        // Handler must also validate against an allowed-dirs allowlist (I049)
+        pattern: "^(?!.*\\.\\.)(?!~)/.+",
+        maxLength: 500,
+        description: "Absolute path to the file to upload (no .. or ~ allowed)",
       },
       display_name: {
         type: "string",

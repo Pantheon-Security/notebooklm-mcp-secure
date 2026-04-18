@@ -46,7 +46,9 @@ Visit https://notebooklm.google/ → Login (free: 100 notebooks, 50 sources each
       properties: {
         url: {
           type: "string",
-          description: "The NotebookLM notebook URL",
+          pattern: "^https://notebooklm\\.google\\.com/",
+          maxLength: 512,
+          description: "The NotebookLM notebook URL (must start with https://notebooklm.google.com/)",
         },
         name: {
           type: "string",
@@ -195,7 +197,9 @@ Tip: You may update multiple fields at once if requested.`,
         },
         url: {
           type: "string",
-          description: "New notebook URL",
+          pattern: "^https://notebooklm\\.google\\.com/",
+          maxLength: 512,
+          description: "New notebook URL (must start with https://notebooklm.google.com/)",
         },
       },
       required: ["id"],
@@ -548,7 +552,10 @@ Or with direct URL:
       properties: {
         folder_path: {
           type: "string",
-          description: "Absolute path to the folder to scan",
+          // Reject path traversal sequences and home-dir expansion (I048)
+          pattern: "^(?!.*\\.\\.)(?!~)/.+",
+          maxLength: 500,
+          description: "Absolute path to the folder to scan (no .. or ~ allowed)",
         },
         notebook_id: {
           type: "string",

@@ -281,7 +281,10 @@ export const systemTools: Tool[] = [
         },
         url: {
           type: "string",
-          description: "Webhook endpoint URL",
+          // HTTPS-only; blocks localhost, 127.x, RFC1918 ranges (I046)
+          pattern: "^https://(?!localhost|127\\.|10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.).+",
+          maxLength: 2048,
+          description: "Webhook endpoint URL (must be HTTPS, no localhost or private IPs)",
         },
         enabled: {
           type: "boolean",
