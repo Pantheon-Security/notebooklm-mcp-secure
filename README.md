@@ -80,7 +80,7 @@ claude mcp add notebooklm -- npx @pan-sec/notebooklm-mcp@latest
 | Create notebooks programmatically | ❌ | ✅ **UNIQUE** |
 | Gemini Deep Research | ❌ | ✅ **EXCLUSIVE** |
 | Document API (no browser) | ❌ | ✅ **EXCLUSIVE** |
-| Post-quantum encryption | ❌ | ✅ **Future-proof** |
+| Post-quantum encryption | ❌ | ✅ **Hybrid PQ at-rest** |
 | Enterprise compliance | ❌ | ✅ **GDPR/SOC2/CSSF-ready** |
 | Video Overview generation | ❌ | ✅ **NEW** |
 | Data Table extraction | ❌ | ✅ **NEW** |
@@ -644,9 +644,8 @@ This fork adds **17 security hardening layers** to protect that data.
 
 | Layer | Feature | Protection |
 |-------|---------|------------|
-| 🔐 | **Post-Quantum Encryption** | ML-KEM-768 + ChaCha20-Poly1305 hybrid |
+| 🔐 | **Post-Quantum Encryption** | ML-KEM-768 + ChaCha20-Poly1305 hybrid (local at-rest) |
 | 🔍 | **Secrets Scanning** | Detects 30+ credential patterns (AWS, GitHub, Slack...) |
-| 📌 | **Certificate Pinning** | Blocks MITM attacks on Google connections |
 | 🧹 | **Memory Scrubbing** | Zeros sensitive data after use |
 | 📝 | **Audit Logging** | Tamper-evident logs with hash chains |
 | ⏱️ | **Session Timeout** | 8h hard limit + 30m inactivity auto-logout |
@@ -661,9 +660,9 @@ This fork adds **17 security hardening layers** to protect that data.
 | 📈 | **Exponential Backoff** | Lockout escalation: 5min → 15min → 45min → 4hr cap |
 | 🗝️ | **Credential Isolation** | SecureCredential TTL + env var scrubbing from process.env |
 
-### Post-Quantum Ready
+### Post-Quantum Primitives (Local At-Rest)
 
-Traditional encryption (RSA, ECDH) will be broken by quantum computers. This fork uses **hybrid encryption**:
+Encryption of secrets on disk uses hybrid post-quantum primitives:
 
 ```
 ML-KEM-768 (Kyber) + ChaCha20-Poly1305
@@ -672,7 +671,12 @@ ML-KEM-768 (Kyber) + ChaCha20-Poly1305
 - **ML-KEM-768**: NIST-standardized post-quantum key encapsulation
 - **ChaCha20-Poly1305**: Modern stream cipher (immune to timing attacks)
 
-Even if one algorithm is broken, the other remains secure.
+**Scope, honestly:** this is **local at-rest** encryption. Both keys live
+on the same machine — the PQ secret key is wrapped with a classical key
+derived from a machine-bound secret, not held by a remote recipient.
+This protects against offline theft of individual encrypted files, not
+against Harvest-Now-Decrypt-Later attacks (those require a remote PQ
+recipient holding the unwrap key).
 
 ### Cross-Platform Support
 
@@ -1111,9 +1115,8 @@ Or integrate in CI/CD:
 | Feature | Others | @pan-sec/notebooklm-mcp |
 |---------|--------|-------------------------|
 | Cross-platform (Linux/macOS/Windows) | ⚠️ Partial | ✅ Full |
-| **Post-quantum encryption** | ❌ | ✅ ML-KEM-768 + ChaCha20 |
+| **Post-quantum encryption** | ❌ | ✅ ML-KEM-768 + ChaCha20 (local at-rest) |
 | **Secrets scanning** | ❌ | ✅ 30+ patterns |
-| **Certificate pinning** | ❌ | ✅ Google MITM protection |
 | **Memory scrubbing** | ❌ | ✅ Zero-on-free |
 | **Audit logging** | ❌ | ✅ Hash-chained |
 | **MCP authentication** | ❌ | ✅ Token + lockout |

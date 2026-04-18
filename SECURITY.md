@@ -57,15 +57,22 @@ All sensitive files are automatically protected with owner-only permissions:
 
 ---
 
-## Post-Quantum Encryption
+## Post-Quantum Encryption (Local At-Rest)
 
-### Why Post-Quantum?
+### Scope
 
-Recent events (including alleged quantum computer attacks on major infrastructure) highlight the urgency of preparing for "Q-Day" - when quantum computers can break classical encryption.
-
-This MCP uses **hybrid post-quantum encryption** that combines:
+Secrets written to disk (cookies, session state, auth tokens, PQ key pair) are encrypted with hybrid post-quantum primitives:
 - **ML-KEM-768 (Kyber)** - NIST-standardized post-quantum key encapsulation
 - **ChaCha20-Poly1305** - Modern stream cipher (NOT AES-GCM)
+
+### What this does and does not protect against
+
+This is **local at-rest** encryption. Both keys live on the same machine: the PQ secret key is wrapped with a classical key derived from a machine-bound secret, not held by a remote recipient.
+
+- ✅ Protects against **offline theft** of individual encrypted files (backup leak, misplaced disk)
+- ✅ Defence-in-depth on top of the underlying filesystem permissions
+- ❌ Does **NOT** protect against Harvest-Now-Decrypt-Later attacks — that threat model requires a remote PQ recipient holding the unwrap key, which this implementation does not have
+- ❌ Does **NOT** protect against an attacker who compromises the host — they can read the machine-derived key and unwrap the PQ secret key in the same step
 
 ### Why ChaCha20-Poly1305 over AES-GCM?
 
@@ -395,7 +402,7 @@ This MCP uses browser automation (Patchright) which:
 The Chrome profile directory itself is not fully encrypted:
 - `~/.local/share/notebooklm-mcp/chrome_profile/`
 
-The sensitive state files (cookies, session) ARE encrypted with post-quantum cryptography.
+The sensitive state files (cookies, session) ARE encrypted with hybrid post-quantum primitives for at-rest protection. See [Post-Quantum Encryption (Local At-Rest)](#post-quantum-encryption-local-at-rest) above for the exact threat model this covers.
 
 ---
 

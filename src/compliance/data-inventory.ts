@@ -337,7 +337,7 @@ export class DataInventory {
       transfers_to_third_countries: ["None"],
       retention_periods: retentionPeriods,
       security_measures: [
-        "Post-quantum encryption (ML-KEM-768 + ChaCha20-Poly1305)",
+        "At-rest hybrid post-quantum encryption (ML-KEM-768 + ChaCha20-Poly1305)",
         "Memory scrubbing for sensitive data",
         "Tamper-evident audit logging",
         "Secure file permissions",

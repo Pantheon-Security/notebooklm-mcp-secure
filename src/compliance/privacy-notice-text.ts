@@ -79,7 +79,7 @@ What we collect:
 
 All data is:
 - Stored locally only (no cloud sync)
-- Encrypted with post-quantum cryptography
+- Encrypted at rest with hybrid post-quantum primitives (local scope only)
 - Subject to automatic retention policies
 
 Your rights: Access, Export, Erasure, Portability`,
@@ -107,7 +107,7 @@ export function getPrivacyNoticeCLI(): string {
 ║${" ".repeat(width)}║
 ║  All data is:${" ".repeat(width - 15)}║
 ║  ✓ Stored locally only (no cloud sync)${" ".repeat(width - 41)}║
-║  ✓ Encrypted with post-quantum cryptography${" ".repeat(width - 46)}║
+║  ✓ Encrypted at rest (hybrid post-quantum, local)${" ".repeat(width - 52)}║
 ║  ✓ Subject to automatic retention policies${" ".repeat(width - 44)}║
 ║${" ".repeat(width)}║
 ║  Your rights: Access, Export, Erasure, Portability${" ".repeat(width - 53)}║
@@ -190,7 +190,7 @@ export function getProcessingAgreement(): {
     ],
     data_location: "Local device only (no cloud transfer)",
     security_measures: [
-      "Post-quantum encryption (ML-KEM-768 + ChaCha20-Poly1305)",
+      "At-rest hybrid post-quantum encryption (ML-KEM-768 + ChaCha20-Poly1305)",
       "Memory scrubbing for sensitive data",
       "Tamper-evident audit logging",
       "Secure file permissions",

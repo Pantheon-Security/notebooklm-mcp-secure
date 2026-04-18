@@ -168,7 +168,10 @@ This policy is reviewed annually or upon regulatory change.
 # Encryption Policy
 
 ## 1. Encryption at Rest
-- Algorithm: ML-KEM-768 + ChaCha20-Poly1305 (hybrid post-quantum)
+- Algorithm: ML-KEM-768 + ChaCha20-Poly1305 (hybrid post-quantum, local)
+- Scope: secrets on disk (cookies, session state, auth tokens)
+- Threat model: offline file theft. NOT Harvest-Now-Decrypt-Later
+  (would require a remote PQ recipient, which this does not have)
 - Key derivation: HKDF with secure random salt
 - All sensitive data encrypted by default
 
