@@ -39,6 +39,8 @@ This runs in the background and can take 1-5 minutes to complete.
     properties: {
       query: {
         type: "string",
+        minLength: 1,
+        maxLength: 10000,
         description: "The research question or topic to investigate",
       },
       wait_for_completion: {
@@ -48,6 +50,8 @@ This runs in the background and can take 1-5 minutes to complete.
       },
       max_wait_seconds: {
         type: "number",
+        minimum: 10,
+        maximum: 600,
         default: 300,
         description: "Maximum wait time in seconds (default 5 min, max 10 min)",
       },
@@ -92,6 +96,8 @@ Supports:
     properties: {
       query: {
         type: "string",
+        minLength: 1,
+        maxLength: 30000,
         description: "The question or prompt",
       },
       model: {
@@ -110,11 +116,13 @@ Supports:
       },
       urls: {
         type: "array",
-        items: { type: "string" },
+        items: { type: "string", maxLength: 2048 },
+        maxItems: 10,
         description: "URLs to analyze (automatically enables url_context)",
       },
       previous_interaction_id: {
         type: "string",
+        maxLength: 256,
         description: "Continue a previous conversation (for multi-turn)",
       },
       thinking_level: {
@@ -150,6 +158,7 @@ Use this when you started deep_research with wait_for_completion=false.
     properties: {
       interaction_id: {
         type: "string",
+        maxLength: 256,
         description: "The interaction ID returned from deep_research",
       },
     },
@@ -251,10 +260,13 @@ const queryDocumentTool: Tool = {
     properties: {
       file_name: {
         type: "string",
+        maxLength: 256,
         description: "File name/ID returned from upload_document",
       },
       query: {
         type: "string",
+        minLength: 1,
+        maxLength: 10000,
         description: "Question to ask about the document",
       },
       model: {
@@ -265,7 +277,8 @@ const queryDocumentTool: Tool = {
       },
       additional_files: {
         type: "array",
-        items: { type: "string" },
+        items: { type: "string", maxLength: 256 },
+        maxItems: 20,
         description: "Additional file IDs to include in the query (for multi-document analysis)",
       },
     },
@@ -298,6 +311,8 @@ const listDocumentsTool: Tool = {
     properties: {
       page_size: {
         type: "number",
+        minimum: 1,
+        maximum: 1000,
         default: 100,
         description: "Maximum number of files to return",
       },
@@ -329,6 +344,7 @@ const deleteDocumentTool: Tool = {
     properties: {
       file_name: {
         type: "string",
+        maxLength: 256,
         description: "File name/ID to delete (from upload_document or list_documents)",
       },
     },
@@ -375,11 +391,14 @@ Call this tool with:
     properties: {
       file_names: {
         type: "array",
-        items: { type: "string" },
+        items: { type: "string", maxLength: 256 },
+        maxItems: 100,
         description: "Array of chunk file IDs (from upload_document's allFileNames)",
       },
       query: {
         type: "string",
+        minLength: 1,
+        maxLength: 10000,
         description: "Question to ask about the document",
       },
       model: {

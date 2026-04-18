@@ -46,10 +46,13 @@ Paginate through history:
     properties: {
       notebook_id: {
         type: "string",
+        maxLength: 128,
         description: "Library notebook ID. Use list_notebooks to see available notebooks.",
       },
       notebook_url: {
         type: "string",
+        pattern: "^https://notebooklm\\.google\\.com/",
+        maxLength: 512,
         description: "Direct notebook URL (overrides notebook_id). Use for notebooks not in your library.",
       },
       preview_only: {
@@ -58,14 +61,19 @@ Paginate through history:
       },
       limit: {
         type: "number",
+        minimum: 1,
+        maximum: 200,
         description: "Maximum number of message pairs to return (default: 50, max: 200).",
       },
       offset: {
         type: "number",
+        minimum: 0,
+        maximum: 10000,
         description: "Number of message pairs to skip from the start. Use with limit for pagination. (default: 0)",
       },
       output_file: {
         type: "string",
+        maxLength: 500,
         description: "If provided, exports chat history to this JSON file instead of returning to context. Useful for large histories.",
       },
       show_browser: {

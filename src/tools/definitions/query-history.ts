@@ -23,22 +23,28 @@ Returns query entries with question, answer, notebook, session, and timing info.
     properties: {
       session_id: {
         type: "string",
+        maxLength: 128,
         description: "Filter queries by session ID",
       },
       notebook_id: {
         type: "string",
+        maxLength: 128,
         description: "Filter queries by notebook ID (from your library)",
       },
       date: {
         type: "string",
+        pattern: "^\\d{4}-\\d{2}-\\d{2}$",
         description: "Filter queries by date (format: YYYY-MM-DD)",
       },
       search: {
         type: "string",
+        maxLength: 500,
         description: "Search pattern to find in questions or answers",
       },
       limit: {
         type: "number",
+        minimum: 1,
+        maximum: 500,
         description: "Maximum number of entries to return (default: 50, max: 500)",
       },
     },

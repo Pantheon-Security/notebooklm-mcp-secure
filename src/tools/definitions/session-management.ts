@@ -21,6 +21,7 @@ export const sessionManagementTools: Tool[] = [
       properties: {
         session_id: {
           type: "string",
+          maxLength: 128,
           description: "The session ID to close",
         },
       },
@@ -38,6 +39,7 @@ export const sessionManagementTools: Tool[] = [
       properties: {
         session_id: {
           type: "string",
+          maxLength: 128,
           description: "The session ID to reset",
         },
       },

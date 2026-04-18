@@ -124,21 +124,27 @@ export const askQuestionTool: Tool = {
     properties: {
       question: {
         type: "string",
+        minLength: 1,
+        maxLength: 10000,
         description: "The question to ask NotebookLM",
       },
       session_id: {
         type: "string",
+        maxLength: 128,
         description:
           "Optional session ID for contextual conversations. If omitted, a new session is created.",
       },
       notebook_id: {
         type: "string",
+        maxLength: 128,
         description:
           "Optional notebook ID from your library. If omitted, uses the active notebook. " +
           "Use list_notebooks to see available notebooks.",
       },
       notebook_url: {
         type: "string",
+        pattern: "^https://notebooklm\\.google\\.com/",
+        maxLength: 512,
         description:
           "Optional notebook URL (overrides notebook_id). Use this for ad-hoc queries to notebooks not in your library.",
       },
@@ -164,6 +170,8 @@ export const askQuestionTool: Tool = {
           },
           timeout_ms: {
             type: "number",
+            minimum: 1000,
+            maximum: 300000,
             description: "Browser operation timeout in milliseconds (default: 30000)",
           },
           stealth: {
@@ -188,18 +196,26 @@ export const askQuestionTool: Tool = {
               },
               typing_wpm_min: {
                 type: "number",
+                minimum: 10,
+                maximum: 600,
                 description: "Minimum typing speed in WPM (default: 160)",
               },
               typing_wpm_max: {
                 type: "number",
+                minimum: 10,
+                maximum: 600,
                 description: "Maximum typing speed in WPM (default: 240)",
               },
               delay_min_ms: {
                 type: "number",
+                minimum: 0,
+                maximum: 10000,
                 description: "Minimum delay between actions in ms (default: 100)",
               },
               delay_max_ms: {
                 type: "number",
+                minimum: 0,
+                maximum: 10000,
                 description: "Maximum delay between actions in ms (default: 400)",
               },
             },
@@ -210,10 +226,14 @@ export const askQuestionTool: Tool = {
             properties: {
               width: {
                 type: "number",
+                minimum: 320,
+                maximum: 7680,
                 description: "Viewport width in pixels (default: 1920)",
               },
               height: {
                 type: "number",
+                minimum: 240,
+                maximum: 4320,
                 description: "Viewport height in pixels (default: 1080)",
               },
             },

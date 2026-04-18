@@ -52,31 +52,37 @@ Visit https://notebooklm.google/ → Login (free: 100 notebooks, 50 sources each
         },
         name: {
           type: "string",
+          maxLength: 200,
           description: "Display name for the notebook (e.g., 'n8n Documentation')",
         },
         description: {
           type: "string",
+          maxLength: 1000,
           description: "What knowledge/content is in this notebook",
         },
         topics: {
           type: "array",
-          items: { type: "string" },
+          items: { type: "string", maxLength: 100 },
+          maxItems: 50,
           description: "Topics covered in this notebook",
         },
         content_types: {
           type: "array",
-          items: { type: "string" },
+          items: { type: "string", maxLength: 100 },
+          maxItems: 20,
           description:
             "Types of content (e.g., ['documentation', 'examples', 'best practices'])",
         },
         use_cases: {
           type: "array",
-          items: { type: "string" },
+          items: { type: "string", maxLength: 200 },
+          maxItems: 20,
           description: "When should Claude use this notebook (e.g., ['Implementing n8n workflows'])",
         },
         tags: {
           type: "array",
-          items: { type: "string" },
+          items: { type: "string", maxLength: 100 },
+          maxItems: 50,
           description: "Optional tags for organization",
         },
       },
@@ -103,6 +109,7 @@ Visit https://notebooklm.google/ → Login (free: 100 notebooks, 50 sources each
       properties: {
         id: {
           type: "string",
+          maxLength: 128,
           description: "The notebook ID",
         },
       },
@@ -165,34 +172,41 @@ Tip: You may update multiple fields at once if requested.`,
       properties: {
         id: {
           type: "string",
+          maxLength: 128,
           description: "The notebook ID to update",
         },
         name: {
           type: "string",
+          maxLength: 200,
           description: "New display name",
         },
         description: {
           type: "string",
+          maxLength: 1000,
           description: "New description",
         },
         topics: {
           type: "array",
-          items: { type: "string" },
+          items: { type: "string", maxLength: 100 },
+          maxItems: 50,
           description: "New topics list",
         },
         content_types: {
           type: "array",
-          items: { type: "string" },
+          items: { type: "string", maxLength: 100 },
+          maxItems: 20,
           description: "New content types",
         },
         use_cases: {
           type: "array",
-          items: { type: "string" },
+          items: { type: "string", maxLength: 200 },
+          maxItems: 20,
           description: "New use cases",
         },
         tags: {
           type: "array",
-          items: { type: "string" },
+          items: { type: "string", maxLength: 100 },
+          maxItems: 50,
           description: "New tags",
         },
         url: {
@@ -245,6 +259,8 @@ User: "Yes" → call remove_notebook`,
       properties: {
         query: {
           type: "string",
+          minLength: 1,
+          maxLength: 500,
           description: "Search query",
         },
       },
@@ -317,10 +333,12 @@ Create a notebook with multiple sources:
       properties: {
         name: {
           type: "string",
+          maxLength: 200,
           description: "Display name for the new notebook",
         },
         sources: {
           type: "array",
+          maxItems: 50,
           items: {
             type: "object",
             properties: {
@@ -331,10 +349,12 @@ Create a notebook with multiple sources:
               },
               value: {
                 type: "string",
+                maxLength: 5000,
                 description: "URL, text content, or file path depending on type",
               },
               title: {
                 type: "string",
+                maxLength: 200,
                 description: "Optional title for text sources",
               },
             },
@@ -344,11 +364,13 @@ Create a notebook with multiple sources:
         },
         description: {
           type: "string",
+          maxLength: 1000,
           description: "Optional description for the notebook in your library",
         },
         topics: {
           type: "array",
-          items: { type: "string" },
+          items: { type: "string", maxLength: 100 },
+          maxItems: 50,
           description: "Optional topics for categorization in your library",
         },
         auto_add_to_library: {
@@ -455,10 +477,13 @@ Or with direct URL:
       properties: {
         notebook_id: {
           type: "string",
+          maxLength: 128,
           description: "Library notebook ID",
         },
         notebook_url: {
           type: "string",
+          pattern: "^https://notebooklm\\.google\\.com/",
+          maxLength: 512,
           description: "Direct notebook URL (overrides notebook_id)",
         },
       },
@@ -489,10 +514,13 @@ Or with direct URL:
       properties: {
         notebook_id: {
           type: "string",
+          maxLength: 128,
           description: "Library notebook ID",
         },
         notebook_url: {
           type: "string",
+          pattern: "^https://notebooklm\\.google\\.com/",
+          maxLength: 512,
           description: "Direct notebook URL (overrides notebook_id)",
         },
         source: {
@@ -505,10 +533,12 @@ Or with direct URL:
             },
             value: {
               type: "string",
+              maxLength: 5000,
               description: "URL, text content, or file path",
             },
             title: {
               type: "string",
+              maxLength: 200,
               description: "Optional title for text sources",
             },
           },
@@ -559,10 +589,13 @@ Or with direct URL:
         },
         notebook_id: {
           type: "string",
+          maxLength: 128,
           description: "Library notebook ID to add sources to",
         },
         notebook_url: {
           type: "string",
+          pattern: "^https://notebooklm\\.google\\.com/",
+          maxLength: 512,
           description: "Direct notebook URL (overrides notebook_id)",
         },
         recursive: {
@@ -571,7 +604,8 @@ Or with direct URL:
         },
         file_types: {
           type: "array",
-          items: { type: "string" },
+          items: { type: "string", maxLength: 10 },
+          maxItems: 20,
           description: "File extensions to include (default: [\".pdf\", \".txt\", \".md\", \".docx\"])",
         },
         dry_run: {
@@ -580,6 +614,7 @@ Or with direct URL:
         },
         notebook_name_prefix: {
           type: "string",
+          maxLength: 100,
           description: "Prefix for auto-split notebooks when file count exceeds tier limit (default: folder name)",
         },
       },
@@ -607,14 +642,18 @@ Or with direct URL:
       properties: {
         notebook_id: {
           type: "string",
+          maxLength: 128,
           description: "Library notebook ID",
         },
         notebook_url: {
           type: "string",
+          pattern: "^https://notebooklm\\.google\\.com/",
+          maxLength: 512,
           description: "Direct notebook URL (overrides notebook_id)",
         },
         source_id: {
           type: "string",
+          maxLength: 128,
           description: "Source ID from list_sources (e.g., 'source-0')",
         },
       },
@@ -653,7 +692,9 @@ Export to specific location:
         },
         output_path: {
           type: "string",
-          description: "Output file path (optional, defaults to home directory)",
+          pattern: "^(?!.*\\.\\.)(?!~)/.+",
+          maxLength: 500,
+          description: "Output file path (optional, defaults to home directory; no .. or ~ allowed)",
         },
       },
     },
@@ -713,10 +754,12 @@ Summary with:
             properties: {
               name: {
                 type: "string",
+                maxLength: 200,
                 description: "Display name for the notebook",
               },
               sources: {
                 type: "array",
+                maxItems: 20,
                 items: {
                   type: "object",
                   properties: {
@@ -727,10 +770,12 @@ Summary with:
                     },
                     value: {
                       type: "string",
+                      maxLength: 5000,
                       description: "URL, text content, or file path",
                     },
                     title: {
                       type: "string",
+                      maxLength: 200,
                       description: "Optional title for text sources",
                     },
                   },
@@ -740,11 +785,13 @@ Summary with:
               },
               description: {
                 type: "string",
+                maxLength: 1000,
                 description: "Optional description for the notebook",
               },
               topics: {
                 type: "array",
-                items: { type: "string" },
+                maxItems: 50,
+                items: { type: "string", maxLength: 100 },
                 description: "Optional topics for categorization",
               },
             },
@@ -858,7 +905,9 @@ Downloads to specified path or ~/notebooklm-audio-{timestamp}.mp3
         },
         output_path: {
           type: "string",
-          description: "Optional output file path",
+          pattern: "^(?!.*\\.\\.)(?!~)/.+",
+          maxLength: 500,
+          description: "Optional output file path (absolute, no .. or ~ allowed)",
         },
       },
     },
