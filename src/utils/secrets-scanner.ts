@@ -28,6 +28,8 @@ export interface SecretMatch {
   pattern: string;
   match: string;
   redacted: string;
+  /** Byte offset in the original scanned string — used for correct right-to-left redaction */
+  index: number;
   line?: number;
   column?: number;
   severity: "critical" | "high" | "medium" | "low";
@@ -42,6 +44,24 @@ interface SecretPattern {
   severity: "critical" | "high" | "medium" | "low";
   description: string;
   redactFn?: (match: string) => string;
+  /** Only flag matches whose Shannon entropy exceeds this threshold */
+  minEntropy?: number;
+}
+
+/**
+ * Calculate Shannon entropy of a string (bits per character).
+ * Exported so response-validator can reuse it.
+ */
+export function shannonEntropy(s: string): number {
+  if (s.length === 0) return 0;
+  const freq = new Map<string, number>();
+  for (const ch of s) freq.set(ch, (freq.get(ch) ?? 0) + 1);
+  let h = 0;
+  for (const count of freq.values()) {
+    const p = count / s.length;
+    h -= p * Math.log2(p);
+  }
+  return h;
 }
 
 /**
@@ -60,7 +80,9 @@ const SECRET_PATTERNS: SecretPattern[] = [
   },
   {
     name: "AWS Secret Access Key",
-    pattern: /\b[A-Za-z0-9/+=]{40}\b(?=.*aws|.*secret|.*key)/gi,
+    // Lookbehind matches `AWS_SECRET = "…40chars"` (keyword before value);
+    // lookahead matches the reverse. Either side within 30 non-newline chars.
+    pattern: /(?:(?<=(?:aws|secret|key)[^\n]{0,30})[A-Za-z0-9/+=]{40}|[A-Za-z0-9/+=]{40}(?=[^\n]{0,30}(?:aws|secret|key)))/gi,
     severity: "critical",
     description: "Potential AWS Secret Access Key",
   },
@@ -248,6 +270,8 @@ const SECRET_PATTERNS: SecretPattern[] = [
     pattern: /\b[A-Za-z0-9+/]{32,}={0,2}\b/g,
     severity: "low",
     description: "High entropy string (possible encoded secret)",
+    // Entropy gate avoids flagging JWT payloads, PNG data-URIs, GCS object names
+    minEntropy: 4.0,
   },
 
   // SSH keys
@@ -296,7 +320,7 @@ function getSecretsConfig(): SecretsConfig {
     autoRedact: process.env.NLMCP_SECRETS_REDACT !== "false",
     minSeverity,
     customPatterns: [],
-    ignoredPatterns: (process.env.NLMCP_SECRETS_IGNORE || "").split(",").filter(Boolean),
+    ignoredPatterns: (process.env.NLMCP_SECRETS_IGNORE || "").split(",").map(s => s.trim()).filter(Boolean),
   };
 }
 
@@ -338,6 +362,14 @@ export class SecretsScanner {
       return [];
     }
 
+    // Cap input to prevent slow scanning on very large inputs (I186)
+    const MAX_SCAN_BYTES = 1_000_000;
+    let input = text;
+    if (text.length > MAX_SCAN_BYTES) {
+      log.warning(`Secrets scan input truncated: ${text.length} → ${MAX_SCAN_BYTES} bytes`);
+      input = text.substring(0, MAX_SCAN_BYTES);
+    }
+
     this.stats.scanned++;
     const matches: SecretMatch[] = [];
     const minSeverityLevel = SEVERITY_ORDER[this.config.minSeverity];
@@ -352,11 +384,16 @@ export class SecretsScanner {
       pattern.pattern.lastIndex = 0;
 
       let match: RegExpExecArray | null;
-      while ((match = pattern.pattern.exec(text)) !== null) {
+      while ((match = pattern.pattern.exec(input)) !== null) {
         const matchedText = match[0];
 
+        // Skip if entropy below pattern threshold (I184)
+        if (pattern.minEntropy !== undefined && shannonEntropy(matchedText) < pattern.minEntropy) {
+          continue;
+        }
+
         // Calculate line and column
-        const beforeMatch = text.substring(0, match.index);
+        const beforeMatch = input.substring(0, match.index);
         const lines = beforeMatch.split("\n");
         const line = lines.length;
         const column = lines[lines.length - 1].length + 1;
@@ -371,6 +408,7 @@ export class SecretsScanner {
           pattern: pattern.description,
           match: matchedText,
           redacted,
+          index: match.index,
           line,
           column,
           severity: pattern.severity,
@@ -433,15 +471,24 @@ export class SecretsScanner {
     // Redact if enabled
     let clean = text;
     if (this.config.autoRedact) {
-      // Sort by position descending to avoid offset issues
-      const sortedSecrets = [...secrets].sort((a, b) => {
-        const posA = text.indexOf(a.match);
-        const posB = text.indexOf(b.match);
-        return posB - posA;
-      });
+      // Sort by stored index descending so right-to-left splicing keeps earlier offsets valid (I187)
+      const sorted = [...secrets].sort((a, b) => b.index - a.index);
 
-      for (const secret of sortedSecrets) {
-        clean = clean.replace(secret.match, secret.redacted);
+      // Skip overlapping matches (keep the one processed first in right-to-left order)
+      const kept: SecretMatch[] = [];
+      for (const secret of sorted) {
+        const overlaps = kept.some(
+          k => secret.index < k.index + k.match.length && secret.index + secret.match.length > k.index
+        );
+        if (!overlaps) kept.push(secret);
+      }
+
+      // Splice each match out using its stored index; handles multiple occurrences correctly (I182)
+      for (const secret of kept) {
+        clean =
+          clean.substring(0, secret.index) +
+          secret.redacted +
+          clean.substring(secret.index + secret.match.length);
         this.stats.redacted++;
       }
     }
