@@ -62,6 +62,7 @@ import {
 } from "./compliance/compliance-tools.js";
 import { getPrivacyNoticeManager, getPrivacyNoticeCLIText } from "./compliance/privacy-notice.js";
 import { runRetentionPolicies } from "./compliance/retention-engine.js";
+import { getBreachDetector } from "./compliance/breach-detection.js";
 
 /**
  * Main MCP Server Class
@@ -440,6 +441,24 @@ class NotebookLMMCPServer {
       this.retentionTimer.unref();
     } catch (err) {
       log.warning(`⚠️ Retention engine bootstrap failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // Bridge audit events into the breach detector. Rules match audit
+    // event names (auth_failed, secrets_detected, prompt_injection, etc.);
+    // see src/compliance/breach-detection.ts DEFAULT_RULES.
+    try {
+      const breachDetector = getBreachDetector();
+      getAuditLogger().onEvent(async (event) => {
+        if (event.eventType !== "auth" && event.eventType !== "security") return;
+        try {
+          await breachDetector.checkEvent(event.eventName, event.details);
+        } catch (err) {
+          log.warning(`breach detector checkEvent failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      });
+      log.info("🛡️  Breach detector subscribed to audit events");
+    } catch (err) {
+      log.warning(`⚠️ Breach detector bootstrap failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

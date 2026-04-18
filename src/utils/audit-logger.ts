@@ -117,11 +117,17 @@ interface QueueEntry {
  *   - Chain integrity is verified on startup and any break is recorded
  *     as a `chain_violation` event.
  */
+/** Listener fired AFTER an event has been durably written. Errors
+ * thrown from listeners are logged and swallowed so a faulty subscriber
+ * can't break the audit path. */
+export type AuditListener = (event: AuditEvent) => void | Promise<void>;
+
 export class AuditLogger {
   private config: AuditConfig;
   private currentLogFile: string = "";
   private writeQueue: QueueEntry[] = [];
   private isWriting: boolean = false;
+  private listeners: AuditListener[] = [];
   private stats = {
     totalEvents: 0,
     toolEvents: 0,
@@ -374,6 +380,10 @@ export class AuditLogger {
       while (this.writeQueue.length > 0) {
         this.checkDayRollover();
         const batch = this.writeQueue.splice(0, 100);
+        // Reconstructed full events for listener dispatch after the write
+        // succeeds. Kept outside the lock block so listeners run after the
+        // lock releases.
+        const durableEvents: AuditEvent[] = [];
         try {
           await withLock(
             this.currentLogFile,
@@ -390,6 +400,7 @@ export class AuditLogger {
                 const hash = this.config.hashChainEnabled ? this.computeHash(eventWithPrev) : "";
                 const fullEvent: AuditEvent = { ...eventWithPrev, hash };
                 lines.push(JSON.stringify(fullEvent));
+                durableEvents.push(fullEvent);
                 if (this.config.hashChainEnabled) previousHash = hash;
               }
               appendFileSecure(
@@ -401,6 +412,15 @@ export class AuditLogger {
             { timeout: 15000 },
           );
           for (const entry of batch) entry.resolve();
+          // Fire listeners after durability — best-effort, don't await
+          // sequentially and never let a subscriber error break the loop.
+          for (const event of durableEvents) {
+            for (const listener of this.listeners) {
+              void Promise.resolve()
+                .then(() => listener(event))
+                .catch((err) => logger.warning(`audit listener failed: ${err instanceof Error ? err.message : String(err)}`));
+            }
+          }
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
           logger.error(`Audit drain failed: ${error.message}`);
@@ -410,6 +430,18 @@ export class AuditLogger {
     } finally {
       this.isWriting = false;
     }
+  }
+
+  /**
+   * Subscribe to durable audit events. Listener fires AFTER the event is
+   * on disk. Returns an unsubscribe function.
+   */
+  public onEvent(listener: AuditListener): () => void {
+    this.listeners.push(listener);
+    return () => {
+      const idx = this.listeners.indexOf(listener);
+      if (idx >= 0) this.listeners.splice(idx, 1);
+    };
   }
 
   /**
