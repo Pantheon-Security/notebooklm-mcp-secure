@@ -29,8 +29,8 @@ export async function handleConfigureWebhook(
     const dispatcher = getWebhookDispatcher();
 
     if (args.id) {
-      // Update existing
-      const updated = dispatcher.updateWebhook({
+      // Update existing (URL is revalidated inside updateWebhook).
+      const updated = await dispatcher.updateWebhook({
         id: args.id,
         name: args.name,
         url: args.url,
@@ -47,8 +47,8 @@ export async function handleConfigureWebhook(
       log.success(`✅ [TOOL] configure_webhook updated: ${updated.name}`);
       return { success: true, data: updated };
     } else {
-      // Create new
-      const webhook = dispatcher.addWebhook({
+      // Create new (URL is validated inside addWebhook; throws on failure).
+      const webhook = await dispatcher.addWebhook({
         name: args.name,
         url: args.url,
         events: args.events as EventType[] | ["*"],

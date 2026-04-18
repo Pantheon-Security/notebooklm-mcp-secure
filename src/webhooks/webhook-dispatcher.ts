@@ -7,6 +7,8 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import net from "node:net";
+import dns from "node:dns/promises";
 import { log } from "../utils/logger.js";
 import { writeFileSecure, PERMISSION_MODES } from "../utils/file-permissions.js";
 import { CONFIG } from "../config.js";
@@ -26,6 +28,127 @@ interface WebhooksStore {
   version: string;
 }
 
+type WebhookUrlValidation =
+  | { ok: true; url: URL }
+  | { ok: false; error: string };
+
+/**
+ * Classify an IPv4 address as private/loopback/link-local/metadata.
+ * See RFC 1918, RFC 3927, RFC 6598, RFC 5735.
+ */
+function isPrivateIPv4(addr: string): boolean {
+  const parts = addr.split(".").map((p) => parseInt(p, 10));
+  if (parts.length !== 4 || parts.some((p) => Number.isNaN(p))) return false;
+  const [a, b] = parts;
+  if (a === 0) return true;                                  // 0.0.0.0/8
+  if (a === 10) return true;                                 // 10.0.0.0/8
+  if (a === 100 && b >= 64 && b <= 127) return true;         // 100.64.0.0/10 CGNAT
+  if (a === 127) return true;                                // 127.0.0.0/8 loopback
+  if (a === 169 && b === 254) return true;                   // 169.254.0.0/16 link-local + AWS/GCP metadata
+  if (a === 172 && b >= 16 && b <= 31) return true;          // 172.16.0.0/12
+  if (a === 192 && b === 168) return true;                   // 192.168.0.0/16
+  if (a >= 224) return true;                                 // multicast + reserved
+  return false;
+}
+
+function isPrivateIPv6(addr: string): boolean {
+  const lower = addr.toLowerCase();
+  if (lower === "::1" || lower === "::") return true;         // loopback, unspecified
+  if (lower.startsWith("fe80:") || lower.startsWith("fe80::")) return true; // link-local
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;        // unique local fc00::/7
+  if (lower.startsWith("ff")) return true;                    // multicast
+  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — re-check underlying v4
+  if (lower.startsWith("::ffff:")) {
+    const v4 = lower.slice(7);
+    if (net.isIPv4(v4)) return isPrivateIPv4(v4);
+  }
+  return false;
+}
+
+function isPrivateHost(hostname: string): boolean {
+  let h = hostname.toLowerCase();
+  // WHATWG URL returns IPv6 hostnames wrapped in brackets (e.g. "[::1]").
+  // Strip them so net.isIPv6 / IPv6 range checks work.
+  if (h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1);
+
+  if (h === "localhost" || h === "localhost.localdomain") return true;
+  if (h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) return true;
+  if (net.isIPv4(h) && isPrivateIPv4(h)) return true;
+  if (net.isIPv6(h) && isPrivateIPv6(h)) return true;
+  return false;
+}
+
+/**
+ * Validate a webhook URL before we ever send it an outbound request.
+ *
+ * Checks (in order):
+ *   1. Parseable URL
+ *   2. Scheme: require https:; allow http: only when NLMCP_WEBHOOK_ALLOW_HTTP=true
+ *   3. Lexical hostname in private/loopback/link-local/metadata space
+ *   4. DNS resolution — all resolved addresses must be public (closes
+ *      DNS-rebinding attacks); skipped when NLMCP_WEBHOOK_RESOLVE_DNS=false
+ *
+ * Exported for use by tool handlers that want to pre-validate before
+ * calling dispatcher.addWebhook().
+ */
+export async function validateWebhookUrl(rawUrl: string): Promise<WebhookUrlValidation> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return { ok: false, error: "invalid URL" };
+  }
+
+  const allowHttp = process.env.NLMCP_WEBHOOK_ALLOW_HTTP === "true";
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && allowHttp)) {
+    return {
+      ok: false,
+      error: `scheme '${parsed.protocol}' not allowed (need https:; set NLMCP_WEBHOOK_ALLOW_HTTP=true to permit http:)`,
+    };
+  }
+
+  const host = parsed.hostname;
+  if (!host) return { ok: false, error: "URL missing hostname" };
+  if (isPrivateHost(host)) {
+    return {
+      ok: false,
+      error: `hostname '${host}' is in a private/loopback/link-local range (SSRF block)`,
+    };
+  }
+
+  if (process.env.NLMCP_WEBHOOK_RESOLVE_DNS !== "false" && !net.isIP(host)) {
+    try {
+      const addresses = await Promise.race([
+        dns.lookup(host, { all: true }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("DNS lookup timed out after 2s")), 2000),
+        ),
+      ]);
+      for (const { address, family } of addresses) {
+        if (family === 4 && isPrivateIPv4(address)) {
+          return {
+            ok: false,
+            error: `hostname '${host}' resolves to private IPv4 ${address} (SSRF block)`,
+          };
+        }
+        if (family === 6 && isPrivateIPv6(address)) {
+          return {
+            ok: false,
+            error: `hostname '${host}' resolves to private IPv6 ${address} (SSRF block)`,
+          };
+        }
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        error: `DNS resolution failed for '${host}': ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  return { ok: true, url: parsed };
+}
+
 export class WebhookDispatcher {
   private storePath: string;
   private store: WebhooksStore;
@@ -36,8 +159,15 @@ export class WebhookDispatcher {
   constructor() {
     this.storePath = path.join(CONFIG.dataDir, "webhooks.json");
     this.store = this.loadStore();
-    this.initializeFromEnv();
     this.subscribeToEvents();
+
+    // Env-driven webhook init is async (URL validation calls dns.lookup);
+    // fire and forget — webhooks registered from env appear after the
+    // promise resolves. Constructor invariants (listWebhooks, dispatch with
+    // existing stored webhooks) are preserved.
+    void this.initializeFromEnv().catch((err) =>
+      log.warning(`WebhookDispatcher env init failed: ${err instanceof Error ? err.message : String(err)}`),
+    );
 
     log.info("🔔 WebhookDispatcher initialized");
     log.info(`  Webhooks: ${this.store.webhooks.filter((w) => w.enabled).length} active`);
@@ -76,47 +206,54 @@ export class WebhookDispatcher {
   }
 
   /**
-   * Initialize webhooks from environment variables
+   * Initialize webhooks from environment variables. Each URL is validated
+   * via validateWebhookUrl before being stored — invalid env values log a
+   * warning and are skipped (server must still start).
    */
-  private initializeFromEnv(): void {
-    // Check for NLMCP_WEBHOOK_URL
+  private async initializeFromEnv(): Promise<void> {
+    const tryAdd = async (envVar: string, input: AddWebhookInput): Promise<void> => {
+      if (this.store.webhooks.some((w) => w.url === input.url)) return;
+      try {
+        await this.addWebhook(input);
+        log.info(`  Added webhook from env (${envVar}): host=${new URL(input.url).host}`);
+      } catch (err) {
+        log.warning(
+          `  ⚠️ Skipping ${envVar} — ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    };
+
     const webhookUrl = process.env.NLMCP_WEBHOOK_URL;
-    if (webhookUrl && !this.store.webhooks.some((w) => w.url === webhookUrl)) {
+    if (webhookUrl) {
       const events = process.env.NLMCP_WEBHOOK_EVENTS
         ? (process.env.NLMCP_WEBHOOK_EVENTS.split(",") as EventType[])
         : (["*"] as ["*"]);
-
-      this.addWebhook({
+      await tryAdd("NLMCP_WEBHOOK_URL", {
         name: "Default Webhook",
         url: webhookUrl,
         events,
         secret: process.env.NLMCP_WEBHOOK_SECRET,
       });
-      log.info(`  Added webhook from env: ${webhookUrl}`);
     }
 
-    // Check for Slack webhook
     const slackUrl = process.env.NLMCP_SLACK_WEBHOOK_URL;
-    if (slackUrl && !this.store.webhooks.some((w) => w.url === slackUrl)) {
-      this.addWebhook({
+    if (slackUrl) {
+      await tryAdd("NLMCP_SLACK_WEBHOOK_URL", {
         name: "Slack Notifications",
         url: slackUrl,
         events: ["*"],
         format: "slack",
       });
-      log.info(`  Added Slack webhook from env`);
     }
 
-    // Check for Discord webhook
     const discordUrl = process.env.NLMCP_DISCORD_WEBHOOK_URL;
-    if (discordUrl && !this.store.webhooks.some((w) => w.url === discordUrl)) {
-      this.addWebhook({
+    if (discordUrl) {
+      await tryAdd("NLMCP_DISCORD_WEBHOOK_URL", {
         name: "Discord Notifications",
         url: discordUrl,
         events: ["*"],
         format: "discord",
       });
-      log.info(`  Added Discord webhook from env`);
     }
   }
 
@@ -184,6 +321,9 @@ export class WebhookDispatcher {
           },
           body: payload,
           signal: controller.signal,
+          // Refuse redirects — a pre-validated host redirecting to cloud
+          // metadata (169.254.169.254) would otherwise bypass validateWebhookUrl.
+          redirect: "error",
         });
 
         clearTimeout(timeoutId);
@@ -449,9 +589,15 @@ export class WebhookDispatcher {
   // === Public API ===
 
   /**
-   * Add a new webhook
+   * Add a new webhook. Validates the URL before persisting; throws on
+   * scheme/host/DNS-resolution failure so callers see a clear reason.
    */
-  addWebhook(input: AddWebhookInput): WebhookConfig {
+  async addWebhook(input: AddWebhookInput): Promise<WebhookConfig> {
+    const validation = await validateWebhookUrl(input.url);
+    if (!validation.ok) {
+      throw new Error(`webhook URL rejected: ${validation.error}`);
+    }
+
     const webhook: WebhookConfig = {
       id: crypto.randomUUID(),
       name: input.name,
@@ -476,11 +622,18 @@ export class WebhookDispatcher {
   }
 
   /**
-   * Update a webhook
+   * Update a webhook. Re-validates the URL if it is being changed.
    */
-  updateWebhook(input: UpdateWebhookInput): WebhookConfig | null {
+  async updateWebhook(input: UpdateWebhookInput): Promise<WebhookConfig | null> {
     const index = this.store.webhooks.findIndex((w) => w.id === input.id);
     if (index === -1) return null;
+
+    if (input.url !== undefined) {
+      const validation = await validateWebhookUrl(input.url);
+      if (!validation.ok) {
+        throw new Error(`webhook URL rejected: ${validation.error}`);
+      }
+    }
 
     const webhook = this.store.webhooks[index];
     const updated: WebhookConfig = {
