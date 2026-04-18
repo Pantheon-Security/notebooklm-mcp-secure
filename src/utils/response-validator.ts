@@ -13,6 +13,7 @@
 
 import { audit } from "./audit-logger.js";
 import { log } from "./logger.js";
+import { shannonEntropy } from "./secrets-scanner.js";
 
 /**
  * Response validation result
@@ -90,7 +91,7 @@ const PROMPT_INJECTION_PATTERNS: Array<{ pattern: RegExp; description: string; s
     severity: "high",
   },
   {
-    pattern: /system\s*:\s*[^\n]{10,}/i,
+    pattern: /system\s*:\s*[^\n]{10,500}/i,
     description: "System prompt injection",
     severity: "critical",
   },
@@ -131,12 +132,12 @@ const PROMPT_INJECTION_PATTERNS: Array<{ pattern: RegExp; description: string; s
   },
   // Claude-specific patterns
   {
-    pattern: /human\s*:\s*[^\n]{20,}/i,
+    pattern: /human\s*:\s*[^\n]{20,500}/i,
     description: "Human turn injection (Claude-style)",
     severity: "high",
   },
   {
-    pattern: /assistant\s*:\s*[^\n]{20,}/i,
+    pattern: /assistant\s*:\s*[^\n]{20,500}/i,
     description: "Assistant turn injection (Claude-style)",
     severity: "high",
   },
@@ -165,17 +166,19 @@ const SUSPICIOUS_URL_PATTERNS: Array<{ pattern: RegExp; description: string }> =
 ];
 
 /**
- * Encoded payload patterns
+ * Encoded payload patterns.
+ * minLength: match must be at least this long to be flagged (default 100).
+ * minEntropy: match must exceed this Shannon entropy to avoid FPs like image data-URIs (I211, I212).
  */
-const ENCODED_PAYLOAD_PATTERNS: Array<{ pattern: RegExp; description: string }> = [
-  // Base64 encoded data (long strings)
-  { pattern: /[A-Za-z0-9+\/]{100,}={0,2}/g, description: "Possible Base64 encoded data" },
+const ENCODED_PAYLOAD_PATTERNS: Array<{ pattern: RegExp; description: string; minLength?: number; minEntropy?: number }> = [
+  // Base64 — lower threshold + entropy gate to catch short secrets without flooding on images (I212, I211)
+  { pattern: /[A-Za-z0-9+\/]{32,}={0,2}/g, description: "Possible Base64 encoded data", minLength: 32, minEntropy: 4.0 },
   // Hex encoded data
-  { pattern: /(?:0x)?[0-9a-fA-F]{40,}/g, description: "Possible hex encoded data" },
+  { pattern: /(?:0x)?[0-9a-fA-F]{40,}/g, description: "Possible hex encoded data", minLength: 100 },
   // URL encoded data
-  { pattern: /(?:%[0-9A-Fa-f]{2}){10,}/g, description: "Heavily URL encoded content" },
+  { pattern: /(?:%[0-9A-Fa-f]{2}){10,}/g, description: "Heavily URL encoded content", minLength: 100 },
   // Unicode escape sequences
-  { pattern: /(?:\\u[0-9A-Fa-f]{4}){5,}/g, description: "Unicode escape sequences" },
+  { pattern: /(?:\\u[0-9A-Fa-f]{4}){5,}/g, description: "Unicode escape sequences", minLength: 100 },
 ];
 
 /**
@@ -221,8 +224,7 @@ export class ResponseValidator {
       for (const result of injectionResults) {
         if (result.severity === "critical" || result.severity === "high") {
           blocked.push(`Prompt injection (${result.severity}): ${result.description}`);
-          // Redact the matched content
-          sanitized = sanitized.replace(result.match, "[REDACTED: prompt injection detected]");
+          sanitized = sanitized.replaceAll(result.match, "[REDACTED: prompt injection detected]");
         } else {
           warnings.push(`Suspicious pattern (${result.severity}): ${result.description}`);
         }
@@ -241,7 +243,7 @@ export class ResponseValidator {
           if (isAllowed) continue;
         }
         blocked.push(`Suspicious URL: ${result.description} - ${result.url.substring(0, 50)}`);
-        sanitized = sanitized.replace(result.url, "[REDACTED: suspicious URL]");
+        sanitized = sanitized.replaceAll(result.url, "[REDACTED: suspicious URL]");
       }
     }
 
@@ -250,7 +252,7 @@ export class ResponseValidator {
     for (const result of encodedResults) {
       if (this.config.blockEncodedPayloads) {
         blocked.push(`Encoded payload: ${result.description}`);
-        sanitized = sanitized.replace(result.match, "[REDACTED: encoded payload]");
+        sanitized = sanitized.replaceAll(result.match, "[REDACTED: encoded payload]");
       } else if (this.config.warnOnSuspicious) {
         warnings.push(`Encoded content detected: ${result.description}`);
       }
@@ -345,17 +347,17 @@ export class ResponseValidator {
   detectEncodedPayloads(text: string): Array<{ pattern: RegExp; description: string; match: string }> {
     const results: Array<{ pattern: RegExp; description: string; match: string }> = [];
 
-    for (const { pattern, description } of ENCODED_PAYLOAD_PATTERNS) {
+    for (const { pattern, description, minLength = 100, minEntropy } of ENCODED_PAYLOAD_PATTERNS) {
       const matches = text.matchAll(pattern);
       for (const match of matches) {
-        // Only flag if it's actually suspiciously long
-        if (match[0].length > 100) {
-          results.push({
-            pattern,
-            description,
-            match: match[0].substring(0, 50) + "...",
-          });
-        }
+        const matchStr = match[0];
+        if (matchStr.length < minLength) continue;
+        if (minEntropy !== undefined && shannonEntropy(matchStr) < minEntropy) continue;
+        results.push({
+          pattern,
+          description,
+          match: matchStr.substring(0, 50) + (matchStr.length > 50 ? "..." : ""),
+        });
       }
     }
 
