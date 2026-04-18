@@ -34,6 +34,9 @@ npm-debug.log*
 screenshots/
 logs/
 
+# Test coverage reports (regenerated on each run)
+coverage/
+
 # MEDUSA local environment
 medusa-env/
 

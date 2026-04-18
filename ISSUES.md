@@ -4,6 +4,30 @@
 > Generated 2026-04-17 against `main` @ 2973097 (v2026.2.11)
 > Organized by area so you can work file-by-file. Severity inline.
 
+## Status — 2026-04-18 (Day 2 complete)
+
+**Closed across two days of work (42 issues):**
+
+Day 2 (2026-04-18) — 14 remaining crits closed:
+- Webhook SSRF: I269
+- Audit integrity cluster: I216, I217, I218
+- Compliance wiring: I243, I244
+- PQ claim honesty: I191
+- Test coverage (6 new test files, +120 tests, 139 → 259): I121, I122, I251, I256, I268, I284
+- Coverage aggregate + CI: I297
+
+**Baseline test coverage after Day 2** (vitest --coverage, security-critical modules):
+- mcp-auth.ts: 75.7% lines
+- webhook-dispatcher.ts: 71.4% lines
+- data-erasure.ts: 72.0% lines
+- dsar-handler.ts: 59.0% lines
+- quota-manager.ts: 31.9% lines (patchright-dependent scrapers pending integration tests)
+- auth-manager.ts: 13.1% lines (browser paths pending integration tests)
+
+4 of 6 security-critical modules exceed the 45% target. auth-manager and quota-manager have large patchright-dependent surfaces that require real browser contexts; those belong in an integration harness rather than unit coverage.
+
+---
+
 ## Status — 2026-04-17 (evening session)
 
 **Closed this session (35 issues):**

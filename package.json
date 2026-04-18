@@ -15,6 +15,7 @@
     "prepare": "npm run build",
     "test": "npx vitest run",
     "test:watch": "npx vitest",
+    "test:coverage": "npx vitest run --coverage",
     "security-check": "npm audit",
     "security-scan": "medusa scan . --fail-on high"
   },
@@ -67,6 +68,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.30",
+    "@vitest/coverage-v8": "^4.1.4",
     "tsx": "^4.21.0",
     "typescript": "^5.3.3"
   },
