@@ -46,6 +46,7 @@ const generateVideoOverviewTool: Tool = {
 \`\`\``,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       notebook_id: {
         type: "string",
@@ -89,6 +90,7 @@ const getVideoStatusTool: Tool = {
 \`\`\``,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       notebook_id: {
         type: "string",

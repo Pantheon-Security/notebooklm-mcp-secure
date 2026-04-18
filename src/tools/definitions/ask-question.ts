@@ -120,6 +120,7 @@ export const askQuestionTool: Tool = {
   description: "Dynamic description placeholder", 
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       question: {
         type: "string",

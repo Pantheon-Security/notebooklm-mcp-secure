@@ -14,6 +14,7 @@ export const systemTools: Tool[] = [
       "Consider running cleanup_data(preserve_library=true) + setup_auth for fresh start with clean browser session.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         deep_check: {
           type: "boolean",
@@ -42,6 +43,7 @@ export const systemTools: Tool[] = [
       "This helps resolve conflicts from old browser sessions and installation data.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         show_browser: {
           type: "boolean",
@@ -93,6 +95,7 @@ export const systemTools: Tool[] = [
       "This removes old installation data and browser sessions that can cause conflicts.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         show_browser: {
           type: "boolean",
@@ -146,6 +149,7 @@ export const systemTools: Tool[] = [
       "Use cases: Clean reinstall, troubleshooting auth issues, removing all traces before uninstall, cleaning old browser sessions and installation data.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         confirm: {
           type: "boolean",
@@ -183,6 +187,7 @@ export const systemTools: Tool[] = [
       "Query counts reset daily at midnight.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         sync: {
           type: "boolean",
@@ -207,6 +212,7 @@ export const systemTools: Tool[] = [
       "- ultra: 500 notebooks, 600 sources, 5000 queries/day",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         tier: {
           type: "string",
@@ -232,6 +238,7 @@ export const systemTools: Tool[] = [
       "Use this to understand which library context is active.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {},
     },
   },
@@ -262,6 +269,7 @@ export const systemTools: Tool[] = [
       "```",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         id: {
           type: "string",
@@ -304,6 +312,7 @@ export const systemTools: Tool[] = [
       "Returns array of webhooks with: id, name, url, enabled, events, format.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {},
     },
   },
@@ -314,6 +323,7 @@ export const systemTools: Tool[] = [
       "Sends a sample 'question_answered' event and returns success/failure.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         id: {
           type: "string",
@@ -328,6 +338,7 @@ export const systemTools: Tool[] = [
     description: "Remove a configured webhook by ID.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         id: {
           type: "string",

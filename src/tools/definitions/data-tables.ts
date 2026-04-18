@@ -30,6 +30,7 @@ const generateDataTableTool: Tool = {
 \`\`\``,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       notebook_id: {
         type: "string",
@@ -71,6 +72,7 @@ const getDataTableTool: Tool = {
 \`\`\``,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       notebook_id: {
         type: "string",

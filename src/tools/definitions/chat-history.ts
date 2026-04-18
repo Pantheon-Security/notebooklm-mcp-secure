@@ -42,6 +42,7 @@ Paginate through history:
 \`\`\``,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       notebook_id: {
         type: "string",

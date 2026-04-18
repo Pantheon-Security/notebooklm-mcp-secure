@@ -8,6 +8,7 @@ export const sessionManagementTools: Tool[] = [
       "Use to continue the most relevant session instead of starting from scratch.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {},
     },
   },
@@ -16,6 +17,7 @@ export const sessionManagementTools: Tool[] = [
     description: "Close a specific session by session ID. Ask before closing if the user might still need it.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         session_id: {
           type: "string",
@@ -32,6 +34,7 @@ export const sessionManagementTools: Tool[] = [
       "Use for a clean slate when the task changes; ask the user before resetting.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         session_id: {
           type: "string",

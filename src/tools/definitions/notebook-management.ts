@@ -42,6 +42,7 @@ Visit https://notebooklm.google/ → Login (free: 100 notebooks, 50 sources each
 (Upgraded: Google AI Pro/Ultra gives 5x higher limits)`,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         url: {
           type: "string",
@@ -87,6 +88,7 @@ Visit https://notebooklm.google/ → Login (free: 100 notebooks, 50 sources each
       "Use this to present options, then ask which notebook to use for the task.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {},
     },
   },
@@ -95,6 +97,7 @@ Visit https://notebooklm.google/ → Login (free: 100 notebooks, 50 sources each
     description: "Get detailed information about a specific notebook by ID",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         id: {
           type: "string",
@@ -124,6 +127,7 @@ User: "Now let's build the React frontend"
 You: "Switching to React notebook..." (call select_notebook)`,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         id: {
           type: "string",
@@ -155,6 +159,7 @@ You: "Switching to React notebook..." (call select_notebook)`,
 Tip: You may update multiple fields at once if requested.`,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         id: {
           type: "string",
@@ -215,6 +220,7 @@ You: "Remove 'React Best Practices' from your library?"
 User: "Yes" → call remove_notebook`,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         id: {
           type: "string",
@@ -231,6 +237,7 @@ User: "Yes" → call remove_notebook`,
       "Use to propose relevant notebooks for the task and then ask which to use.",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         query: {
           type: "string",
@@ -245,6 +252,7 @@ User: "Yes" → call remove_notebook`,
     description: "Get statistics about your notebook library (total notebooks, usage, etc.)",
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {},
     },
   },
@@ -301,6 +309,7 @@ Create a notebook with multiple sources:
 - Large files may take longer to process`,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         name: {
           type: "string",
@@ -403,6 +412,7 @@ With auto-fix to remove stale entries:
 \`\`\``,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         auto_fix: {
           type: "boolean",
@@ -437,6 +447,7 @@ Or with direct URL:
 \`\`\``,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         notebook_id: {
           type: "string",
@@ -470,6 +481,7 @@ Or with direct URL:
 \`\`\``,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         notebook_id: {
           type: "string",
@@ -532,6 +544,7 @@ Or with direct URL:
 \`\`\``,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         folder_path: {
           type: "string",
@@ -583,6 +596,7 @@ Or with direct URL:
 \`\`\``,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         notebook_id: {
           type: "string",
@@ -623,6 +637,7 @@ Export to specific location:
 \`\`\``,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         format: {
           type: "string",
@@ -682,6 +697,7 @@ Summary with:
 - results: Array of individual results`,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         notebooks: {
           type: "array",
@@ -762,6 +778,7 @@ Summary with:
 \`\`\``,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         notebook_id: {
           type: "string",
@@ -789,6 +806,7 @@ Summary with:
 \`\`\``,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         notebook_id: {
           type: "string",
@@ -821,6 +839,7 @@ Downloads to specified path or ~/notebooklm-audio-{timestamp}.mp3
 \`\`\``,
     inputSchema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         notebook_id: {
           type: "string",

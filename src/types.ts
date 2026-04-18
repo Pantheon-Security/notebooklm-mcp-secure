@@ -64,6 +64,7 @@ export interface Tool {
   description: string;
   inputSchema: {
     type: "object";
+    additionalProperties?: boolean;
     properties: Record<string, any>;
     required?: string[];
   };

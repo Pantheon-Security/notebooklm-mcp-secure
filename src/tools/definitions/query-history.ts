@@ -19,6 +19,7 @@ Use this tool to:
 Returns query entries with question, answer, notebook, session, and timing info.`,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       session_id: {
         type: "string",

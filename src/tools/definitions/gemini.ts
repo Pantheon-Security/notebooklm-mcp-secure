@@ -35,6 +35,7 @@ This runs in the background and can take 1-5 minutes to complete.
 - Results are grounded in web sources with citations`,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       query: {
         type: "string",
@@ -87,6 +88,7 @@ Supports:
 - **Use ask_question instead** for queries about your NotebookLM notebooks (no API key needed)`,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       query: {
         type: "string",
@@ -144,6 +146,7 @@ Use this when you started deep_research with wait_for_completion=false.
 - error: Error message (if failed)`,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       interaction_id: {
         type: "string",
@@ -198,6 +201,7 @@ Use create_notebook instead for permanent document storage with NotebookLM.
 - GEMINI_API_KEY environment variable must be set`,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       file_path: {
         type: "string",
@@ -240,6 +244,7 @@ const queryDocumentTool: Tool = {
 - Document must be uploaded first with upload_document`,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       file_name: {
         type: "string",
@@ -286,6 +291,7 @@ const listDocumentsTool: Tool = {
 - GEMINI_API_KEY environment variable must be set`,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       page_size: {
         type: "number",
@@ -316,6 +322,7 @@ const deleteDocumentTool: Tool = {
 - GEMINI_API_KEY environment variable must be set`,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       file_name: {
         type: "string",
@@ -361,6 +368,7 @@ Call this tool with:
 - Document chunks must be uploaded first`,
   inputSchema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       file_names: {
         type: "array",
