@@ -57,10 +57,20 @@ function isPrivateIPv6(addr: string): boolean {
   if (lower.startsWith("fe80:") || lower.startsWith("fe80::")) return true; // link-local
   if (lower.startsWith("fc") || lower.startsWith("fd")) return true;        // unique local fc00::/7
   if (lower.startsWith("ff")) return true;                    // multicast
-  // IPv4-mapped IPv6 (::ffff:169.254.169.254) — re-check underlying v4
+
+  // IPv4-mapped IPv6. Node's URL parser normalizes dotted-quad form to
+  // compressed hex (::ffff:169.254.169.254 -> ::ffff:a9fe:a9fe), so we
+  // accept both and recover the IPv4 for range-checking.
   if (lower.startsWith("::ffff:")) {
-    const v4 = lower.slice(7);
-    if (net.isIPv4(v4)) return isPrivateIPv4(v4);
+    const rest = lower.slice(7);
+    if (net.isIPv4(rest)) return isPrivateIPv4(rest);
+    const parts = rest.split(":");
+    if (parts.length === 2 && /^[0-9a-f]{1,4}$/.test(parts[0]) && /^[0-9a-f]{1,4}$/.test(parts[1])) {
+      const hi = parseInt(parts[0], 16);
+      const lo = parseInt(parts[1], 16);
+      const ipv4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+      return isPrivateIPv4(ipv4);
+    }
   }
   return false;
 }
