@@ -22,6 +22,8 @@ import {
   appendFileSecure,
   PERMISSION_MODES,
 } from "./file-permissions.js";
+import { withLock } from "./file-lock.js";
+import { log as logger } from "./logger.js";
 
 /**
  * Audit event types
@@ -90,15 +92,35 @@ function getAuditConfig(): AuditConfig {
 }
 
 /**
+ * Queue entry for durable writes. `event` is stored without `hash` and
+ * `previousHash` — both are computed at drain time against the on-disk
+ * tail so cross-process writers stay in sync.
+ */
+interface QueueEntry {
+  event: Omit<AuditEvent, "hash" | "previousHash">;
+  resolve: () => void;
+  reject: (e: Error) => void;
+}
+
+/**
  * Audit Logger Class
  *
- * Thread-safe audit logging with hash chain integrity verification.
+ * Tamper-evident audit logging. Guarantees:
+ *   - Callers awaiting `audit.*()` observe durability (the log line is
+ *     on disk before the returned promise resolves).
+ *   - Hash chain is computed at drain time against the on-disk tail;
+ *     multi-process writers serialize via cross-process file lock and
+ *     stay in chain.
+ *   - Corruption detected at startup is surfaced as a `chain_reset`
+ *     sentinel event so verifiers can distinguish corruption from
+ *     attacker tampering.
+ *   - Chain integrity is verified on startup and any break is recorded
+ *     as a `chain_violation` event.
  */
 export class AuditLogger {
   private config: AuditConfig;
   private currentLogFile: string = "";
-  private previousHash: string = "GENESIS";
-  private writeQueue: AuditEvent[] = [];
+  private writeQueue: QueueEntry[] = [];
   private isWriting: boolean = false;
   private stats = {
     totalEvents: 0,
@@ -120,6 +142,13 @@ export class AuditLogger {
       this.ensureLogDirectory();
       this.initializeLogFile();
       this.cleanOldLogs();
+      // Fire-and-forget startup verification. If the chain is broken,
+      // record a chain_violation event but keep the server running.
+      if (process.env.NLMCP_AUDIT_VERIFY_ON_STARTUP !== "false") {
+        void this.verifyAndRecordStartup().catch((err) =>
+          logger.warning(`Audit startup verify failed: ${err instanceof Error ? err.message : String(err)}`),
+        );
+      }
     }
   }
 
@@ -131,25 +160,122 @@ export class AuditLogger {
   }
 
   /**
-   * Initialize log file for today
+   * Initialize log file for today.
+   *
+   * On parse failure we do NOT silently reset to GENESIS — an attacker
+   * tampering any byte of an old line would otherwise produce a fresh
+   * chain that validates from scratch. Instead, we compute the hash of
+   * the raw (unparseable) content and write a `chain_reset` sentinel
+   * event so the new chain links to the corruption boundary explicitly.
    */
   private initializeLogFile(): void {
     const today = new Date().toISOString().split("T")[0];
     this.currentLogFile = path.join(this.config.logDir, `audit-${today}.jsonl`);
 
-    // Read last hash from existing file if present
-    if (fs.existsSync(this.currentLogFile)) {
-      try {
-        const content = fs.readFileSync(this.currentLogFile, "utf-8");
-        const lines = content.trim().split("\n").filter(l => l.length > 0);
-        if (lines.length > 0) {
-          const lastEvent = JSON.parse(lines[lines.length - 1]) as AuditEvent;
-          this.previousHash = lastEvent.hash;
-        }
-      } catch {
-        // Start fresh if file is corrupted
-        this.previousHash = "GENESIS";
+    if (!fs.existsSync(this.currentLogFile)) return;
+
+    let rawContent = "";
+    try {
+      rawContent = fs.readFileSync(this.currentLogFile, "utf-8");
+      const lines = rawContent.trim().split("\n").filter((l) => l.length > 0);
+      if (lines.length === 0) return;
+      const lastEvent = JSON.parse(lines[lines.length - 1]) as AuditEvent;
+      if (typeof lastEvent.hash !== "string" || lastEvent.hash.length === 0) {
+        throw new Error("tail event missing hash");
       }
+      // Tail OK; drain will re-read from disk when it next writes.
+    } catch (err) {
+      // Corruption. Emit a synchronous chain_reset sentinel so the new
+      // chain carries a pointer to the corruption boundary.
+      const lastValidHash = crypto
+        .createHash("sha256")
+        .update(rawContent)
+        .digest("hex")
+        .slice(0, 32);
+      logger.warning(
+        `⚠️ Audit log corruption detected at startup — writing chain_reset sentinel (last_valid_hash=${lastValidHash.slice(0, 8)}, reason=${err instanceof Error ? err.message : String(err)})`,
+      );
+      this.writeChainResetSentinel(lastValidHash, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
+   * Write a chain_reset sentinel synchronously (used only from
+   * initializeLogFile when corruption is detected at startup). Uses
+   * fs.appendFileSync to avoid recursing through the async drain loop,
+   * which isn't ready yet during constructor.
+   */
+  private writeChainResetSentinel(lastValidHash: string, reason: string): void {
+    const eventWithoutHash = {
+      timestamp: new Date().toISOString(),
+      eventType: "system" as const,
+      eventName: "chain_reset",
+      success: false,
+      details: {
+        reason: "corruption_detected",
+        error: sanitizeForLogging(reason).slice(0, 200),
+        last_valid_hash: lastValidHash,
+      },
+      previousHash: lastValidHash,
+    };
+    const hash = this.computeHash(eventWithoutHash);
+    const event: AuditEvent = { ...eventWithoutHash, hash };
+    try {
+      fs.appendFileSync(this.currentLogFile, JSON.stringify(event) + "\n", { mode: 0o600 });
+    } catch (writeErr) {
+      // If we can't even append the sentinel, the drain will fall back
+      // to reading the corrupt tail and throw, rejecting the first
+      // event's promise. Keep the log message loud.
+      logger.error(`Failed to write chain_reset sentinel: ${writeErr}`);
+    }
+  }
+
+  /**
+   * Read the tail hash of a log file. Used by the drain loop (under the
+   * cross-process lock) so each batch chains to the true on-disk tail.
+   */
+  private readTailHash(file: string): string {
+    if (!fs.existsSync(file)) return "GENESIS";
+    const content = fs.readFileSync(file, "utf-8");
+    const lines = content.trim().split("\n").filter((l) => l.length > 0);
+    if (lines.length === 0) return "GENESIS";
+    const last = JSON.parse(lines[lines.length - 1]) as AuditEvent;
+    if (typeof last.hash !== "string" || last.hash.length === 0) {
+      throw new Error("tail event missing hash field — refusing to write without a valid chain anchor");
+    }
+    return last.hash;
+  }
+
+  /**
+   * Ensure `this.currentLogFile` matches today's date. If the day has
+   * rolled over, adopt the new day's tail hash so per-file verifiers
+   * see an unbroken chain. Called under the drain lock.
+   */
+  private checkDayRollover(): void {
+    const today = new Date().toISOString().split("T")[0];
+    const expectedFile = path.join(this.config.logDir, `audit-${today}.jsonl`);
+    if (this.currentLogFile === expectedFile) return;
+    this.currentLogFile = expectedFile;
+    // Drain re-reads tail under the lock; nothing to do here beyond the
+    // path switch.
+  }
+
+  /**
+   * Verify chain integrity of today's log on startup. If broken, record
+   * a `chain_violation` event with line numbers so operators know to
+   * investigate. Does not throw — availability > strict enforcement.
+   */
+  private async verifyAndRecordStartup(): Promise<void> {
+    const result = await this.verifyIntegrity(this.currentLogFile);
+    if (!result.valid) {
+      logger.warning(`⚠️ Audit log chain verification failed for ${path.basename(this.currentLogFile)}:`);
+      for (const err of result.errors.slice(0, 5)) logger.warning(`    - ${err}`);
+      await this.log("security", "chain_violation", false, {
+        severity: "critical",
+        file: path.basename(this.currentLogFile),
+        first_errors: result.errors.slice(0, 3),
+        total_errors: result.errors.length,
+      });
     }
   }
 
@@ -223,28 +349,63 @@ export class AuditLogger {
   }
 
   /**
-   * Write event to log file
+   * Enqueue an event and return a promise that resolves only when the
+   * event has been durably appended to disk. Failure (lock timeout, I/O
+   * error, corrupt tail) rejects the returned promise so callers can
+   * react rather than silently lose audit records.
+   *
+   * Events are stored without hash/previousHash; those are computed at
+   * drain time under the cross-process lock so multi-process writers
+   * share one chain.
    */
-  private async writeEvent(event: AuditEvent): Promise<void> {
-    this.writeQueue.push(event);
+  private writeEvent(event: Omit<AuditEvent, "hash" | "previousHash">): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.writeQueue.push({ event, resolve, reject });
+      if (!this.isWriting) {
+        void this.drain();
+      }
+    });
+  }
 
+  private async drain(): Promise<void> {
     if (this.isWriting) return;
-
     this.isWriting = true;
-
     try {
       while (this.writeQueue.length > 0) {
-        const batch = this.writeQueue.splice(0, 100); // Write up to 100 events at once
-        const lines = batch.map(e => JSON.stringify(e)).join("\n") + "\n";
-
-        // Check if we need to rotate to new day's file
-        const today = new Date().toISOString().split("T")[0];
-        const expectedFile = path.join(this.config.logDir, `audit-${today}.jsonl`);
-        if (this.currentLogFile !== expectedFile) {
-          this.currentLogFile = expectedFile;
+        this.checkDayRollover();
+        const batch = this.writeQueue.splice(0, 100);
+        try {
+          await withLock(
+            this.currentLogFile,
+            async () => {
+              // Re-read the on-disk tail hash inside the lock so
+              // concurrent Node processes chain from the true tail.
+              let previousHash = this.readTailHash(this.currentLogFile);
+              const lines: string[] = [];
+              for (const entry of batch) {
+                const eventWithPrev: Omit<AuditEvent, "hash"> = {
+                  ...entry.event,
+                  previousHash: this.config.hashChainEnabled ? previousHash : "",
+                };
+                const hash = this.config.hashChainEnabled ? this.computeHash(eventWithPrev) : "";
+                const fullEvent: AuditEvent = { ...eventWithPrev, hash };
+                lines.push(JSON.stringify(fullEvent));
+                if (this.config.hashChainEnabled) previousHash = hash;
+              }
+              appendFileSecure(
+                this.currentLogFile,
+                lines.join("\n") + "\n",
+                PERMISSION_MODES.OWNER_READ_WRITE,
+              );
+            },
+            { timeout: 15000 },
+          );
+          for (const entry of batch) entry.resolve();
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          logger.error(`Audit drain failed: ${error.message}`);
+          for (const entry of batch) entry.reject(error);
         }
-
-        appendFileSecure(this.currentLogFile, lines, PERMISSION_MODES.OWNER_READ_WRITE);
       }
     } finally {
       this.isWriting = false;
@@ -252,49 +413,33 @@ export class AuditLogger {
   }
 
   /**
-   * Log a generic event
+   * Log a generic event. Resolves only after the event is durably on
+   * disk (see writeEvent / drain contract).
    */
   private async log(
     eventType: AuditEventType,
     eventName: string,
     success: boolean,
     details: Record<string, unknown> = {},
-    duration_ms?: number
+    duration_ms?: number,
   ): Promise<void> {
     if (!this.config.enabled) return;
 
-    // Update stats
     this.stats.totalEvents++;
     this.stats[`${eventType}Events` as keyof typeof this.stats]++;
 
-    const sanitizedDetails = this.config.includeDetails
-      ? this.sanitizeDetails(details)
-      : {};
+    const sanitizedDetails = this.config.includeDetails ? this.sanitizeDetails(details) : {};
 
-    const eventWithoutHash: Omit<AuditEvent, "hash"> = {
+    // Hash + previousHash are filled in at drain time against the on-disk
+    // tail so multi-process writers stay in chain.
+    await this.writeEvent({
       timestamp: new Date().toISOString(),
       eventType,
       eventName,
       success,
       duration_ms,
       details: sanitizedDetails,
-      previousHash: this.config.hashChainEnabled ? this.previousHash : "",
-    };
-
-    const hash = this.config.hashChainEnabled
-      ? this.computeHash(eventWithoutHash)
-      : "";
-
-    const event: AuditEvent = {
-      ...eventWithoutHash,
-      hash,
-    };
-
-    if (this.config.hashChainEnabled) {
-      this.previousHash = hash;
-    }
-
-    await this.writeEvent(event);
+    });
   }
 
   // ============================================================================
@@ -515,12 +660,14 @@ export class AuditLogger {
   }
 
   /**
-   * Force flush any pending writes
+   * Force flush any pending writes. Since writeEvent now resolves only
+   * after disk append, callers usually don't need this — but it's still
+   * useful at shutdown to wait for in-flight drains kicked off by
+   * fire-and-forget calls.
    */
   async flush(): Promise<void> {
-    // Wait for any pending writes to complete
     while (this.isWriting || this.writeQueue.length > 0) {
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
 }
