@@ -14,6 +14,7 @@ import { writeFileSecure, PERMISSION_MODES } from "../utils/file-permissions.js"
 import { CONFIG } from "../config.js";
 import { eventEmitter } from "../events/event-emitter.js";
 import type { SystemEvent, EventType } from "../events/event-types.js";
+import { scanAndRedactSecrets } from "../utils/secrets-scanner.js";
 import type {
   WebhookConfig,
   WebhookDelivery,
@@ -21,6 +22,17 @@ import type {
   AddWebhookInput,
   UpdateWebhookInput,
 } from "./types.js";
+
+// Headers that must never be forwarded from user-configured webhook.headers
+// — they are either hop-by-hop (Host), auth-overriding (Authorization),
+// or would confuse the transport (Content-Length, Transfer-Encoding).
+const BLOCKED_OUTBOUND_HEADERS = new Set([
+  "host",
+  "authorization",
+  "content-length",
+  "transfer-encoding",
+  "connection",
+]);
 
 interface WebhooksStore {
   webhooks: WebhookConfig[];
@@ -277,16 +289,18 @@ export class WebhookDispatcher {
   }
 
   /**
-   * Dispatch an event to all matching webhooks
+   * Dispatch an event to all matching webhooks in parallel.
+   *
+   * Using Promise.allSettled so one slow/failing webhook does not block
+   * or cancel delivery to others (I275).
    */
   async dispatch(event: SystemEvent): Promise<void> {
-    const enabledWebhooks = this.store.webhooks.filter((w) => w.enabled);
+    const targets = this.store.webhooks.filter(
+      (w) => w.enabled && this.shouldSend(w, event.type),
+    );
+    if (targets.length === 0) return;
 
-    for (const webhook of enabledWebhooks) {
-      if (this.shouldSend(webhook, event.type)) {
-        await this.sendWithRetry(webhook, event);
-      }
-    }
+    await Promise.allSettled(targets.map((w) => this.sendWithRetry(w, event)));
   }
 
   /**
@@ -298,24 +312,48 @@ export class WebhookDispatcher {
   }
 
   /**
-   * Send event with retry logic
+   * Send event with retry logic.
+   *
+   * Retries capped at 3 attempts with max 30 s total window (I276).
+   * Payload is secrets-scanned before dispatch (I273).
+   * Outbound headers filtered to remove dangerous overrides (I282).
+   * HMAC signature includes unix timestamp to prevent replay (I271).
    */
   private async sendWithRetry(
     webhook: WebhookConfig,
     event: SystemEvent
   ): Promise<boolean> {
-    const maxAttempts = webhook.retryCount ?? 3;
-    const baseDelay = webhook.retryDelayMs ?? 1000;
-    const timeout = webhook.timeoutMs ?? 5000;
+    // Cap retries: max 3 attempts, max 10 s per-request timeout (I276)
+    const maxAttempts = Math.min(webhook.retryCount ?? 3, 3);
+    const baseDelay = Math.min(webhook.retryDelayMs ?? 1000, 2000);
+    const timeout = Math.min(webhook.timeoutMs ?? 5000, 10_000);
 
     const deliveryId = crypto.randomUUID();
     const startTime = Date.now();
 
+    // Scan payload for secrets once before any attempt (I273)
+    const rawPayload = this.formatPayload(event, webhook.format);
+    let payload: string;
+    try {
+      const { clean } = await scanAndRedactSecrets(rawPayload);
+      payload = clean;
+    } catch {
+      payload = rawPayload;
+    }
+
+    // Filter user-configured headers to block dangerous overrides (I282)
+    const safeCustomHeaders = Object.fromEntries(
+      Object.entries(webhook.headers ?? {}).filter(
+        ([k]) => !BLOCKED_OUTBOUND_HEADERS.has(k.toLowerCase()),
+      ),
+    );
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const payload = this.formatPayload(event, webhook.format);
+        // Include unix timestamp in HMAC to prevent indefinite replay (I271)
+        const timestamp = Math.floor(Date.now() / 1000);
         const signature = webhook.secret
-          ? this.sign(payload, webhook.secret)
+          ? this.sign(payload, webhook.secret, timestamp)
           : undefined;
 
         const controller = new AbortController();
@@ -325,9 +363,12 @@ export class WebhookDispatcher {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "User-Agent": "notebooklm-mcp/1.7.0",
-            ...(signature && { "X-Webhook-Signature": signature }),
-            ...(webhook.headers || {}),
+            "User-Agent": `notebooklm-mcp/${process.env.npm_package_version ?? "2026.2.11"}`,
+            ...(signature && {
+              "X-Webhook-Signature": signature,
+              "X-Webhook-Timestamp": String(timestamp),
+            }),
+            ...safeCustomHeaders,
           },
           body: payload,
           signal: controller.signal,
@@ -578,11 +619,13 @@ export class WebhookDispatcher {
   }
 
   /**
-   * Sign payload with HMAC-SHA256
+   * Sign payload with HMAC-SHA256, including a unix timestamp in the signed
+   * data so receivers can reject replayed requests (I271).
+   * Signed message: "<timestamp>\n<payload>"
    */
-  private sign(payload: string, secret: string): string {
+  private sign(payload: string, secret: string, timestamp: number): string {
     const hmac = crypto.createHmac("sha256", secret);
-    hmac.update(payload);
+    hmac.update(`${timestamp}\n${payload}`);
     return `sha256=${hmac.digest("hex")}`;
   }
 
