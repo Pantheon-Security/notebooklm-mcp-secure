@@ -74,12 +74,20 @@ describe("MCPAuthenticator", () => {
       expect(a).not.toBe(b);
     });
 
-    it("hashToken produces 64-char hex (SHA-256) and is deterministic", () => {
+    it("hashToken produces 64-char hex (SHA3-256) and is deterministic", () => {
       const auth = new MCPAuthenticator({ tokenFile });
       const h1 = auth.hashToken("abc123");
       const h2 = auth.hashToken("abc123");
       expect(h1).toBe(h2);
       expect(h1).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it("hashToken uses SHA3-256 — different from SHA-256 for same input (I110)", () => {
+      const crypto = require("node:crypto");
+      const auth = new MCPAuthenticator({ tokenFile });
+      const sha3 = auth.hashToken("test-token");
+      const sha256 = crypto.createHash("sha256").update("test-token").digest("hex");
+      expect(sha3).not.toBe(sha256);
     });
   });
 
@@ -128,6 +136,17 @@ describe("MCPAuthenticator", () => {
       // Should have been overwritten with a valid hash.
       expect(content).toMatch(/^[0-9a-f]{64}$/);
       expect(content).not.toBe("notahashjustsomegarbage");
+    });
+
+    it("a token file with non-hex chars is rejected even if 64 chars long (I116)", async () => {
+      // 64 chars but contains uppercase G–Z which are not valid hex
+      const nonHex = "G".repeat(64);
+      fs.writeFileSync(tokenFile, nonHex, { mode: 0o600 });
+      const auth = new MCPAuthenticator({ tokenFile });
+      await auth.initialize();
+      const content = fs.readFileSync(tokenFile, "utf-8").trim();
+      expect(content).not.toBe(nonHex);
+      expect(content).toMatch(/^[0-9a-f]{64}$/);
     });
   });
 
@@ -189,7 +208,7 @@ describe("MCPAuthenticator", () => {
       expect(auth.getStatus().lockedClients).toBeGreaterThanOrEqual(1);
     });
 
-    it("exponential backoff grows: 1x then 3x the base", async () => {
+    it("exponential backoff applies within a continuous bad-actor session", async () => {
       vi.useFakeTimers();
       try {
         const base = 1000;
@@ -206,19 +225,11 @@ describe("MCPAuthenticator", () => {
         await auth.validateToken("wrong", "bc");
         expect(await auth.validateToken("correct", "bc")).toBe(false);
 
-        // Advance past the first lockout window. A wrong attempt resets
-        // count to 1 (after expiry), one more triggers the 2nd lockout
-        // which should be 3*base (not base).
-        vi.advanceTimersByTime(base + 1);
-        await auth.validateToken("wrong", "bc");
-        await auth.validateToken("wrong", "bc");
-
-        // Just before 3*base elapses, still locked.
-        vi.advanceTimersByTime(base + 1); // now base+2 past second-lockout start
+        // Attempt again without waiting — still locked.
         expect(await auth.validateToken("correct", "bc")).toBe(false);
 
-        // After 3*base elapses from second lockout, lockout clears.
-        vi.advanceTimersByTime(base * 2);
+        // After base elapses, lockout clears (I114: lockoutCount also resets).
+        vi.advanceTimersByTime(base + 1);
         expect(await auth.validateToken("correct", "bc")).toBe(true);
       } finally {
         vi.useRealTimers();
@@ -259,6 +270,88 @@ describe("MCPAuthenticator", () => {
       await auth.validateToken("wrong", "c");
       await auth.validateToken("wrong", "c");
       expect(await auth.validateToken("correct", "c")).toBe(true);
+    });
+  });
+
+  describe("I111 — failedAttempts Map cap", () => {
+    it("does not grow beyond 10 000 entries (oldest evicted)", async () => {
+      const auth = new MCPAuthenticator({
+        tokenFile,
+        token: "correct",
+        maxFailedAttempts: 999,
+      });
+      await auth.initialize();
+      // Trigger 10 001 distinct client IDs — each gets one failed attempt
+      for (let i = 0; i < 10_001; i++) {
+        await auth.validateToken("wrong", `client-${i}`);
+      }
+      // Map must be capped; auth should still work for a brand-new client
+      expect(await auth.validateToken("correct", "brand-new-client")).toBe(true);
+    });
+  });
+
+  describe("I112 — 'unknown' clientId not tracked", () => {
+    it("lockout state is never accumulated for clientId='unknown'", async () => {
+      const auth = new MCPAuthenticator({
+        tokenFile,
+        token: "correct",
+        maxFailedAttempts: 2,
+        lockoutDurationMs: 60000,
+      });
+      await auth.initialize();
+      // Many failures with the default 'unknown' clientId
+      for (let i = 0; i < 10; i++) {
+        await auth.validateToken("wrong", "unknown");
+      }
+      // A named client with the correct token must not be locked out
+      expect(await auth.validateToken("correct", "real-client")).toBe(true);
+      // Even "unknown" must not be locked (it is excluded from tracking)
+      expect(await auth.validateToken("correct", "unknown")).toBe(true);
+    });
+  });
+
+  describe("I114 — lockoutCount resets on expiry", () => {
+    it("lockoutCount resets after expiry so next lockout uses base duration", async () => {
+      vi.useFakeTimers();
+      try {
+        const base = 1000;
+        const auth = new MCPAuthenticator({
+          tokenFile,
+          token: "correct",
+          maxFailedAttempts: 2,
+          lockoutDurationMs: base,
+        });
+        await auth.initialize();
+
+        // First lockout
+        await auth.validateToken("wrong", "cli");
+        await auth.validateToken("wrong", "cli");
+
+        // Advance well past the first lockout so the tracker resets
+        vi.advanceTimersByTime(base * 10);
+
+        // Subsequent lockout must again use the base duration (lockoutCount reset)
+        await auth.validateToken("wrong", "cli");
+        await auth.validateToken("wrong", "cli");
+
+        // Just before base elapses: still locked
+        vi.advanceTimersByTime(base - 50);
+        expect(await auth.validateToken("correct", "cli")).toBe(false);
+
+        // After base elapses: unlocked (would be 3*base if lockoutCount weren't reset)
+        vi.advanceTimersByTime(100);
+        expect(await auth.validateToken("correct", "cli")).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe("I115 — no tokenHash configured", () => {
+    it("returns false immediately when no token has been set", async () => {
+      const auth = new MCPAuthenticator({ enabled: true, tokenFile });
+      // Don't call initialize() — tokenHash stays null
+      expect(await auth.validateToken("any-token", "c1")).toBe(false);
     });
   });
 

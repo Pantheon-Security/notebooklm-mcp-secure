@@ -126,7 +126,7 @@ export class MCPAuthenticator {
     if (fs.existsSync(this.config.tokenFile)) {
       try {
         const content = fs.readFileSync(this.config.tokenFile, "utf-8").trim();
-        if (content.length === 64) { // SHA256 hash length
+        if (content.length === 64 && /^[0-9a-f]{64}$/i.test(content)) { // SHA3-256 hex
           this.tokenHash = content;
           log.success("  ✅ Loaded token hash from file");
           this.initialized = true;
@@ -184,10 +184,12 @@ export class MCPAuthenticator {
   }
 
   /**
-   * Hash a token using SHA256
+   * Hash a token using SHA3-256 (quantum-resistant).
+   * NOTE: changing this algorithm invalidates all stored token hashes — users
+   * must re-run setup_auth or rotate their token after upgrading.
    */
   hashToken(token: string): string {
-    return crypto.createHash("sha256").update(token).digest("hex");
+    return crypto.createHash("sha3-256").update(token).digest("hex");
   }
 
   /**
@@ -217,6 +219,10 @@ export class MCPAuthenticator {
    * Check if a client identifier is locked out
    */
   private isLockedOut(clientId: string): boolean {
+    // "unknown" clients all share one bucket — don't lock out or we DoS legit tools
+    // that haven't configured a clientId.
+    if (clientId === "unknown") return false;
+
     const tracker = this.failedAttempts.get(clientId);
     if (!tracker) return false;
 
@@ -224,11 +230,11 @@ export class MCPAuthenticator {
       return true;
     }
 
-    // Lockout expired — reset attempt count but keep lockoutCount for escalation
+    // Lockout expired — reset fully so legitimate users don't get permanently escalated
     if (tracker.lockedUntil > 0 && tracker.lockedUntil <= Date.now()) {
       tracker.count = 0;
       tracker.lockedUntil = 0;
-      // Don't reset lockoutCount — it drives exponential backoff
+      tracker.lockoutCount = 0;
     }
 
     return false;
@@ -241,7 +247,17 @@ export class MCPAuthenticator {
    * 1st lockout: 5min, 2nd: 15min, 3rd: 45min, 4th+: 4hr (capped)
    */
   private recordFailedAttempt(clientId: string): void {
+    // Skip tracking for the shared "unknown" bucket — DoS vector
+    if (clientId === "unknown") return;
+
     const now = Date.now();
+
+    // Cap map size to prevent memory DoS: evict oldest entry when full
+    if (!this.failedAttempts.has(clientId) && this.failedAttempts.size >= 10_000) {
+      const oldest = this.failedAttempts.keys().next().value;
+      if (oldest !== undefined) this.failedAttempts.delete(oldest);
+    }
+
     const tracker = this.failedAttempts.get(clientId) || {
       count: 0,
       lastAttempt: 0,
@@ -320,8 +336,13 @@ export class MCPAuthenticator {
       return false;
     }
 
+    if (!this.tokenHash) {
+      log.warning(`🔒 Auth failed: No token configured (client: ${clientId})`);
+      return false;
+    }
+
     const providedHash = this.hashToken(token);
-    const valid = secureCompare(providedHash, this.tokenHash ?? "");
+    const valid = secureCompare(providedHash, this.tokenHash);
 
     if (valid) {
       this.clearFailedAttempts(clientId);

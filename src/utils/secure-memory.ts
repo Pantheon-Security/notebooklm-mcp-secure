@@ -178,20 +178,30 @@ export async function withSecureCredential<T>(
   }
 }
 
+// Canonical comparison length: hex-encoded SHA3-256 output (64 chars = 64 bytes UTF-8)
+const HASH_COMPARE_LEN = 64;
+
 /**
- * Secure comparison to prevent timing attacks
+ * Secure comparison to prevent timing attacks.
+ *
+ * Both buffers are copied into a fixed-size canonical buffer before comparison
+ * so that timingSafeEqual always runs on the same number of bytes regardless
+ * of input length. This prevents the previous implementation from leaking which
+ * operand is shorter via the length passed to timingSafeEqual.
  */
 export function secureCompare(a: string | Buffer, b: string | Buffer): boolean {
   const bufA = typeof a === "string" ? Buffer.from(a) : a;
   const bufB = typeof b === "string" ? Buffer.from(b) : b;
 
-  if (bufA.length !== bufB.length) {
-    // Still do the comparison to maintain constant time
-    crypto.timingSafeEqual(bufA, Buffer.alloc(bufA.length));
-    return false;
-  }
+  // Always compare HASH_COMPARE_LEN bytes — leaks nothing about actual lengths
+  const padA = Buffer.alloc(HASH_COMPARE_LEN);
+  const padB = Buffer.alloc(HASH_COMPARE_LEN);
+  bufA.copy(padA, 0, 0, Math.min(bufA.length, HASH_COMPARE_LEN));
+  bufB.copy(padB, 0, 0, Math.min(bufB.length, HASH_COMPARE_LEN));
 
-  return crypto.timingSafeEqual(bufA, bufB);
+  // timingSafeEqual runs first (constant time), length check evaluated after
+  const contentEqual = crypto.timingSafeEqual(padA, padB);
+  return contentEqual && bufA.length === bufB.length;
 }
 
 /**

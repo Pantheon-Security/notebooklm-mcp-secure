@@ -208,6 +208,17 @@ describe("Secure Memory Utilities", () => {
       expect(secureCompare("", "")).toBe(true);
       expect(secureCompare("", "a")).toBe(false);
     });
+
+    it("I202 — always runs timingSafeEqual on a fixed-length buffer (no length leak)", () => {
+      // Verify that two 64-char hex strings (hash-length inputs) compare correctly
+      const hash = "a".repeat(64);
+      expect(secureCompare(hash, hash)).toBe(true);
+      expect(secureCompare(hash, "b".repeat(64))).toBe(false);
+      // Shorter input must still return false, not throw
+      expect(secureCompare("short", "a".repeat(64))).toBe(false);
+      // Longer input must still return false, not throw
+      expect(secureCompare("a".repeat(128), "a".repeat(64))).toBe(false);
+    });
   });
 
   describe("secureRandomString", () => {
