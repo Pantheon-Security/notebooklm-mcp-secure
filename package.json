@@ -87,7 +87,7 @@
     "responseValidation": true,
     "postQuantumEncryption": true,
     "secretsScanning": true,
-    "memoryScubbing": true,
+    "memoryScrubbing": true,
     "medusaIntegration": true,
     "secureByDefaultAuth": true,
     "exponentialBackoffLockout": true,

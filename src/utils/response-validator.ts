@@ -305,6 +305,7 @@ export class ResponseValidator {
     const results: Array<{ pattern: RegExp; description: string; severity: string; match: string }> = [];
 
     for (const { pattern, description, severity } of PROMPT_INJECTION_PATTERNS) {
+      pattern.lastIndex = 0; // reset stateful /gi regex before each call (I214)
       const match = text.match(pattern);
       if (match) {
         results.push({

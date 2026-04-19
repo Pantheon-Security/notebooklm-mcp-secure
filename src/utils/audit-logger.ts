@@ -305,8 +305,8 @@ export class AuditLogger {
           fs.unlinkSync(path.join(this.config.logDir, file));
         }
       }
-    } catch {
-      // Ignore cleanup errors
+    } catch (err) {
+      logger.warning(`audit log cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
