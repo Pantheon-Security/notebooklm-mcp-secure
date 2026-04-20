@@ -182,6 +182,8 @@ export class WebhookDispatcher {
   private maxDeliveryHistory = 100;
   // In-memory SecureCredential store for webhook secrets (I321)
   private webhookSecrets = new Map<string, SecureCredential>();
+  // Serialises saveStore() writes so concurrent addWebhook/removeWebhook don't interleave (I277)
+  private saveQueue: Promise<void> = Promise.resolve();
 
   constructor() {
     this.storePath = path.join(CONFIG.dataDir, "webhooks.json");
@@ -224,12 +226,15 @@ export class WebhookDispatcher {
    * Save webhooks to disk
    */
   private saveStore(): void {
-    try {
-      const data = JSON.stringify(this.store, null, 2);
-      writeFileSecure(this.storePath, data, PERMISSION_MODES.OWNER_READ_WRITE);
-    } catch (error) {
-      log.error(`Failed to save webhooks: ${error}`);
-    }
+    // Chain onto the existing save to serialise concurrent mutation (I277)
+    this.saveQueue = this.saveQueue.then(() => {
+      try {
+        const data = JSON.stringify(this.store, null, 2);
+        writeFileSecure(this.storePath, data, PERMISSION_MODES.OWNER_READ_WRITE);
+      } catch (error) {
+        log.error(`Failed to save webhooks: ${error}`);
+      }
+    });
   }
 
   /**

@@ -199,6 +199,11 @@ export class DataErasureManager {
 
     const fullScope: ErasureScope = { ...DEFAULT_SCOPE, ...scope };
 
+    // Explicitly note when audit_logs is excluded (I262)
+    if (!fullScope.audit_logs) {
+      log.info("  ℹ️  audit_logs excluded from erasure scope (legal retention requirement). Set scope.audit_logs=true to include.");
+    }
+
     // If complete_erasure is true, set all to true except compliance_events
     if (fullScope.complete_erasure) {
       fullScope.notebooks = true;
