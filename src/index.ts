@@ -51,7 +51,7 @@ import { ToolHandlers, buildToolDefinitions } from "./tools/index.js";
 import { ResourceHandlers } from "./resources/resource-handlers.js";
 import { SettingsManager } from "./utils/settings-manager.js";
 import { CliHandler } from "./utils/cli-handler.js";
-import { CONFIG } from "./config.js";
+import { CONFIG, ensureDirectories } from "./config.js";
 import { log } from "./utils/logger.js";
 import { audit, getAuditLogger } from "./utils/audit-logger.js";
 import { checkSecurityContext } from "./utils/security.js";
@@ -62,7 +62,66 @@ import {
 } from "./compliance/compliance-tools.js";
 import { getPrivacyNoticeManager, getPrivacyNoticeCLIText } from "./compliance/privacy-notice.js";
 import { runRetentionPolicies } from "./compliance/retention-engine.js";
-import { getBreachDetector } from "./compliance/breach-detection.js";
+import type { ToolResult } from "./types.js";
+
+type ProgressReporter = (message: string, progress?: number, total?: number) => Promise<void>;
+type ToolArgs = Record<string, unknown>;
+type ToolHandler = (args: ToolArgs, progress?: ProgressReporter) => Promise<ToolResult>;
+
+const TOOL_NAMES = [
+  "ask_question", "add_notebook", "list_notebooks", "get_notebook", "select_notebook",
+  "update_notebook", "remove_notebook", "search_notebooks", "get_library_stats",
+  "export_library", "get_quota", "set_quota_tier", "get_project_info", "create_notebook",
+  "batch_create_notebooks", "sync_library", "list_sessions", "close_session", "reset_session",
+  "get_health", "setup_auth", "re_auth", "cleanup_data", "list_sources", "add_source",
+  "add_folder", "remove_source", "generate_audio_overview", "get_audio_status", "download_audio",
+  "generate_video_overview", "get_video_status", "generate_data_table", "get_data_table",
+  "configure_webhook", "list_webhooks", "test_webhook", "remove_webhook", "deep_research",
+  "gemini_query", "get_research_status", "upload_document", "query_document", "list_documents",
+  "delete_document", "query_chunked_document", "get_query_history", "get_notebook_chat_history",
+  "submit_dsar", "export_user_data", "request_data_erasure", "get_data_inventory",
+  "get_privacy_notice", "get_compliance_report", "check_breach_risk", "manage_consent",
+  "grant_consent", "revoke_consent", "report_security_incident", "collect_audit_evidence",
+  "generate_compliance_report",
+] as const;
+
+type ToolName = typeof TOOL_NAMES[number];
+
+function isToolName(name: string): name is ToolName {
+  return (TOOL_NAMES as readonly string[]).includes(name);
+}
+
+function toToolArgs(value: unknown): ToolArgs {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as ToolArgs;
+  return {};
+}
+
+function asToolInput<T>(args: ToolArgs): T {
+  return args as unknown as T;
+}
+
+const TOOLS_REQUIRING_AUTH: Array<ToolName> = [
+  "add_folder",
+  "cleanup_data",
+  "export_library",
+  "setup_auth",
+  "re_auth",
+  "configure_webhook",
+  "remove_webhook",
+  "test_webhook",
+  "delete_document",
+  "upload_document",
+  "download_audio",
+  // Compliance — destructive or privileged operations.
+  "submit_dsar",
+  "export_user_data",
+  "request_data_erasure",
+  "grant_consent",
+  "revoke_consent",
+  "report_security_incident",
+  "collect_audit_evidence",
+  "generate_compliance_report",
+];
 
 /**
  * Main MCP Server Class
@@ -77,7 +136,7 @@ class NotebookLMMCPServer {
   private settingsManager: SettingsManager;
   private toolDefinitions: Tool[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private toolRegistry!: Map<string, (a: any, p?: (message: string, progress?: number, total?: number) => Promise<void>) => Promise<any>>;
+  private toolRegistry!: Map<string, ToolHandler>;
   private complianceToolNames: Set<string>;
   private retentionTimer?: NodeJS.Timeout;
 
@@ -140,66 +199,65 @@ class NotebookLMMCPServer {
     this.resourceHandlers.registerHandlers(this.server);
 
     // Build tool registry once (not per-request)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.toolRegistry = new Map<string, (a: any, p?: any) => Promise<any>>([
+    this.toolRegistry = new Map<string, ToolHandler>([
       // Ask Question
-      ["ask_question", (a: any, p?: any) => this.toolHandlers.handleAskQuestion(a, p)],
+      ["ask_question", (args, progress) => this.toolHandlers.handleAskQuestion(asToolInput<Parameters<ToolHandlers["handleAskQuestion"]>[0]>(args), progress)],
       // Notebook Management
-      ["add_notebook", (a: any) => this.toolHandlers.handleAddNotebook(a)],
+      ["add_notebook", (args) => this.toolHandlers.handleAddNotebook(asToolInput<Parameters<ToolHandlers["handleAddNotebook"]>[0]>(args))],
       ["list_notebooks", () => this.toolHandlers.handleListNotebooks()],
-      ["get_notebook", (a: any) => this.toolHandlers.handleGetNotebook(a)],
-      ["select_notebook", (a: any) => this.toolHandlers.handleSelectNotebook(a)],
-      ["update_notebook", (a: any) => this.toolHandlers.handleUpdateNotebook(a)],
-      ["remove_notebook", (a: any) => this.toolHandlers.handleRemoveNotebook(a)],
-      ["search_notebooks", (a: any) => this.toolHandlers.handleSearchNotebooks(a)],
+      ["get_notebook", (args) => this.toolHandlers.handleGetNotebook(asToolInput<Parameters<ToolHandlers["handleGetNotebook"]>[0]>(args))],
+      ["select_notebook", (args) => this.toolHandlers.handleSelectNotebook(asToolInput<Parameters<ToolHandlers["handleSelectNotebook"]>[0]>(args))],
+      ["update_notebook", (args) => this.toolHandlers.handleUpdateNotebook(asToolInput<Parameters<ToolHandlers["handleUpdateNotebook"]>[0]>(args))],
+      ["remove_notebook", (args) => this.toolHandlers.handleRemoveNotebook(asToolInput<Parameters<ToolHandlers["handleRemoveNotebook"]>[0]>(args))],
+      ["search_notebooks", (args) => this.toolHandlers.handleSearchNotebooks(asToolInput<Parameters<ToolHandlers["handleSearchNotebooks"]>[0]>(args))],
       ["get_library_stats", () => this.toolHandlers.handleGetLibraryStats()],
-      ["export_library", (a: any) => this.toolHandlers.handleExportLibrary(a)],
+      ["export_library", (args) => this.toolHandlers.handleExportLibrary(asToolInput<Parameters<ToolHandlers["handleExportLibrary"]>[0]>(args))],
       // Quota & System
-      ["get_quota", (a: any) => this.toolHandlers.handleGetQuota(a)],
-      ["set_quota_tier", (a: any) => this.toolHandlers.handleSetQuotaTier(a)],
+      ["get_quota", (args) => this.toolHandlers.handleGetQuota(asToolInput<Parameters<ToolHandlers["handleGetQuota"]>[0]>(args))],
+      ["set_quota_tier", (args) => this.toolHandlers.handleSetQuotaTier(asToolInput<Parameters<ToolHandlers["handleSetQuotaTier"]>[0]>(args))],
       ["get_project_info", () => this.toolHandlers.handleGetProjectInfo()],
       // Notebook Creation
-      ["create_notebook", (a: any, p?: any) => this.toolHandlers.handleCreateNotebook(a, p)],
-      ["batch_create_notebooks", (a: any, p?: any) => this.toolHandlers.handleBatchCreateNotebooks(a, p)],
-      ["sync_library", (a: any) => this.toolHandlers.handleSyncLibrary(a)],
+      ["create_notebook", (args, progress) => this.toolHandlers.handleCreateNotebook(asToolInput<Parameters<ToolHandlers["handleCreateNotebook"]>[0]>(args), progress)],
+      ["batch_create_notebooks", (args, progress) => this.toolHandlers.handleBatchCreateNotebooks(asToolInput<Parameters<ToolHandlers["handleBatchCreateNotebooks"]>[0]>(args), progress)],
+      ["sync_library", (args) => this.toolHandlers.handleSyncLibrary(asToolInput<Parameters<ToolHandlers["handleSyncLibrary"]>[0]>(args))],
       // Session Management
       ["list_sessions", () => this.toolHandlers.handleListSessions()],
-      ["close_session", (a: any) => this.toolHandlers.handleCloseSession(a)],
-      ["reset_session", (a: any) => this.toolHandlers.handleResetSession(a)],
-      ["get_health", (a: any) => this.toolHandlers.handleGetHealth(a)],
+      ["close_session", (args) => this.toolHandlers.handleCloseSession(asToolInput<Parameters<ToolHandlers["handleCloseSession"]>[0]>(args))],
+      ["reset_session", (args) => this.toolHandlers.handleResetSession(asToolInput<Parameters<ToolHandlers["handleResetSession"]>[0]>(args))],
+      ["get_health", (args) => this.toolHandlers.handleGetHealth(asToolInput<Parameters<ToolHandlers["handleGetHealth"]>[0]>(args))],
       // Auth
-      ["setup_auth", (a: any, p?: any) => this.toolHandlers.handleSetupAuth(a, p)],
-      ["re_auth", (a: any, p?: any) => this.toolHandlers.handleReAuth(a, p)],
-      ["cleanup_data", (a: any) => this.toolHandlers.handleCleanupData(a)],
+      ["setup_auth", (args, progress) => this.toolHandlers.handleSetupAuth(asToolInput<Parameters<ToolHandlers["handleSetupAuth"]>[0]>(args), progress)],
+      ["re_auth", (args, progress) => this.toolHandlers.handleReAuth(asToolInput<Parameters<ToolHandlers["handleReAuth"]>[0]>(args), progress)],
+      ["cleanup_data", (args) => this.toolHandlers.handleCleanupData(asToolInput<Parameters<ToolHandlers["handleCleanupData"]>[0]>(args))],
       // Sources
-      ["list_sources", (a: any) => this.toolHandlers.handleListSources(a)],
-      ["add_source", (a: any) => this.toolHandlers.handleAddSource(a)],
-      ["add_folder", (a: any, p?: any) => this.toolHandlers.handleAddFolder(a, p)],
-      ["remove_source", (a: any) => this.toolHandlers.handleRemoveSource(a)],
+      ["list_sources", (args) => this.toolHandlers.handleListSources(asToolInput<Parameters<ToolHandlers["handleListSources"]>[0]>(args))],
+      ["add_source", (args) => this.toolHandlers.handleAddSource(asToolInput<Parameters<ToolHandlers["handleAddSource"]>[0]>(args))],
+      ["add_folder", (args, progress) => this.toolHandlers.handleAddFolder(asToolInput<Parameters<ToolHandlers["handleAddFolder"]>[0]>(args), progress)],
+      ["remove_source", (args) => this.toolHandlers.handleRemoveSource(asToolInput<Parameters<ToolHandlers["handleRemoveSource"]>[0]>(args))],
       // Audio / Video / Data Table
-      ["generate_audio_overview", (a: any) => this.toolHandlers.handleGenerateAudioOverview(a)],
-      ["get_audio_status", (a: any) => this.toolHandlers.handleGetAudioStatus(a)],
-      ["download_audio", (a: any) => this.toolHandlers.handleDownloadAudio(a)],
-      ["generate_video_overview", (a: any) => this.toolHandlers.handleGenerateVideoOverview(a)],
-      ["get_video_status", (a: any) => this.toolHandlers.handleGetVideoStatus(a)],
-      ["generate_data_table", (a: any) => this.toolHandlers.handleGenerateDataTable(a)],
-      ["get_data_table", (a: any) => this.toolHandlers.handleGetDataTable(a)],
+      ["generate_audio_overview", (args) => this.toolHandlers.handleGenerateAudioOverview(asToolInput<Parameters<ToolHandlers["handleGenerateAudioOverview"]>[0]>(args))],
+      ["get_audio_status", (args) => this.toolHandlers.handleGetAudioStatus(asToolInput<Parameters<ToolHandlers["handleGetAudioStatus"]>[0]>(args))],
+      ["download_audio", (args) => this.toolHandlers.handleDownloadAudio(asToolInput<Parameters<ToolHandlers["handleDownloadAudio"]>[0]>(args))],
+      ["generate_video_overview", (args) => this.toolHandlers.handleGenerateVideoOverview(asToolInput<Parameters<ToolHandlers["handleGenerateVideoOverview"]>[0]>(args))],
+      ["get_video_status", (args) => this.toolHandlers.handleGetVideoStatus(asToolInput<Parameters<ToolHandlers["handleGetVideoStatus"]>[0]>(args))],
+      ["generate_data_table", (args) => this.toolHandlers.handleGenerateDataTable(asToolInput<Parameters<ToolHandlers["handleGenerateDataTable"]>[0]>(args))],
+      ["get_data_table", (args) => this.toolHandlers.handleGetDataTable(asToolInput<Parameters<ToolHandlers["handleGetDataTable"]>[0]>(args))],
       // Webhooks
-      ["configure_webhook", (a: any) => this.toolHandlers.handleConfigureWebhook(a)],
+      ["configure_webhook", (args) => this.toolHandlers.handleConfigureWebhook(asToolInput<Parameters<ToolHandlers["handleConfigureWebhook"]>[0]>(args))],
       ["list_webhooks", () => this.toolHandlers.handleListWebhooks()],
-      ["test_webhook", (a: any) => this.toolHandlers.handleTestWebhook(a)],
-      ["remove_webhook", (a: any) => this.toolHandlers.handleRemoveWebhook(a)],
+      ["test_webhook", (args) => this.toolHandlers.handleTestWebhook(asToolInput<Parameters<ToolHandlers["handleTestWebhook"]>[0]>(args))],
+      ["remove_webhook", (args) => this.toolHandlers.handleRemoveWebhook(asToolInput<Parameters<ToolHandlers["handleRemoveWebhook"]>[0]>(args))],
       // Gemini API
-      ["deep_research", (a: any, p?: any) => this.toolHandlers.handleDeepResearch(a, p)],
-      ["gemini_query", (a: any) => this.toolHandlers.handleGeminiQuery(a)],
-      ["get_research_status", (a: any) => this.toolHandlers.handleGetResearchStatus(a)],
-      ["upload_document", (a: any) => this.toolHandlers.handleUploadDocument(a)],
-      ["query_document", (a: any) => this.toolHandlers.handleQueryDocument(a)],
-      ["list_documents", (a: any) => this.toolHandlers.handleListDocuments(a)],
-      ["delete_document", (a: any) => this.toolHandlers.handleDeleteDocument(a)],
-      ["query_chunked_document", (a: any) => this.toolHandlers.handleQueryChunkedDocument(a)],
-      ["get_query_history", (a: any) => this.toolHandlers.handleGetQueryHistory(a)],
-      ["get_notebook_chat_history", (a: any) => this.toolHandlers.handleGetNotebookChatHistory(a)],
+      ["deep_research", (args, progress) => this.toolHandlers.handleDeepResearch(asToolInput<Parameters<ToolHandlers["handleDeepResearch"]>[0]>(args), progress)],
+      ["gemini_query", (args) => this.toolHandlers.handleGeminiQuery(asToolInput<Parameters<ToolHandlers["handleGeminiQuery"]>[0]>(args))],
+      ["get_research_status", (args) => this.toolHandlers.handleGetResearchStatus(asToolInput<Parameters<ToolHandlers["handleGetResearchStatus"]>[0]>(args))],
+      ["upload_document", (args) => this.toolHandlers.handleUploadDocument(asToolInput<Parameters<ToolHandlers["handleUploadDocument"]>[0]>(args))],
+      ["query_document", (args) => this.toolHandlers.handleQueryDocument(asToolInput<Parameters<ToolHandlers["handleQueryDocument"]>[0]>(args))],
+      ["list_documents", (args) => this.toolHandlers.handleListDocuments(asToolInput<Parameters<ToolHandlers["handleListDocuments"]>[0]>(args))],
+      ["delete_document", (args) => this.toolHandlers.handleDeleteDocument(asToolInput<Parameters<ToolHandlers["handleDeleteDocument"]>[0]>(args))],
+      ["query_chunked_document", (args) => this.toolHandlers.handleQueryChunkedDocument(asToolInput<Parameters<ToolHandlers["handleQueryChunkedDocument"]>[0]>(args))],
+      ["get_query_history", (args) => this.toolHandlers.handleGetQueryHistory(asToolInput<Parameters<ToolHandlers["handleGetQueryHistory"]>[0]>(args))],
+      ["get_notebook_chat_history", (args) => this.toolHandlers.handleGetNotebookChatHistory(asToolInput<Parameters<ToolHandlers["handleGetNotebookChatHistory"]>[0]>(args))],
     ]);
 
     // List available tools
@@ -227,29 +285,7 @@ class NotebookLMMCPServer {
       // Tools that touch the filesystem, wipe credentials, dispatch outbound
       // HTTP, delete remote resources, or exercise GDPR data-subject rights
       // always require auth, even if globally disabled via NLMCP_AUTH_DISABLED.
-      const TOOLS_REQUIRING_AUTH = [
-        "add_folder",
-        "cleanup_data",
-        "export_library",
-        "setup_auth",
-        "re_auth",
-        "configure_webhook",
-        "remove_webhook",
-        "test_webhook",
-        "delete_document",
-        "upload_document",
-        "download_audio",
-        // Compliance — destructive or privileged operations.
-        "submit_dsar",
-        "export_user_data",
-        "request_data_erasure",
-        "grant_consent",
-        "revoke_consent",
-        "report_security_incident",
-        "collect_audit_evidence",
-        "generate_compliance_report",
-      ];
-      const requiresAuth = TOOLS_REQUIRING_AUTH.includes(name);
+      const requiresAuth = isToolName(name) && TOOLS_REQUIRING_AUTH.includes(name);
 
       const authResult = requiresAuth
         ? await authenticateMCPRequest(authToken, name, true)
@@ -309,7 +345,7 @@ class NotebookLMMCPServer {
           };
         }
 
-        const result = await handler(args, sendProgress);
+        const result = await handler(toToolArgs(args), sendProgress);
 
         // Return result
         return {
@@ -443,23 +479,7 @@ class NotebookLMMCPServer {
       log.warning(`⚠️ Retention engine bootstrap failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    // Bridge audit events into the breach detector. Rules match audit
-    // event names (auth_failed, secrets_detected, prompt_injection, etc.);
-    // see src/compliance/breach-detection.ts DEFAULT_RULES.
-    try {
-      const breachDetector = getBreachDetector();
-      getAuditLogger().onEvent(async (event) => {
-        if (event.eventType !== "auth" && event.eventType !== "security") return;
-        try {
-          await breachDetector.checkEvent(event.eventName, event.details);
-        } catch (err) {
-          log.warning(`breach detector checkEvent failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      });
-      log.info("🛡️  Breach detector subscribed to audit events");
-    } catch (err) {
-      log.warning(`⚠️ Breach detector bootstrap failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    log.info("🛡️  Breach detector ready");
   }
 
   /**
@@ -468,6 +488,10 @@ class NotebookLMMCPServer {
   async start(): Promise<void> {
     log.info("🎯 Starting NotebookLM MCP Server (Security Hardened)...");
     log.info("");
+
+    if (process.env.NODE_ENV !== "test") {
+      ensureDirectories();
+    }
 
     // Security: Check security context and warn about issues
     const securityCheck = checkSecurityContext();
