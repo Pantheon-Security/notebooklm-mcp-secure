@@ -289,7 +289,7 @@ export async function handleAskQuestion(
     const errorMessage = getSanitizedErrorMessage(error);
 
     // Special handling for rate limit errors
-    if (error instanceof RateLimitError || errorMessage.toLowerCase().includes("rate limit")) {
+    if (error instanceof RateLimitError) {
       log.error(`🚫 [TOOL] Rate limit detected`);
       await audit.security("notebooklm_rate_limit", "warning", {
         session_id: safeSessionId,

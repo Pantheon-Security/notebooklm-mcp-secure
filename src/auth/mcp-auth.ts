@@ -114,9 +114,11 @@ export class MCPAuthenticator {
 
     log.info("🔐 Initializing MCP authentication...");
 
-    // Try to load token from environment
+    // Try to load token from environment — blank env var after reading (I236)
     if (this.config.token) {
       this.tokenHash = this.hashToken(this.config.token);
+      this.config.token = undefined;
+      delete process.env.NLMCP_AUTH_TOKEN;
       log.success("  ✅ Using token from environment variable");
       this.initialized = true;
       return;
