@@ -28,16 +28,35 @@ import path from "path";
  */
 export class NotebookCreator {
   private page: Page | null = null;
+  // Serialises concurrent createNotebook calls — prevents interleaved browser ops (I163)
+  private operationQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private authManager: AuthManager,
     private contextManager: SharedContextManager
   ) {}
 
+  private async withOperationLock<T>(fn: () => Promise<T>): Promise<T> {
+    let release!: () => void;
+    const acquired = new Promise<void>(resolve => { release = resolve; });
+    const previous = this.operationQueue;
+    this.operationQueue = acquired;
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
   /**
    * Create a new notebook with sources
    */
   async createNotebook(options: CreateNotebookOptions): Promise<CreatedNotebook> {
+    return this.withOperationLock(() => this._createNotebook(options));
+  }
+
+  private async _createNotebook(options: CreateNotebookOptions): Promise<CreatedNotebook> {
     const { name, sources, sendProgress } = options;
     const totalSteps = 3 + sources.length; // Init + Create + Sources + Finalize
     let currentStep = 0;

@@ -7,7 +7,7 @@
 import type { Page } from "patchright";
 import { log } from "../utils/logger.js";
 import { CONFIG } from "../config.js";
-import { isLocked, withLock } from "../utils/file-lock.js";
+import { withLock } from "../utils/file-lock.js";
 import fs from "fs";
 import path from "path";
 
@@ -594,6 +594,7 @@ export class QuotaManager {
         log.debug(`💾 Quota incremented atomically (${this.settings.usage.queriesUsedToday} queries today)`);
       } catch (error) {
         log.error(`❌ Could not save quota settings: ${error}`);
+        throw error; // Rethrow so caller knows the atomic increment failed (I289)
       }
     });
   }
@@ -652,11 +653,14 @@ export class QuotaManager {
    * Check if can make query
    */
   canMakeQuery(): { allowed: boolean; reason?: string } {
-    if (!isLocked(this.settingsPath)) {
-      this.rolloverIfNeeded();
-    }
+    // Pure read: determine effective count without mutating settings.
+    // Rollover mutation is handled exclusively in incrementQueryCountAtomic (I285).
+    const today = new Date().toISOString().split("T")[0];
+    const queriesUsedToday =
+      this.settings.usage.lastQueryDate === today
+        ? this.settings.usage.queriesUsedToday
+        : 0; // New day — treat count as 0 without persisting
 
-    const { queriesUsedToday } = this.settings.usage;
     const { queriesPerDay: limit } = this.settings.limits;
 
     if (queriesUsedToday >= limit) {

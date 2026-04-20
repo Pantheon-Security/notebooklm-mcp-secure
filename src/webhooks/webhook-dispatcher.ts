@@ -177,6 +177,7 @@ const WEBHOOK_SECRET_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export class WebhookDispatcher {
   private storePath: string;
+  private deliveryLogPath: string;
   private store: WebhooksStore;
   private unsubscribe: (() => void) | null = null;
   private deliveryHistory: WebhookDelivery[] = [];
@@ -188,7 +189,9 @@ export class WebhookDispatcher {
 
   constructor() {
     this.storePath = path.join(CONFIG.dataDir, "webhooks.json");
+    this.deliveryLogPath = path.join(CONFIG.dataDir, "webhook-deliveries.jsonl");
     this.store = this.loadStore();
+    this.loadDeliveryHistory();
     this.subscribeToEvents();
 
     // Env-driven webhook init is async (URL validation calls dns.lookup);
@@ -643,12 +646,39 @@ export class WebhookDispatcher {
   }
 
   /**
-   * Record delivery for history
+   * Load recent delivery history from disk on startup (I279)
+   */
+  private loadDeliveryHistory(): void {
+    try {
+      if (!fs.existsSync(this.deliveryLogPath)) return;
+      const lines = fs.readFileSync(this.deliveryLogPath, "utf-8").trim().split("\n");
+      // Load last maxDeliveryHistory lines to seed in-memory buffer
+      const recent = lines.slice(-this.maxDeliveryHistory);
+      for (const line of recent) {
+        try {
+          if (line.trim()) this.deliveryHistory.push(JSON.parse(line) as WebhookDelivery);
+        } catch {
+          // skip malformed lines
+        }
+      }
+    } catch (err) {
+      log.debug(`webhook-dispatcher: failed to load delivery history: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /**
+   * Record delivery for history — persists to disk for cross-restart auditability (I279)
    */
   private recordDelivery(delivery: WebhookDelivery): void {
     this.deliveryHistory.push(delivery);
     if (this.deliveryHistory.length > this.maxDeliveryHistory) {
       this.deliveryHistory.shift();
+    }
+    // Append to delivery log for durable audit trail
+    try {
+      fs.appendFileSync(this.deliveryLogPath, JSON.stringify(delivery) + "\n", { mode: 0o600 });
+    } catch (err) {
+      log.debug(`webhook-dispatcher: failed to persist delivery record: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
