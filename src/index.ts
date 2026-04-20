@@ -357,23 +357,21 @@ class NotebookLMMCPServer {
           ],
         };
       } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        log.error(`❌ [MCP] Tool execution error: ${errorMessage}`);
+        const rawMessage = error instanceof Error ? error.message : String(error);
+        log.error(`❌ [MCP] Tool execution error for '${name}': ${rawMessage}`);
+
+        // Sanitize before returning to client: strip absolute paths and stack fragments (I328)
+        const sanitized = rawMessage
+          .replace(/(?:\/[^\s/:,'"]+)+/g, "[path]")
+          .replace(/\bat\s+\S+\s+\(\S+:\d+:\d+\)/g, "")
+          .trim();
 
         return {
           isError: true,
           content: [
             {
               type: "text",
-              text: JSON.stringify(
-                {
-                  success: false,
-                  error: errorMessage,
-                },
-                null,
-                2
-              ),
+              text: JSON.stringify({ success: false, error: sanitized }, null, 2),
             },
           ],
         };

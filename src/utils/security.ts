@@ -232,6 +232,8 @@ export function validateFilePath(basePath: string, filePath: string): string {
 /**
  * Rate limiter for preventing abuse
  */
+const MAX_RATE_LIMITER_KEYS = 10_000;
+
 export class RateLimiter {
   private requests: Map<string, number[]> = new Map();
   private readonly maxRequests: number;
@@ -265,6 +267,12 @@ export class RateLimiter {
     // Check if under limit
     if (requests.length >= this.maxRequests) {
       return false;
+    }
+
+    // Evict oldest key if map is at capacity (I205)
+    if (requests.length === 0 && this.requests.size >= MAX_RATE_LIMITER_KEYS) {
+      const oldest = this.requests.keys().next().value;
+      if (oldest !== undefined) this.requests.delete(oldest);
     }
 
     // Add current request
