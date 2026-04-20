@@ -102,9 +102,9 @@ Supports:
       },
       model: {
         type: "string",
-        enum: ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
+        enum: ["gemini-3-flash-preview", "gemini-3-pro-preview"],
         default: "gemini-3-flash-preview",
-        description: "Model to use. Gemini 3 recommended. Note: gemini-2.5-* models retire March 31, 2026.",
+        description: "Model to use (gemini-3-flash-preview or gemini-3-pro-preview)",
       },
       tools: {
         type: "array",
@@ -271,9 +271,9 @@ const queryDocumentTool: Tool = {
       },
       model: {
         type: "string",
-        enum: ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
+        enum: ["gemini-3-flash-preview", "gemini-3-pro-preview"],
         default: "gemini-3-flash-preview",
-        description: "Model to use. Gemini 3 recommended. Note: gemini-2.5-* models retire March 31, 2026.",
+        description: "Model to use (gemini-3-flash-preview or gemini-3-pro-preview)",
       },
       additional_files: {
         type: "array",
@@ -403,9 +403,9 @@ Call this tool with:
       },
       model: {
         type: "string",
-        enum: ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
+        enum: ["gemini-3-flash-preview", "gemini-3-pro-preview"],
         default: "gemini-3-flash-preview",
-        description: "Model to use for querying and aggregation. Note: gemini-2.5-* models retire March 31, 2026.",
+        description: "Model to use for querying and aggregation (gemini-3-flash-preview or gemini-3-pro-preview).",
       },
     },
     required: ["file_names", "query"],
