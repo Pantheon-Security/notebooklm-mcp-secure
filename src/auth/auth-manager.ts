@@ -553,14 +553,23 @@ export class AuthManager {
 
     log.info(`  🌐 Navigating to Google login...`);
 
-    try {
-      await page.goto(NOTEBOOKLM_AUTH_URL, {
-        waitUntil: "domcontentloaded",
-        timeout: CONFIG.browserTimeout,
-      });
-      log.success(`  ✅ Page loaded: ${page.url().slice(0, 80)}...`);
-    } catch (error) {
-      log.warning(`  ⚠️  Page load timeout (continuing anyway)`);
+    let gotoError: unknown;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await page.goto(NOTEBOOKLM_AUTH_URL, {
+          waitUntil: "domcontentloaded",
+          timeout: CONFIG.browserTimeout,
+        });
+        log.success(`  ✅ Page loaded: ${page.url().slice(0, 80)}...`);
+        gotoError = undefined;
+        break;
+      } catch (err) {
+        gotoError = err;
+        log.warning(`  ⚠️  Page load attempt ${attempt} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (gotoError) {
+      throw new Error(`Failed to navigate to Google login after 2 attempts: ${gotoError instanceof Error ? gotoError.message : String(gotoError)}`);
     }
 
     const deadline = Date.now() + CONFIG.autoLoginTimeoutMs;
