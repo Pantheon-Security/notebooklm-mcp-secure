@@ -259,22 +259,26 @@ export async function waitForElement(
   const selectors = getSelectors(key);
   const timeout = options.timeout || 10000;
   const state = options.state || "visible";
+  const deadline = Date.now() + timeout;
 
-  // Try each selector with a fraction of the total timeout
-  const perSelectorTimeout = Math.max(1000, timeout / selectors.length);
-
-  for (const selector of selectors) {
-    try {
-      const element = await page.waitForSelector(selector, {
-        timeout: perSelectorTimeout,
-        state,
-      });
-      if (element) {
-        return element;
+  while (Date.now() < deadline) {
+    for (const selector of selectors) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        return null;
       }
-    } catch (err) {
-      log.debug(`waitForElement: ${selector} timed out: ${err instanceof Error ? err.message : String(err)}`);
-      continue;
+
+      try {
+        const element = await page.waitForSelector(selector, {
+          timeout: Math.max(1, Math.min(remaining, 250)),
+          state,
+        });
+        if (element) {
+          return element;
+        }
+      } catch (err) {
+        log.debug(`waitForElement: ${selector} timed out: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 
