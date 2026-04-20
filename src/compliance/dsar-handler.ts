@@ -45,7 +45,7 @@ export class DSARHandler {
   private static instance: DSARHandler;
   private requestsFile: string;
   private requests: DSARRequest[] = [];
-  private loaded: boolean = false;
+  private loadPromise: Promise<void> | null = null;
   private pendingWrite: Promise<void> = Promise.resolve();
 
   private constructor() {
@@ -66,9 +66,14 @@ export class DSARHandler {
   /**
    * Load requests from storage
    */
-  private async load(forceReload: boolean = false): Promise<void> {
-    if (this.loaded && !forceReload) return;
+  private load(forceReload: boolean = false): Promise<void> {
+    if (forceReload || !this.loadPromise) {
+      this.loadPromise = this._load();
+    }
+    return this.loadPromise;
+  }
 
+  private async _load(): Promise<void> {
     try {
       if (fs.existsSync(this.requestsFile)) {
         const content = fs.readFileSync(this.requestsFile, "utf-8");
@@ -82,7 +87,6 @@ export class DSARHandler {
       this.requests = [];
     }
 
-    this.loaded = true;
   }
 
   /**
