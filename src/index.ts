@@ -101,7 +101,7 @@ function asToolInput<T>(args: ToolArgs): T {
   return args as unknown as T;
 }
 
-const TOOLS_EXEMPT_FROM_AUTH: Array<ToolName> = [
+const TOOLS_EXEMPT_FROM_AUTH = new Set<ToolName>([
   "ask_question", "add_notebook", "list_notebooks", "get_notebook", "select_notebook",
   "update_notebook", "remove_notebook", "search_notebooks", "get_library_stats",
   "get_quota", "set_quota_tier", "get_project_info", "create_notebook",
@@ -112,9 +112,9 @@ const TOOLS_EXEMPT_FROM_AUTH: Array<ToolName> = [
   "deep_research", "gemini_query", "get_research_status",
   "query_document", "list_documents", "query_chunked_document",
   "get_query_history", "get_notebook_chat_history",
-];
+]);
 
-const TOOLS_REQUIRING_AUTH: Array<ToolName> = [
+const TOOLS_REQUIRING_AUTH = new Set<ToolName>([
   "add_folder",
   "cleanup_data",
   "export_library",
@@ -135,7 +135,7 @@ const TOOLS_REQUIRING_AUTH: Array<ToolName> = [
   "report_security_incident",
   "collect_audit_evidence",
   "generate_compliance_report",
-];
+]);
 
 /**
  * Main MCP Server Class
@@ -275,7 +275,7 @@ class NotebookLMMCPServer {
 
     // Startup assertion: every registered tool must be explicitly auth-classified (I313)
     for (const toolName of this.toolRegistry.keys()) {
-      if (isToolName(toolName) && !TOOLS_REQUIRING_AUTH.includes(toolName) && !TOOLS_EXEMPT_FROM_AUTH.includes(toolName)) {
+      if (isToolName(toolName) && !TOOLS_REQUIRING_AUTH.has(toolName) && !TOOLS_EXEMPT_FROM_AUTH.has(toolName)) {
         log.warning(`⚠️ Tool '${toolName}' not in auth lists — defaulting to unauthenticated`);
       }
     }
@@ -305,7 +305,7 @@ class NotebookLMMCPServer {
       // Tools that touch the filesystem, wipe credentials, dispatch outbound
       // HTTP, delete remote resources, or exercise GDPR data-subject rights
       // always require auth, even if globally disabled via NLMCP_AUTH_DISABLED.
-      const requiresAuth = isToolName(name) && TOOLS_REQUIRING_AUTH.includes(name);
+      const requiresAuth = isToolName(name) && TOOLS_REQUIRING_AUTH.has(name);
 
       const authResult = requiresAuth
         ? await authenticateMCPRequest(authToken, name, true)

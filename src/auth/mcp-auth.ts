@@ -95,10 +95,24 @@ export class MCPAuthenticator {
   private tokenHash: string | null = null;
   private failedAttempts: Map<string, FailedAttemptTracker> = new Map();
   private initialized: boolean = false;
+  private hashSalt: string = '';
 
   constructor(config?: Partial<MCPAuthConfig>) {
     this.config = { ...getAuthConfig(), ...config };
+    this.loadOrCreateSalt();
     log.info(`  🔐 MCP Auth: ${this.config.enabled ? "ENABLED" : "DISABLED"} (token file: ${this.config.tokenFile || "none"})`);
+  }
+
+  private loadOrCreateSalt(): void {
+    const saltPath = path.join(path.dirname(this.config.tokenFile), 'auth-salt');
+    try {
+      this.hashSalt = fs.readFileSync(saltPath, 'utf8').trim();
+    } catch {
+      this.hashSalt = crypto.randomBytes(16).toString('hex');
+      const dir = path.dirname(saltPath);
+      mkdirSecure(dir, PERMISSION_MODES.OWNER_FULL);
+      writeFileSecure(saltPath, this.hashSalt, PERMISSION_MODES.OWNER_READ_WRITE);
+    }
   }
 
   /**
@@ -192,7 +206,7 @@ export class MCPAuthenticator {
    * must re-run setup_auth or rotate their token after upgrading.
    */
   hashToken(token: string): string {
-    return crypto.createHash("sha3-256").update(token).digest("hex");
+    return crypto.createHash("sha3-256").update(this.hashSalt + token).digest("hex");
   }
 
   /**
