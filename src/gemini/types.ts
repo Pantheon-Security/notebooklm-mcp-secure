@@ -15,8 +15,6 @@ export type GeminiTool = "google_search" | "code_execution" | "url_context";
  * Supported Gemini models
  */
 export type GeminiModel =
-  | "gemini-2.5-flash"
-  | "gemini-2.5-pro"
   | "gemini-3-flash-preview"
   | "gemini-3-pro-preview";
 

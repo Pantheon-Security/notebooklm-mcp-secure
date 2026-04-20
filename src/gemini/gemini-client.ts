@@ -621,7 +621,7 @@ export class GeminiClient {
     }
 
     const { fileName, query, model, additionalFiles, generationConfig } = options;
-    const modelId = model || CONFIG.geminiDefaultModel || "gemini-2.5-flash";
+    const modelId = model || CONFIG.geminiDefaultModel || "gemini-3-flash-preview";
 
     log.info(`Querying document ${fileName}: ${query.substring(0, 50)}...`);
 
@@ -721,7 +721,7 @@ export class GeminiClient {
       });
     }
 
-    const modelId = options?.model || CONFIG.geminiDefaultModel || "gemini-2.5-flash";
+    const modelId = options?.model || CONFIG.geminiDefaultModel || "gemini-3-flash-preview";
     log.info(`Querying ${fileNames.length} document chunks...`);
 
     // Query each chunk
