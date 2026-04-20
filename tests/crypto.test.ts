@@ -5,6 +5,9 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import {
   deriveKey,
   getMachineKey,
@@ -199,6 +202,15 @@ describe("Crypto Utilities", () => {
 
       expect(() => decryptClassical(tampered, key)).toThrow();
     });
+
+    it("I195 should fail gracefully when encrypted data version does not match", () => {
+      const encrypted = encryptClassical("Versioned data", key);
+      const wrongVersion = { ...encrypted, version: encrypted.version + 1 };
+
+      expect(() => decryptClassical(wrongVersion, key)).toThrow(
+        `Unsupported classical encryption version: ${wrongVersion.version}`
+      );
+    });
   });
 
   describe("SecureStorage", () => {
@@ -208,6 +220,43 @@ describe("Crypto Utilities", () => {
       expect(typeof key).toBe("string");
       const decoded = Buffer.from(key, "base64");
       expect(decoded.length).toBe(32);
+    });
+
+    it("I196 should persist encrypted data across SecureStorage instances", async () => {
+      const tempConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), "secure-storage-"));
+      const oldConfigDir = process.env.NLMCP_CONFIG_DIR;
+      const encryptionKey = SecureStorage.generateKey();
+      const filePath = path.join(tempConfigDir, "nested", "secret.json");
+      const expectedValue = JSON.stringify({ token: "persisted-secret", count: 2 }, null, 2);
+
+      process.env.NLMCP_CONFIG_DIR = tempConfigDir;
+
+      try {
+        const writer = new SecureStorage({
+          key: encryptionKey,
+          useMachineKey: false,
+          usePostQuantum: true,
+        });
+        await writer.save(filePath, expectedValue);
+
+        const reader = new SecureStorage({
+          key: encryptionKey,
+          useMachineKey: false,
+          usePostQuantum: true,
+        });
+        const loadedValue = await reader.load(filePath);
+
+        expect(fs.existsSync(filePath + ".pqenc")).toBe(true);
+        expect(loadedValue).toBe(expectedValue);
+      } finally {
+        if (oldConfigDir === undefined) {
+          delete process.env.NLMCP_CONFIG_DIR;
+        } else {
+          process.env.NLMCP_CONFIG_DIR = oldConfigDir;
+        }
+
+        fs.rmSync(tempConfigDir, { recursive: true, force: true });
+      }
     });
   });
 });
