@@ -449,7 +449,8 @@ export class SelectorDiscovery {
           await realisticClick(this.page, selector, true);
           return true;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`selector-discovery: clicking new-notebook button selector: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -472,7 +473,8 @@ export class SelectorDiscovery {
           await element.click();
           return true;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`selector-discovery: clicking common create/new pattern: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -492,7 +494,8 @@ export class SelectorDiscovery {
         await element.click();
         return true;
       }
-    } catch {
+    } catch (err) {
+      log.debug(`selector-discovery: clicking element in tryClick: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
 

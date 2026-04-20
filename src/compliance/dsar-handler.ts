@@ -13,6 +13,7 @@ import fs from "fs";
 import { getConfig } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
 import { withLock } from "../utils/file-lock.js";
+import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import { getDataInventory } from "./data-inventory.js";
 import type { DSARResponse, DataInventoryEntry } from "./types.js";
@@ -76,7 +77,8 @@ export class DSARHandler {
       } else {
         this.requests = [];
       }
-    } catch {
+    } catch (err) {
+      log.debug(`dsar-handler: load requests from file: ${err instanceof Error ? err.message : String(err)}`);
       this.requests = [];
     }
 
@@ -306,7 +308,8 @@ export class DSARHandler {
           };
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`dsar-handler: access data storage location: ${err instanceof Error ? err.message : String(err)}`);
       // Data might not be accessible
     }
 

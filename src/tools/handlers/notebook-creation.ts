@@ -60,7 +60,8 @@ export async function handleCreateNotebook(
       if (source.type === "url") {
         try {
           new URL(source.value);
-        } catch {
+        } catch (err) {
+          log.debug(`notebook-creation: validating source URL: ${err instanceof Error ? err.message : String(err)}`);
           throw new Error(`Invalid URL: ${source.value}`);
         }
       }
@@ -602,7 +603,8 @@ export async function handleAddFolder(
     let stat: import("fs").Stats;
     try {
       stat = await fs.stat(folderPath);
-    } catch {
+    } catch (err) {
+      log.debug(`notebook-creation: stat-ing folder path in bulk create handler: ${err instanceof Error ? err.message : String(err)}`);
       throw new Error(`Folder not found: ${folderPath}`);
     }
     if (!stat.isDirectory()) {

@@ -173,7 +173,8 @@ export class NotebookCreator {
           log.success("✅ Clicked 'New notebook' button");
           return;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`notebook-creator: clicking 'New notebook' button selector: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -202,7 +203,8 @@ export class NotebookCreator {
           log.success("✅ Clicked 'New notebook' button (text match)");
           return;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`notebook-creator: clicking 'New notebook' button via text pattern: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -240,7 +242,8 @@ export class NotebookCreator {
           log.success(`✅ Set notebook name: ${name}`);
           return;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`notebook-creator: typing notebook name into input selector: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -469,7 +472,8 @@ export class NotebookCreator {
         log.success(`✅ Clicked 'Add source' button (JS fallback) - aria: ${clicked.aria}, text: ${clicked.text}`);
         return;
       }
-    } catch {
+    } catch (err) {
+      log.debug(`notebook-creator: clicking 'Add source' button via JS fallback: ${err instanceof Error ? err.message : String(err)}`);
       // Continue to error
     }
 
@@ -529,7 +533,8 @@ export class NotebookCreator {
           await this.waitForSourceProcessing();
           return;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`notebook-creator: entering URL into source input selector: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -795,7 +800,8 @@ export class NotebookCreator {
           await randomDelay(800, 1200);
           return;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`notebook-creator: clicking source type tab via text pattern: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -818,7 +824,8 @@ export class NotebookCreator {
           await element.click();
           return;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`notebook-creator: clicking submit button selector: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -995,7 +1002,8 @@ export class NotebookCreator {
         try {
           const url = new URL(source.value);
           return `URL: ${url.hostname}`;
-        } catch {
+        } catch (err) {
+          log.debug(`notebook-creator: parsing source URL in getSourceDescription: ${err instanceof Error ? err.message : String(err)}`);
           return `URL: ${source.value.slice(0, 50)}`;
         }
       case "text":
@@ -1014,7 +1022,8 @@ export class NotebookCreator {
     if (this.page) {
       try {
         await this.page.close();
-      } catch {
+      } catch (err) {
+        log.debug(`notebook-creator: closing page in cleanup: ${err instanceof Error ? err.message : String(err)}`);
         // Ignore cleanup errors
       }
       this.page = null;

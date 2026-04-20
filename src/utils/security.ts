@@ -6,6 +6,7 @@
  */
 
 import path from "path";
+import { log } from "./logger.js";
 
 // Pre-compiled regex patterns for sanitizeForLogging (avoid recompilation per call)
 const EMAIL_SANITIZE_PATTERN = /([a-zA-Z0-9._%+-])([a-zA-Z0-9._%+-]*)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
@@ -70,7 +71,8 @@ export function validateNotebookUrl(url: string): string {
   let parsed: URL;
   try {
     parsed = new URL(trimmed);
-  } catch {
+  } catch (err) {
+    log.debug(`security: parsing URL in validateNotebookUrl: ${err instanceof Error ? err.message : String(err)}`);
     throw new SecurityError('Invalid URL format');
   }
 

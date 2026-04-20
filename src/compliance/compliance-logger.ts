@@ -11,6 +11,7 @@ import crypto from "crypto";
 import path from "path";
 import fs from "fs";
 import { mkdirSecure, appendFileSecure } from "../utils/file-permissions.js";
+import { log } from "../utils/logger.js";
 import { getConfig } from "../config.js";
 import type {
   ComplianceEvent,
@@ -136,7 +137,8 @@ export class ComplianceLogger {
           this.lastHash = lastEvent.hash;
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`compliance-logger: loadLastHash read log file: ${err instanceof Error ? err.message : String(err)}`);
       // If we can't read the hash, start fresh
       this.lastHash = "0".repeat(64);
     }
@@ -460,7 +462,8 @@ export class ComplianceLogger {
         }
 
         if (events.length >= limit) break;
-      } catch {
+      } catch (err) {
+        log.debug(`compliance-logger: getEvents read log file: ${err instanceof Error ? err.message : String(err)}`);
         // Skip corrupted files
       }
     }
@@ -540,7 +543,8 @@ export class ComplianceLogger {
           lastValidEventId = event.id;
           expectedHash = event.hash;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`compliance-logger: verifyIntegrity read log file: ${err instanceof Error ? err.message : String(err)}`);
         // Skip corrupted files
       }
     }
@@ -609,7 +613,8 @@ export class ComplianceLogger {
             stats.eventsByCategory[event.category]++;
           }
         }
-      } catch {
+      } catch (err) {
+        log.debug(`compliance-logger: getStats read log file: ${err instanceof Error ? err.message : String(err)}`);
         // Skip corrupted files
       }
     }

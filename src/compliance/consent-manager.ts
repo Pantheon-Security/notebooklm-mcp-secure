@@ -12,6 +12,7 @@ import path from "path";
 import fs from "fs";
 import { getConfig } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
+import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import type {
   ConsentRecord,
@@ -94,7 +95,8 @@ export class ConsentManager {
         const data = JSON.parse(content);
         this.consents = data.consents || [];
       }
-    } catch {
+    } catch (err) {
+      log.debug(`consent-manager: load consents from file: ${err instanceof Error ? err.message : String(err)}`);
       // Start fresh if file is corrupted
       this.consents = [];
     }

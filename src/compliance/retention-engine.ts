@@ -12,6 +12,7 @@ import path from "path";
 import fs from "fs";
 import { getConfig } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
+import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import { getAuditLogger } from "../utils/audit-logger.js";
 import { DataClassification, type RetentionPolicy } from "./types.js";
@@ -137,7 +138,8 @@ export class RetentionEngine {
           }
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`retention-engine: load policies from file: ${err instanceof Error ? err.message : String(err)}`);
       // Use defaults if file is corrupted
     }
 
@@ -272,7 +274,8 @@ export class RetentionEngine {
         default:
           return true;
       }
-    } catch {
+    } catch (err) {
+      log.debug(`retention-engine: shouldRun read last-run file: ${err instanceof Error ? err.message : String(err)}`);
       return true;
     }
   }
@@ -295,7 +298,8 @@ export class RetentionEngine {
       const dir = path.dirname(this.lastRunFile);
       mkdirSecure(dir);
       writeFileSecure(this.lastRunFile, JSON.stringify(data, null, 2));
-    } catch {
+    } catch (err) {
+      log.debug(`retention-engine: recordRun write last-run file: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore errors
     }
   }
@@ -352,7 +356,8 @@ export class RetentionEngine {
                 // For now, we just log that it should be anonymized
                 break;
             }
-          } catch {
+          } catch (err) {
+            log.debug(`retention-engine: executePolicy apply action to file: ${err instanceof Error ? err.message : String(err)}`);
             // Continue with other files
           }
         }
@@ -435,12 +440,14 @@ export class RetentionEngine {
             if (fileStats.mtime < cutoffDate) {
               expiredFiles.push(filePath);
             }
-          } catch {
+          } catch (err) {
+            log.debug(`retention-engine: findExpiredFiles stat file: ${err instanceof Error ? err.message : String(err)}`);
             // Skip files we can't access
           }
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`retention-engine: findExpiredFiles read storage location: ${err instanceof Error ? err.message : String(err)}`);
       // Location doesn't exist or can't be accessed
     }
 
@@ -534,7 +541,8 @@ export class RetentionEngine {
         const data = JSON.parse(content);
         lastRuns = data.runs || {};
       }
-    } catch {
+    } catch (err) {
+      log.debug(`retention-engine: getSchedule read last-run file: ${err instanceof Error ? err.message : String(err)}`);
       lastRuns = {};
     }
 

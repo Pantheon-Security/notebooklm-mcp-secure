@@ -409,7 +409,8 @@ export class NotebookSync {
         await this.page.goto(startUrl, { waitUntil: "domcontentloaded", timeout: CONFIG.browserTimeout });
         await this.page.waitForLoadState("networkidle").catch(() => {});
         await randomDelay(1500, 2000);
-      } catch {
+      } catch (err) {
+        log.debug(`notebook-sync: navigating to notebook row for URL extraction: ${err instanceof Error ? err.message : String(err)}`);
         log.warning(`  ⚠️ Could not navigate to notebook: ${row.title}`);
       }
     }

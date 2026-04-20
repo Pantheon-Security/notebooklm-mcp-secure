@@ -115,15 +115,18 @@ export class FileLock {
               log.warning(`🔓 Removing stale lock (age: ${Math.round(age / 1000)}s, pid: ${existing.pid})`);
               try {
                 fs.unlinkSync(this.lockPath);
-              } catch {
+              } catch (err) {
+                log.debug(`file-lock: removing stale lock file in acquire: ${err instanceof Error ? err.message : String(err)}`);
                 // Ignore if another process already removed it
               }
             }
-          } catch {
+          } catch (err) {
+            log.debug(`file-lock: reading/parsing lock file content in acquire: ${err instanceof Error ? err.message : String(err)}`);
             // Corrupted lock file, try to remove it
             try {
               fs.unlinkSync(this.lockPath);
-            } catch {
+            } catch (err) {
+              log.debug(`file-lock: removing corrupted lock file in acquire: ${err instanceof Error ? err.message : String(err)}`);
               // Ignore
             }
           }
@@ -202,18 +205,21 @@ export class FileLock {
           } else {
             log.warning(`⚠️ Lock owned by different process, not releasing`);
           }
-        } catch {
+        } catch (err) {
+          log.debug(`file-lock: verifying and releasing lock file in release: ${err instanceof Error ? err.message : String(err)}`);
           // Ignore errors during release
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`file-lock: releasing lock file in release: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore errors during release
     } finally {
       try {
         if (fs.existsSync(tempPath)) {
           fs.unlinkSync(tempPath);
         }
-      } catch {
+      } catch (err) {
+        log.debug(`file-lock: removing temp file in release finally block: ${err instanceof Error ? err.message : String(err)}`);
         // Ignore temp cleanup errors
       }
     }
@@ -280,7 +286,8 @@ export function isLocked(filePath: string, staleThreshold?: number): boolean {
 
     // Consider stale locks as not locked
     return age <= threshold;
-  } catch {
+  } catch (err) {
+    log.debug(`file-lock: reading lock file in isLocked: ${err instanceof Error ? err.message : String(err)}`);
     log.warning("corrupt lock file — treating as locked");
     return true;
   }

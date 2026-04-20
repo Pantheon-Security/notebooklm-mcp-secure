@@ -169,7 +169,8 @@ export class SourceManager {
       log.info("  Waiting for page to load...");
       try {
         await page.waitForLoadState('networkidle', { timeout: 15000 });
-      } catch {
+      } catch (err) {
+        log.debug(`source-manager: waiting for network idle after page load: ${err instanceof Error ? err.message : String(err)}`);
         log.warning("  Network idle timeout, continuing...");
       }
       await randomDelay(3000, 4000);
@@ -677,7 +678,8 @@ export class SourceManager {
     if (this.page) {
       try {
         await this.page.close();
-      } catch {
+      } catch (err) {
+        log.debug(`source-manager: closing page: ${err instanceof Error ? err.message : String(err)}`);
         // Ignore close errors
       }
       this.page = null;

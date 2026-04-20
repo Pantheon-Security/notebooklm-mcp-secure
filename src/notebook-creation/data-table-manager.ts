@@ -92,7 +92,8 @@ export class DataTableManager {
         ".create-artifact-button-container, [class*='create-artifact'][role='button'], .toggle-studio-panel-button",
         { timeout: 30000 }
       );
-    } catch {
+    } catch (err) {
+      log.debug(`data-table-manager: waiting for studio panel selector in ensureStudioPanelOpen: ${err instanceof Error ? err.message : String(err)}`);
       // Neither element appeared — fall through to the evaluate below which will return false
     }
 
@@ -413,7 +414,8 @@ export class DataTableManager {
     if (this.page) {
       try {
         await this.page.close();
-      } catch {
+      } catch (err) {
+        log.debug(`data-table-manager: closing page: ${err instanceof Error ? err.message : String(err)}`);
         // Ignore close errors
       }
       this.page = null;

@@ -163,7 +163,8 @@ export class QueryLogger {
       if (deletedCount > 0) {
         log.info(`🗑️ Cleaned ${deletedCount} old query log files`);
       }
-    } catch {
+    } catch (err) {
+      log.debug(`query-logger: cleaning up old log files: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore cleanup errors
     }
   }
@@ -326,7 +327,8 @@ export class QueryLogger {
         .filter(f => f.startsWith("query-log-") && f.endsWith(".jsonl"))
         .sort()
         .reverse(); // Most recent first
-    } catch {
+    } catch (err) {
+      log.debug(`query-logger: reading log directory in getLogFiles: ${err instanceof Error ? err.message : String(err)}`);
       return [];
     }
   }

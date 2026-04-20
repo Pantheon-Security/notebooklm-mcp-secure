@@ -118,7 +118,8 @@ export async function validateWebhookUrl(rawUrl: string): Promise<WebhookUrlVali
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
-  } catch {
+  } catch (err) {
+    log.debug(`webhook-dispatcher: parsing webhook URL in validateWebhookUrl: ${err instanceof Error ? err.message : String(err)}`);
     return { ok: false, error: "invalid URL" };
   }
 
@@ -347,7 +348,8 @@ export class WebhookDispatcher {
     try {
       const { clean } = await scanAndRedactSecrets(rawPayload);
       payload = clean;
-    } catch {
+    } catch (err) {
+      log.debug(`webhook-dispatcher: scanning and redacting secrets from payload: ${err instanceof Error ? err.message : String(err)}`);
       payload = rawPayload;
     }
 
@@ -755,7 +757,8 @@ export class WebhookDispatcher {
   private safeHost(rawUrl: string): string {
     try {
       return new URL(rawUrl).host;
-    } catch {
+    } catch (err) {
+      log.debug(`webhook-dispatcher: parsing URL in safeHost: ${err instanceof Error ? err.message : String(err)}`);
       return "[invalid-url]";
     }
   }

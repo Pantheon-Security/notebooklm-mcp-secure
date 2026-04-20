@@ -230,7 +230,8 @@ export class ResourceHandlers {
         let id: string;
         try {
           id = decodeURIComponent(encodedId);
-        } catch {
+        } catch (err) {
+          log.debug(`resource-handlers: decoding notebook URI component: ${err instanceof Error ? err.message : String(err)}`);
           throw new Error(
             `Invalid notebook identifier encoding: ${sanitizeUserUri(encodedId)}`
           );

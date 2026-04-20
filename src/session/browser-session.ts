@@ -166,7 +166,8 @@ export class BrowserSession {
         state: "visible", // ONLY check visibility (NO disabled check!)
       });
       log.success("  ✅ Chat input ready!");
-    } catch {
+    } catch (err) {
+      log.debug(`browser session: primary chat input selector timed out: ${err instanceof Error ? err.message : String(err)}`);
       // FALLBACK: Locale-agnostic selectors (no hardcoded German)
       try {
         log.info("  ⏳ Trying fallback selectors (locale-agnostic)...");
@@ -192,7 +193,8 @@ export class BrowserSession {
     if (!this.page) return true;
     try {
       return this.page.isClosed();
-    } catch {
+    } catch (err) {
+      log.debug(`browser session: isPageClosedSafe check threw: ${err instanceof Error ? err.message : String(err)}`);
       return true;
     }
   }
@@ -280,7 +282,8 @@ export class BrowserSession {
   private getOriginFromUrl(url: string): string | null {
     try {
       return new URL(url).origin;
-    } catch {
+    } catch (err) {
+      log.debug(`browser session: failed to parse URL origin: ${err instanceof Error ? err.message : String(err)}`);
       return null;
     }
   }
@@ -456,7 +459,7 @@ export class BrowserSession {
         log.warning(`  ♻️  Detected closed page/context. Recovering session and retrying ask...`);
         try {
           this.initialized = false;
-          if (this.page) { try { await this.page.close(); } catch {} }
+          if (this.page) { try { await this.page.close(); } catch (err) { log.debug(`browser session: failed to close page during ask recovery: ${err instanceof Error ? err.message : String(err)}`); } }
           this.page = null;
           await this.init();
           return await askOnce();
@@ -503,7 +506,8 @@ export class BrowserSession {
             return selector;
           }
         }
-      } catch {
+      } catch (err) {
+        log.debug(`browser session: selector ${selector} failed in findChatInput: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -567,8 +571,8 @@ export class BrowserSession {
         log.error(`🚫 Rate limit detected: ${result}`);
         return true;
       }
-    } catch {
-      // Ignore errors checking rate limit state
+    } catch (err) {
+      log.debug(`browser session: failed to inspect rate limit state: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     return false;
@@ -604,7 +608,7 @@ export class BrowserSession {
       if (/has been closed|Target .* closed|Browser has been closed|Context .* closed/i.test(msg)) {
         log.warning(`  ♻️  Detected closed page/context during reset. Recovering and retrying...`);
         this.initialized = false;
-        if (this.page) { try { await this.page.close(); } catch {} }
+        if (this.page) { try { await this.page.close(); } catch (err) { log.debug(`browser session: failed to close page during reset recovery: ${err instanceof Error ? err.message : String(err)}`); } }
         this.page = null;
         await this.init();
         await resetOnce();

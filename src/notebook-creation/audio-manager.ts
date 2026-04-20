@@ -137,7 +137,8 @@ export class AudioManager {
               generateClicked = true;
               break;
             }
-          } catch {
+          } catch (err) {
+            log.debug(`audio-manager: clicking generate button selector: ${err instanceof Error ? err.message : String(err)}`);
             // Continue trying
           }
         }
@@ -393,7 +394,8 @@ export class AudioManager {
     if (this.page) {
       try {
         await this.page.close();
-      } catch {
+      } catch (err) {
+        log.debug(`audio-manager: closing page: ${err instanceof Error ? err.message : String(err)}`);
         // Ignore close errors
       }
       this.page = null;

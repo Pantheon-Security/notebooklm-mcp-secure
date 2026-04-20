@@ -398,7 +398,8 @@ export class SharedContextManager {
           entries.push({ path: p, mtimeMs: st.mtimeMs });
         } catch {}
       }
-    } catch {
+    } catch (err) {
+      log.debug(`shared-context-manager: reading instance profile directory: ${err instanceof Error ? err.message : String(err)}`);
       return; // directory absent is fine
     }
 

@@ -88,7 +88,8 @@ export async function snapshotAllResponses(page: Page): Promise<string[]> {
               allTexts.push(text.trim());
             }
           }
-        } catch {
+        } catch (err) {
+          log.debug(`page-utils: extracting text from snapshot container: ${err instanceof Error ? err.message : String(err)}`);
           continue;
         }
       }
@@ -118,7 +119,8 @@ export async function countResponseElements(page: Page): Promise<number> {
             if (isVisible) {
               count++;
             }
-          } catch {
+          } catch (err) {
+            log.debug(`page-utils: checking element visibility in countResponseElements: ${err instanceof Error ? err.message : String(err)}`);
             continue;
           }
         }
@@ -127,7 +129,8 @@ export async function countResponseElements(page: Page): Promise<number> {
           break;
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`page-utils: querying response elements by selector in countResponseElements: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
   }
@@ -203,7 +206,8 @@ export async function waitForLatestAnswer(
           continue;
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`page-utils: checking thinking indicator state: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore errors checking thinking state
     }
 
@@ -336,7 +340,8 @@ async function extractLatestText(
               empty++;
             }
           }
-        } catch {
+        } catch (err) {
+          log.debug(`page-utils: extracting text from response element in extractLatestText: ${err instanceof Error ? err.message : String(err)}`);
           continue;
         }
       }
@@ -382,7 +387,8 @@ async function extractLatestText(
             if (closest) {
               container = closest.asElement() || element;
             }
-          } catch {
+          } catch (err) {
+            log.debug(`page-utils: finding closest container element in extractLatestText fallback: ${err instanceof Error ? err.message : String(err)}`);
             container = element;
           }
 
@@ -390,11 +396,13 @@ async function extractLatestText(
           if (text && text.trim() && !knownHashes.has(hashString(text.trim()))) {
             return text.trim();
           }
-        } catch {
+        } catch (err) {
+          log.debug(`page-utils: reading innerText from fallback element in extractLatestText: ${err instanceof Error ? err.message : String(err)}`);
           continue;
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`page-utils: querying fallback selector in extractLatestText: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
   }
@@ -457,7 +465,8 @@ async function extractLatestText(
     if (typeof fallbackText === "string" && fallbackText.trim()) {
       return fallbackText.trim();
     }
-  } catch {
+  } catch (err) {
+    log.debug(`page-utils: evaluating final fallback JS in extractLatestText: ${err instanceof Error ? err.message : String(err)}`);
     // Ignore evaluation errors
   }
 

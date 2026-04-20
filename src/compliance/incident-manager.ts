@@ -12,6 +12,7 @@ import path from "path";
 import fs from "fs";
 import { getConfig } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
+import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import { getAlertManager } from "./alert-manager.js";
 import type {
@@ -69,7 +70,8 @@ export class IncidentManager {
           }
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`incident-manager: load incidents from file: ${err instanceof Error ? err.message : String(err)}`);
       this.incidents = new Map();
     }
 

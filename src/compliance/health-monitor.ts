@@ -11,6 +11,7 @@ import os from "os";
 import fs from "fs";
 import path from "path";
 import { getConfig } from "../config.js";
+import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import { getConsentManager } from "./consent-manager.js";
 import { getRetentionEngine } from "./retention-engine.js";
@@ -462,7 +463,8 @@ export class HealthMonitor {
       const incidentManager = getIncidentManager();
       const incidents = await incidentManager.getOpenIncidents();
       openIncidents = incidents.length;
-    } catch {
+    } catch (err) {
+      log.debug(`health-monitor: getSecurityStatus fetch open incidents: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore errors
     }
 
@@ -488,7 +490,8 @@ export class HealthMonitor {
       const consentManager = getConsentManager();
       const validation = await consentManager.validateConsents();
       consentValid = validation.valid;
-    } catch {
+    } catch (err) {
+      log.debug(`health-monitor: getComplianceStatus validate consents: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore errors
     }
 
@@ -496,7 +499,8 @@ export class HealthMonitor {
       const retentionEngine = getRetentionEngine();
       const policies = await retentionEngine.getPolicies();
       activePolicies = policies.length;
-    } catch {
+    } catch (err) {
+      log.debug(`health-monitor: getComplianceStatus fetch retention policies: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore errors
     }
 

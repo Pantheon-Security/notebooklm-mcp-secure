@@ -12,6 +12,7 @@ import path from "path";
 import fs from "fs";
 import { getConfig } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
+import { log } from "../utils/logger.js";
 import { getDataClassifier } from "./data-classification.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import {
@@ -68,7 +69,8 @@ export class DataInventory {
           }
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`data-inventory: load inventory from file: ${err instanceof Error ? err.message : String(err)}`);
       // Start fresh if file is corrupted
       this.entries = new Map();
     }

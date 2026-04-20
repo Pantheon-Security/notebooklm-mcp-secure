@@ -628,7 +628,8 @@ export class AuditLogger {
       const lines = events.map((event) => JSON.stringify(event)).join("\n") + "\n";
       try {
         this.writeWithSyncLock(logFile, lines);
-      } catch {
+      } catch (err) {
+        logger.debug(`audit-logger: writing log during shutdown flush: ${err instanceof Error ? err.message : String(err)}`);
         // Ignore shutdown flush failures.
       }
       this.currentLogFile = logFile;
@@ -668,11 +669,13 @@ export class AuditLogger {
             fs.unlinkSync(lockPath);
             continue;
           }
-        } catch {
+        } catch (err) {
+          logger.debug(`audit-logger: reading stale lock file content in writeWithSyncLock: ${err instanceof Error ? err.message : String(err)}`);
           try {
             fs.unlinkSync(lockPath);
             continue;
-          } catch {
+          } catch (err) {
+            logger.debug(`audit-logger: removing stale lock file in writeWithSyncLock: ${err instanceof Error ? err.message : String(err)}`);
             // Another process may still own the lock.
           }
         }
@@ -690,7 +693,8 @@ export class AuditLogger {
     } finally {
       try {
         fs.unlinkSync(lockPath);
-      } catch {
+      } catch (err) {
+        logger.debug(`audit-logger: removing lock file in writeWithSyncLock finally block: ${err instanceof Error ? err.message : String(err)}`);
         // Ignore lock cleanup failures during process exit.
       }
     }

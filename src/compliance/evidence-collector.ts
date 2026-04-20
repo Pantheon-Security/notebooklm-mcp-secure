@@ -12,6 +12,7 @@ import path from "path";
 import fs from "fs";
 import { getConfig } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
+import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import { getConsentManager } from "./consent-manager.js";
 import { getDataInventory } from "./data-inventory.js";
@@ -763,11 +764,13 @@ export class EvidenceCollector {
             purpose: pkg.purpose,
             item_count: pkg.manifest.total_items,
           });
-        } catch {
+        } catch (err) {
+          log.debug(`evidence-collector: listPackages parse package file: ${err instanceof Error ? err.message : String(err)}`);
           // Skip malformed packages
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`evidence-collector: listPackages read evidence directory: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore errors
     }
 

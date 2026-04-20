@@ -219,7 +219,8 @@ function setWindowsFilePermissions(targetPath: string, ownerOnly: boolean): bool
     }
 
     return true;
-  } catch {
+  } catch (err) {
+    _log?.debug(`file-permissions: setting Windows file permissions via icacls: ${err instanceof Error ? err.message : String(err)}`);
     // icacls may not be available or may fail - this is not critical
     // The file is still created, just without restricted permissions
     return false;

@@ -11,6 +11,7 @@ import crypto from "crypto";
 import path from "path";
 import fs from "fs";
 import { getConfig } from "../config.js";
+import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import { getConsentManager } from "./consent-manager.js";
 import type { DataExport, ExportOptions, ConsentRecord, ComplianceEvent } from "./types.js";
@@ -122,7 +123,8 @@ export class DataExporter {
         const data = JSON.parse(content);
         return data.notebooks || [];
       }
-    } catch {
+    } catch (err) {
+      log.debug(`data-export: exportNotebooks read library file: ${err instanceof Error ? err.message : String(err)}`);
       // Return empty if file doesn't exist or is corrupted
     }
 
@@ -140,7 +142,8 @@ export class DataExporter {
         const content = fs.readFileSync(settingsPath, "utf-8");
         return JSON.parse(content);
       }
-    } catch {
+    } catch (err) {
+      log.debug(`data-export: exportSettings read settings file: ${err instanceof Error ? err.message : String(err)}`);
       // Return null if file doesn't exist or is corrupted
     }
 
@@ -170,12 +173,14 @@ export class DataExporter {
               notebook_id: session.notebook_id,
               // Don't include actual browser state
             });
-          } catch {
+          } catch (err) {
+            log.debug(`data-export: exportSessions parse session file: ${err instanceof Error ? err.message : String(err)}`);
             // Skip corrupted files
           }
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`data-export: exportSessions read sessions directory: ${err instanceof Error ? err.message : String(err)}`);
       // Return empty if directory doesn't exist
     }
 
@@ -221,18 +226,21 @@ export class DataExporter {
                 const event = JSON.parse(line);
                 events.push(event);
                 if (events.length >= 10000) break; // Limit total events
-              } catch {
+              } catch (err) {
+                log.debug(`data-export: exportAuditLogs parse audit log line: ${err instanceof Error ? err.message : String(err)}`);
                 // Skip malformed lines
               }
             }
-          } catch {
+          } catch (err) {
+            log.debug(`data-export: exportAuditLogs read audit log file: ${err instanceof Error ? err.message : String(err)}`);
             // Skip files we can't read
           }
 
           if (events.length >= 10000) break;
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`data-export: exportAuditLogs read audit directory: ${err instanceof Error ? err.message : String(err)}`);
       // Return empty if directory doesn't exist
     }
 
@@ -281,18 +289,21 @@ export class DataExporter {
                 const event = JSON.parse(line) as ComplianceEvent;
                 events.push(event);
                 if (events.length >= 10000) break;
-              } catch {
+              } catch (err) {
+                log.debug(`data-export: exportComplianceEvents parse compliance event line: ${err instanceof Error ? err.message : String(err)}`);
                 // Skip malformed lines
               }
             }
-          } catch {
+          } catch (err) {
+            log.debug(`data-export: exportComplianceEvents read compliance file: ${err instanceof Error ? err.message : String(err)}`);
             // Skip files we can't read
           }
 
           if (events.length >= 10000) break;
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`data-export: exportComplianceEvents read compliance directory: ${err instanceof Error ? err.message : String(err)}`);
       // Return empty if directory doesn't exist
     }
 

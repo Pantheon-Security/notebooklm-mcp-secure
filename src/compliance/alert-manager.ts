@@ -12,6 +12,7 @@ import path from "path";
 import https from "https";
 import { getConfig } from "../config.js";
 import { mkdirSecure, appendFileSecure } from "../utils/file-permissions.js";
+import { log } from "../utils/logger.js";
 import type { Alert, AlertConfig, AlertSeverity } from "./types.js";
 
 /**
@@ -239,7 +240,8 @@ export class AlertManager {
 
       appendFileSecure(filePath, line);
       return true;
-    } catch {
+    } catch (err) {
+      log.debug(`alert-manager: sendToFile write alert: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
   }
@@ -285,7 +287,8 @@ export class AlertManager {
         req.write(JSON.stringify(body));
         req.end();
       });
-    } catch {
+    } catch (err) {
+      log.debug(`alert-manager: sendToWebhook HTTP request: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
   }

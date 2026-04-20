@@ -355,7 +355,8 @@ export class AuthManager {
       try {
         const stats = await fs.stat(this.stateFilePath + ext);
         return stats.mtimeMs;
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: getStateFileMtimeMs stat failed for ext "${ext}": ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -374,7 +375,8 @@ export class AuthManager {
         const now = new Date();
         await fs.utimes(filePath, now, now);
         return;
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: touchStateFile utimes failed for "${filePath}": ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -427,7 +429,8 @@ export class AuthManager {
         }
 
         return false; // Found a valid, non-expired file
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: isStateExpired stat failed for ext "${ext}": ${err instanceof Error ? err.message : String(err)}`);
         // File with this extension doesn't exist, try next
         continue;
       }
@@ -505,7 +508,8 @@ export class AuthManager {
           }
 
           await page.waitForTimeout(checkIntervalMs);
-        } catch {
+        } catch (err) {
+          log.debug(`auth-manager: performLogin page URL check failed: ${err instanceof Error ? err.message : String(err)}`);
           await page.waitForTimeout(checkIntervalMs);
           continue;
         }
@@ -712,7 +716,8 @@ export class AuthManager {
           await page.waitForTimeout(2000);
           return true;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: waitForRedirectAfterLogin URL check failed: ${err instanceof Error ? err.message : String(err)}`);
         // Ignore errors
       }
 
@@ -741,7 +746,8 @@ export class AuthManager {
           log.success("  ✅ NotebookLM URL detected");
           return true;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: waitForNotebook URL check failed: ${err instanceof Error ? err.message : String(err)}`);
         // Ignore errors
       }
 
@@ -780,7 +786,8 @@ export class AuthManager {
       }
 
       return false;
-    } catch {
+    } catch (err) {
+      log.debug(`auth-manager: handleAccountChooser failed: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
   }
@@ -812,7 +819,8 @@ export class AuthManager {
           if (!(await candidate.isVisible())) {
             continue; // Hidden field
           }
-        } catch {
+        } catch (err) {
+          log.debug(`auth-manager: fillIdentifier visibility check failed for selector "${selector}": ${err instanceof Error ? err.message : String(err)}`);
           continue;
         }
 
@@ -820,7 +828,8 @@ export class AuthManager {
         emailSelector = selector;
         log.success(`    ✅ Email field visible: ${selector}`);
         break;
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: fillIdentifier waitForSelector failed for "${selector}": ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -840,7 +849,8 @@ export class AuthManager {
         await randomMouseMovement(page, targetX, targetY);
         await randomDelay(200, 500);
       }
-    } catch {
+    } catch (err) {
+      log.debug(`auth-manager: fillIdentifier mouse movement to email field failed: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore errors
     }
 
@@ -851,7 +861,8 @@ export class AuthManager {
       log.warning(`    ⚠️  Could not click email field (${error}); trying direct focus`);
       try {
         await emailField.focus();
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: fillIdentifier email field focus failed: ${err instanceof Error ? err.message : String(err)}`);
         log.error("    ❌ Failed to focus email field");
         return false;
       }
@@ -868,7 +879,8 @@ export class AuthManager {
       try {
         await page.fill(emailSelector, email);
         log.success("    ✅ Filled email using fallback");
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: fillIdentifier fallback page.fill failed: ${err instanceof Error ? err.message : String(err)}`);
         return false;
       }
     }
@@ -895,7 +907,8 @@ export class AuthManager {
           nextClicked = true;
           break;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: fillIdentifier Next button click failed for "${selector}": ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -930,7 +943,8 @@ export class AuthManager {
           log.success(`    ✅ Password field found: ${selector}`);
           break;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: fillPassword selector query failed for "${selector}": ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -949,7 +963,8 @@ export class AuthManager {
         await randomMouseMovement(page, targetX, targetY);
         await randomDelay(300, 700);
       }
-    } catch {
+    } catch (err) {
+      log.debug(`auth-manager: fillPassword mouse movement to password field failed: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore errors
     }
 
@@ -993,7 +1008,8 @@ export class AuthManager {
           pwdNextClicked = true;
           break;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: fillPassword Next button click failed for "${selector}": ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -1022,7 +1038,8 @@ export class AuthManager {
           await randomDelay(120, 260);
           return true;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: clickText click failed for selector "${selector}": ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
@@ -1210,7 +1227,8 @@ export class AuthManager {
     // 2. Delete PQ key files
     try {
       await secureStorage.delete(path.join(CONFIG.configDir, "pq-keys"));
-    } catch {
+    } catch (err) {
+      log.debug(`auth-manager: clearAllAuthData PQ key deletion failed: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore
     }
 
@@ -1269,7 +1287,8 @@ export class AuthManager {
         await fs.unlink(this.stateFilePath);
         log.info(`  🗑️  Deleted: ${this.stateFilePath}`);
         deletedCount++;
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: hardResetState state file deletion failed: ${err instanceof Error ? err.message : String(err)}`);
         // File doesn't exist
       }
 
@@ -1278,7 +1297,8 @@ export class AuthManager {
         await fs.unlink(this.sessionFilePath);
         log.info(`  🗑️  Deleted: ${this.sessionFilePath}`);
         deletedCount++;
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: hardResetState session file deletion failed: ${err instanceof Error ? err.message : String(err)}`);
         // File doesn't exist
       }
 
@@ -1290,7 +1310,8 @@ export class AuthManager {
           deletedCount++;
         }
         log.info(`  🗑️  Deleted: ${CONFIG.browserStateDir}/ (${files.length} files)`);
-      } catch {
+      } catch (err) {
+        log.debug(`auth-manager: hardResetState browser state dir deletion failed: ${err instanceof Error ? err.message : String(err)}`);
         // Directory doesn't exist or empty
       }
 

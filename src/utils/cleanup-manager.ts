@@ -722,7 +722,8 @@ export class CleanupManager {
     try {
       await fs.access(dirPath);
       return true;
-    } catch {
+    } catch (err) {
+      log.debug(`cleanup-manager: checking path existence in pathExists: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
   }
@@ -734,7 +735,8 @@ export class CleanupManager {
     try {
       const stats = await fs.stat(filePath);
       return stats.size;
-    } catch {
+    } catch (err) {
+      log.debug(`cleanup-manager: getting file size in getFileSize: ${err instanceof Error ? err.message : String(err)}`);
       return 0;
     }
   }
@@ -764,7 +766,8 @@ export class CleanupManager {
       }
 
       return totalSize;
-    } catch {
+    } catch (err) {
+      log.debug(`cleanup-manager: calculating directory size in getDirectorySize: ${err instanceof Error ? err.message : String(err)}`);
       return 0;
     }
   }

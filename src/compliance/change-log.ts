@@ -12,6 +12,7 @@ import path from "path";
 import fs from "fs";
 import { getConfig } from "../config.js";
 import { mkdirSecure, appendFileSecure } from "../utils/file-permissions.js";
+import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import type { ChangeRecord } from "./types.js";
 
@@ -204,14 +205,16 @@ export class ChangeLog {
             const record = JSON.parse(line) as ChangeRecord;
             changes.push(record);
             if (changes.length >= limit) break;
-          } catch {
+          } catch (err) {
+            log.debug(`change-log: parse change record line: ${err instanceof Error ? err.message : String(err)}`);
             // Skip malformed lines
           }
         }
 
         if (changes.length >= limit) break;
       }
-    } catch {
+    } catch (err) {
+      log.debug(`change-log: read change log files: ${err instanceof Error ? err.message : String(err)}`);
       // Return what we have
     }
 

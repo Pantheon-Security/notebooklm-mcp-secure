@@ -52,7 +52,8 @@ function detectProject(): ProjectInfo | null {
         path: pkgRoot,
         type: "npm",
       };
-    } catch {
+    } catch (err) {
+      log.debug(`notebook-library: reading package.json for project library detection: ${err instanceof Error ? err.message : String(err)}`);
       return {
         id: hashPath(pkgRoot),
         name: path.basename(pkgRoot),

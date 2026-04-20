@@ -12,6 +12,7 @@ import path from "path";
 import fs from "fs";
 import { getConfig } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
+import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import { getAlertManager } from "./alert-manager.js";
 import type { BreachRule, BreachAction, IncidentSeverity } from "./types.js";
@@ -197,7 +198,8 @@ export class BreachDetector {
           }
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`breach-detection: load rules from file: ${err instanceof Error ? err.message : String(err)}`);
       // Use defaults if file is corrupted
     }
 
@@ -288,7 +290,8 @@ export class BreachDetector {
     try {
       const regex = new RegExp(pattern);
       return regex.test(event);
-    } catch {
+    } catch (err) {
+      log.debug(`breach-detection: compile regex pattern: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
   }
@@ -334,7 +337,8 @@ export class BreachDetector {
             break;
         }
         detection.actions_taken.push(action);
-      } catch {
+      } catch (err) {
+        log.debug(`breach-detection: execute breach action: ${err instanceof Error ? err.message : String(err)}`);
         // Continue with other actions
       }
     }

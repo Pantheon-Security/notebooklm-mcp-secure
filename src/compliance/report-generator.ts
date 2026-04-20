@@ -12,6 +12,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { getConfig } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
+import { log } from "../utils/logger.js";
 import { getComplianceDashboard } from "./dashboard.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import { getDataInventory } from "./data-inventory.js";
@@ -978,7 +979,8 @@ export class ReportGenerator {
           });
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`report-generator: list generated reports: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore errors
     }
 

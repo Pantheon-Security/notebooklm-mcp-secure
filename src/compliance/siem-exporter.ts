@@ -13,6 +13,7 @@ import path from "path";
 import fs from "fs";
 import { getConfig } from "../config.js";
 import { mkdirSecure, appendFileSecure } from "../utils/file-permissions.js";
+import { log } from "../utils/logger.js";
 import type { SIEMConfig, SIEMFormat, AlertSeverity } from "./types.js";
 
 /**
@@ -359,7 +360,8 @@ export class SIEMExporter {
       setTimeout(() => {
         try {
           client.close();
-        } catch {
+        } catch (err) {
+          log.debug(`siem-exporter: close TCP client on timeout: ${err instanceof Error ? err.message : String(err)}`);
           // Ignore
         }
         resolve(false);
@@ -413,7 +415,8 @@ export class SIEMExporter {
         if (success) {
           return true;
         }
-      } catch {
+      } catch (err) {
+        log.debug(`siem-exporter: sendToEndpoint HTTP post attempt: ${err instanceof Error ? err.message : String(err)}`);
         // Retry
       }
 
@@ -465,7 +468,8 @@ export class SIEMExporter {
 
         req.write(body);
         req.end();
-      } catch {
+      } catch (err) {
+        log.debug(`siem-exporter: httpPost create request: ${err instanceof Error ? err.message : String(err)}`);
         resolve(false);
       }
     });
@@ -490,7 +494,8 @@ export class SIEMExporter {
       const fileName = `failed-${new Date().toISOString().split("T")[0]}.jsonl`;
       const filePath = path.join(this.failedDir, fileName);
       appendFileSecure(filePath, JSON.stringify(event) + "\n");
-    } catch {
+    } catch (err) {
+      log.debug(`siem-exporter: saveFailedEvent write to file: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore save errors
     }
   }
@@ -526,7 +531,8 @@ export class SIEMExporter {
               failed++;
               remainingEvents.push(event);
             }
-          } catch {
+          } catch (err) {
+            log.debug(`siem-exporter: retryFailed parse event line: ${err instanceof Error ? err.message : String(err)}`);
             // Skip malformed events
           }
         }
@@ -541,7 +547,8 @@ export class SIEMExporter {
           );
         }
       }
-    } catch {
+    } catch (err) {
+      log.debug(`siem-exporter: retryFailed process failed events: ${err instanceof Error ? err.message : String(err)}`);
       // Ignore retry errors
     }
 

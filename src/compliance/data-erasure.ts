@@ -166,7 +166,8 @@ export class DataErasureManager {
         const data = JSON.parse(content);
         this.erasureRequests = data.requests || [];
       }
-    } catch {
+    } catch (err) {
+      log.debug(`data-erasure: load erasure log from file: ${err instanceof Error ? err.message : String(err)}`);
       this.erasureRequests = [];
     }
 

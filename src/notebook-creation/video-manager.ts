@@ -100,7 +100,8 @@ export class VideoManager {
         ".create-artifact-button-container, [class*='create-artifact'][role='button'], .toggle-studio-panel-button",
         { timeout: 30000 }
       );
-    } catch {
+    } catch (err) {
+      log.debug(`video-manager: waiting for studio panel selector in ensureStudioPanelOpen: ${err instanceof Error ? err.message : String(err)}`);
       // Neither element appeared — fall through to the evaluate below which will return false
     }
 
@@ -230,7 +231,8 @@ export class VideoManager {
       await page.waitForSelector('mat-dialog-container[role="dialog"]', { timeout: 5000 });
       await randomDelay(500, 800);
       return true;
-    } catch {
+    } catch (err) {
+      log.debug(`video-manager: waiting for customise dialog to appear: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
   }
@@ -465,7 +467,8 @@ export class VideoManager {
     if (this.page) {
       try {
         await this.page.close();
-      } catch {
+      } catch (err) {
+        log.debug(`video-manager: closing page: ${err instanceof Error ? err.message : String(err)}`);
         // Ignore close errors
       }
       this.page = null;

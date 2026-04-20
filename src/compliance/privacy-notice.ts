@@ -11,6 +11,7 @@ import path from "path";
 import fs from "fs";
 import { getConfig } from "../config.js";
 import { writeFileSecure, mkdirSecure } from "../utils/file-permissions.js";
+import { log } from "../utils/logger.js";
 import { getConsentManager } from "./consent-manager.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import {
@@ -66,7 +67,8 @@ export class PrivacyNoticeManager {
         const data = JSON.parse(content);
         this.acknowledgments = data.acknowledgments || [];
       }
-    } catch {
+    } catch (err) {
+      log.debug(`privacy-notice: load acknowledgments from file: ${err instanceof Error ? err.message : String(err)}`);
       this.acknowledgments = [];
     }
 
