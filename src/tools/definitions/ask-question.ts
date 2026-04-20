@@ -9,14 +9,11 @@ export function buildAskQuestionDescription(library: NotebookLibrary): string {
   const bt = "`"; // Backtick helper to avoid template literal issues
 
   if (active) {
-    const topics = active.topics.join(", ");
     const useCases = active.use_cases.map((uc) => `  - ${uc}`).join("\n");
 
     return `# NotebookLM Research (Browser-Based • NO API KEY REQUIRED)
 
-**Active Notebook:** ${active.name}
-**Content:** ${active.description}
-**Topics:** ${topics}
+**Active Notebook:** [set — use get_notebook to see details]
 
 > **IMPORTANT:** This tool uses browser automation - NO GEMINI_API_KEY needed! Just requires browser authentication via setup_auth.
 
@@ -93,7 +90,7 @@ A4: [Complete example with full context]
 ${bt}${bt}${bt}
     
 ## Notebook Selection
-- Default: active notebook (${active.id})
+- Default: active notebook (use get_notebook to see ID)
 - Or set notebook_id to use a library notebook
 - Or set notebook_url for ad-hoc notebooks (not in library)
 - If ambiguous which notebook fits, ASK the user which to use`;
