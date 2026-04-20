@@ -29,6 +29,36 @@ const ICONS = {
   metadata: svgIcon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`),
 };
 
+const DEFAULT_RESOURCE_LIMIT = 100;
+const MAX_RESOURCE_LIMIT = 500;
+
+interface ListResourcesParams {
+  limit?: number;
+}
+
+interface CompletionRequestParams {
+  ref?: {
+    type?: string;
+    uri?: string;
+  };
+  argument?: {
+    name?: string;
+    value?: unknown;
+  };
+}
+
+function sanitizeUserUri(uri: string): string {
+  return uri.slice(0, 100).replace(/[\r\n]/g, "");
+}
+
+function isDeprecatedResource(resource: Pick<Resource, "uri" | "name">): boolean {
+  return (
+    resource.uri === "notebooklm://metadata" ||
+    /deprecated/i.test(resource.uri) ||
+    /deprecated/i.test(resource.name)
+  );
+}
+
 /**
  * Handlers for MCP Resource-related requests
  */
@@ -44,8 +74,13 @@ export class ResourceHandlers {
    */
   public registerHandlers(server: Server): void {
     // List available resources (enhanced with icons and annotations)
-    server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    server.setRequestHandler(ListResourcesRequestSchema, async (request) => {
       log.info("📚 [MCP] list_resources request received");
+      const { limit } = (request.params ?? {}) as ListResourcesParams;
+      const effectiveLimit = Math.min(
+        Math.max(limit ?? DEFAULT_RESOURCE_LIMIT, 1),
+        MAX_RESOURCE_LIMIT
+      );
 
       const notebooks = this.library.listNotebooks();
       const resources: Resource[] = [
@@ -59,7 +94,7 @@ export class ResourceHandlers {
             "⚠️ If you think a notebook might help with the user's task, " +
             "ASK THE USER FOR PERMISSION before consulting it: " +
             "'Should I consult the [notebook] for this task?'",
-          mimeType: "application/json",
+          mimeType: "text/plain",
           icons: [ICONS.library],
           annotations: {
             audience: ["assistant"],
@@ -77,7 +112,7 @@ export class ResourceHandlers {
           description:
             `${notebook.description} | Topics: ${notebook.topics.join(", ")} | ` +
             `💡 Use ask_question to query this notebook (ask user permission first if task isn't explicitly about these topics)`,
-          mimeType: "application/json",
+          mimeType: "text/plain",
           icons: [ICONS.notebook],
           annotations: {
             audience: ["assistant"],
@@ -98,7 +133,7 @@ export class ResourceHandlers {
             "Information about the currently active notebook. " +
             "DEPRECATED: Use notebooklm://library instead for multi-notebook support. " +
             "⚠️ Always ask user permission before using notebooks for tasks they didn't explicitly mention.",
-          mimeType: "application/json",
+          mimeType: "text/plain",
           icons: [ICONS.metadata],
           annotations: {
             audience: ["assistant"],
@@ -107,7 +142,14 @@ export class ResourceHandlers {
         });
       }
 
-      return { resources };
+      const filteredResources = resources.filter((resource) => !isDeprecatedResource(resource));
+      if (filteredResources.length > effectiveLimit) {
+        log.warning(
+          `⚠️ [MCP] resource list exceeds limit (${filteredResources.length} > ${effectiveLimit}); truncating response`
+        );
+      }
+
+      return { resources: filteredResources.slice(0, effectiveLimit) };
     });
 
     // List resource templates
@@ -123,7 +165,7 @@ export class ResourceHandlers {
               "Access a specific notebook from your library by ID. " +
               "Provides detailed metadata about the notebook including topics, use cases, and usage statistics. " +
               "💡 Use the 'id' parameter from list_notebooks to access specific notebooks.",
-            mimeType: "application/json",
+            mimeType: "text/plain",
           },
         ],
       };
@@ -189,19 +231,21 @@ export class ResourceHandlers {
         try {
           id = decodeURIComponent(encodedId);
         } catch {
-          throw new Error(`Invalid notebook identifier encoding: ${encodedId}`);
+          throw new Error(
+            `Invalid notebook identifier encoding: ${sanitizeUserUri(encodedId)}`
+          );
         }
 
-        if (!/^[a-z0-9][a-z0-9-]{0,62}$/i.test(id)) {
+        if (!/^[a-z0-9][a-z0-9-]{0,127}$/i.test(id)) {
           throw new Error(
-            `Invalid notebook identifier: ${encodedId}. Notebook IDs may only contain letters, numbers, and hyphens.`
+            `Invalid notebook identifier: ${sanitizeUserUri(encodedId)}. Notebook IDs may only contain letters, numbers, and hyphens.`
           );
         }
 
         const notebook = this.library.getNotebook(id);
 
         if (!notebook) {
-          throw new Error(`Notebook not found: ${id}`);
+          throw new Error(`Notebook not found: ${sanitizeUserUri(id)}`);
         }
 
         return {
@@ -248,12 +292,12 @@ export class ResourceHandlers {
         };
       }
 
-      throw new Error(`Unknown resource: ${uri}`);
+      throw new Error(`Unknown resource: ${sanitizeUserUri(uri)}`);
     });
 
     // Argument completions (for prompt arguments and resource templates)
     server.setRequestHandler(CompleteRequestSchema, async (request) => {
-      const { ref, argument } = request.params as any;
+      const { ref, argument } = request.params as CompletionRequestParams;
       try {
         if (ref?.type === "ref/resource") {
           // Complete variables for resource templates
@@ -261,13 +305,13 @@ export class ResourceHandlers {
           // Notebook by ID template
           if (uri === "notebooklm://library/{id}" && argument?.name === "id") {
             const values = this.completeNotebookIds(argument?.value);
-            return this.buildCompletion(values) as any;
+            return this.buildCompletion(values);
           }
         }
       } catch (e) {
         log.warning(`⚠️  [MCP] completion error: ${e}`);
       }
-      return { completion: { values: [], total: 0 } } as any;
+      return { completion: { values: [], total: 0 } };
     });
 
     // List available prompts
