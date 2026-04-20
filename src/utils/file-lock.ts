@@ -32,13 +32,23 @@ export interface LockOptions {
   staleThreshold?: number;
 }
 
+function parseIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 /**
  * Default lock options
  */
 const DEFAULT_OPTIONS: Required<LockOptions> = {
-  timeout: parseInt(process.env.NLMCP_LOCK_TIMEOUT_MS || "10000", 10),
+  timeout: parseIntegerEnv("NLMCP_LOCK_TIMEOUT_MS", 10000),
   retryInterval: 100,
-  staleThreshold: parseInt(process.env.NLMCP_LOCK_STALE_MS || "30000", 10),
+  staleThreshold: parseIntegerEnv("NLMCP_LOCK_STALE_MS", 900_000),
 };
 
 /**
@@ -80,6 +90,16 @@ export class FileLock {
   async acquire(options?: LockOptions): Promise<boolean> {
     const opts = { ...DEFAULT_OPTIONS, ...options };
     const startTime = Date.now();
+    const lowerLockPath = this.lockPath.toLowerCase();
+
+    if (
+      lowerLockPath.includes("/nfs/") ||
+      lowerLockPath.includes("/smb/") ||
+      this.lockPath.includes("//") ||
+      this.lockPath.includes("\\\\")
+    ) {
+      log.warning("Warning: file lock on network path may be unreliable");
+    }
 
     while (Date.now() - startTime < opts.timeout) {
       try {
@@ -155,15 +175,30 @@ export class FileLock {
   release(): void {
     if (!this.acquired) return;
 
+    const tempPath = `${this.lockPath}.${this.lockId}.release`;
+
     try {
-      // Verify we own the lock before releasing
       if (fs.existsSync(this.lockPath)) {
         try {
           const content = fs.readFileSync(this.lockPath, "utf-8");
           const existing = JSON.parse(content) as LockContent;
 
           if (existing.lockId === this.lockId) {
-            fs.unlinkSync(this.lockPath);
+            fs.writeFileSync(tempPath, content, { mode: 0o600 });
+
+            const verifiedContent = fs.readFileSync(this.lockPath, "utf-8");
+            const verified = JSON.parse(verifiedContent) as LockContent;
+            if (verified.lockId === this.lockId) {
+              fs.renameSync(tempPath, this.lockPath);
+
+              const finalContent = fs.readFileSync(this.lockPath, "utf-8");
+              const finalLock = JSON.parse(finalContent) as LockContent;
+              if (finalLock.lockId === this.lockId) {
+                fs.unlinkSync(this.lockPath);
+              } else {
+                log.warning(`⚠️ Lock changed before release completed, not deleting`);
+              }
+            }
           } else {
             log.warning(`⚠️ Lock owned by different process, not releasing`);
           }
@@ -173,6 +208,14 @@ export class FileLock {
       }
     } catch {
       // Ignore errors during release
+    } finally {
+      try {
+        if (fs.existsSync(tempPath)) {
+          fs.unlinkSync(tempPath);
+        }
+      } catch {
+        // Ignore temp cleanup errors
+      }
     }
 
     this.acquired = false;
@@ -238,7 +281,8 @@ export function isLocked(filePath: string, staleThreshold?: number): boolean {
     // Consider stale locks as not locked
     return age <= threshold;
   } catch {
-    return false;
+    log.warning("corrupt lock file — treating as locked");
+    return true;
   }
 }
 
@@ -251,13 +295,39 @@ export function forceUnlock(filePath: string): boolean {
   const lockPath = filePath + ".lock";
 
   try {
-    if (fs.existsSync(lockPath)) {
-      fs.unlinkSync(lockPath);
-      log.info(`🔓 Force removed lock: ${lockPath}`);
-      return true;
+    if (!fs.existsSync(lockPath)) {
+      return false;
     }
-    return false;
+
+    try {
+      const content = fs.readFileSync(lockPath, "utf-8");
+      const existing = JSON.parse(content) as LockContent;
+
+      if (!Number.isInteger(existing.pid) || existing.pid <= 0) {
+        throw new Error(`Invalid lock file PID: ${existing.pid}`);
+      }
+
+      process.kill(existing.pid, 0);
+      throw new Error(
+        `Cannot force-unlock: owning process ${existing.pid} is still running.`
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith("Cannot force-unlock:")
+      ) {
+        throw error;
+      }
+    }
+
+    fs.unlinkSync(lockPath);
+    log.info(`🔓 Force removed lock: ${lockPath}`);
+    return true;
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Cannot force-unlock:")) {
+      throw error;
+    }
+
     log.error(`❌ Failed to force remove lock: ${error}`);
     return false;
   }
