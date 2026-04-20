@@ -197,16 +197,21 @@ export function parseBoolean(value: string | undefined, defaultValue: boolean): 
  */
 export function parseInteger(value: string | undefined, defaultValue: number): number {
   if (value === undefined) return defaultValue;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isNaN(parsed) ? defaultValue : parsed;
+  if (value.trim() === "") return defaultValue;
+  const parsed = Number(value);
+  const result = Math.trunc(parsed);
+  if (!Number.isFinite(result) || !Number.isInteger(result)) {
+    return defaultValue;
+  }
+  return result;
 }
 
 /**
- * Parse comma-separated array (for env vars)
+ * Parse comma/semicolon-separated array (for env vars)
  */
 export function parseArray(value: string | undefined, defaultValue: string[]): string[] {
   if (!value) return defaultValue;
-  return value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  return value.split(/[,;]/).map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
 /**
@@ -318,7 +323,8 @@ function buildConfig(): Config {
 export const CONFIG: Config = buildConfig();
 
 /**
- * Get configuration (alias for CONFIG, used by compliance modules)
+ * Keep `getConfig()` as a stable import surface for modules that should not reach
+ * into the mutable config implementation details directly.
  */
 export function getConfig(): Config {
   return CONFIG;
@@ -329,6 +335,10 @@ export function getConfig(): Config {
  * NOTE: We do NOT create configDir - it's not needed!
  */
 export function ensureDirectories(): void {
+  if (process.env.NODE_ENV === "test") {
+    return;
+  }
+
   const dirs = [
     CONFIG.dataDir,
     CONFIG.browserStateDir,
@@ -413,6 +423,3 @@ export function applyBrowserOptions(
 
   return config;
 }
-
-// Create directories on import
-ensureDirectories();
