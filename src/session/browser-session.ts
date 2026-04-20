@@ -190,14 +190,8 @@ export class BrowserSession {
 
   private isPageClosedSafe(): boolean {
     if (!this.page) return true;
-    const p: any = this.page as any;
     try {
-      if (typeof p.isClosed === 'function') {
-        if (p.isClosed()) return true;
-      }
-      // Accessing URL should be safe; if page is gone, this may throw
-      void this.page.url();
-      return false;
+      return this.page.isClosed();
     } catch {
       return true;
     }

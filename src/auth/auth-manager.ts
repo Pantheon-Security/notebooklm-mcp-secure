@@ -14,7 +14,7 @@
 
 import type { BrowserContext, Page } from "patchright";
 import fs from "fs/promises";
-import { existsSync } from "fs";
+import { chmodSync, existsSync } from "fs";
 import path from "path";
 import { CONFIG, NOTEBOOKLM_AUTH_URL } from "../config.js";
 import { log } from "../utils/logger.js";
@@ -172,8 +172,10 @@ export class AuthManager {
       const encType = status.postQuantumEnabled ? "ML-KEM-768 + ChaCha20" : "ChaCha20-Poly1305";
       log.success(`✅ Loaded sessionStorage with ${encType} decryption (${Object.keys(sessionData).length} entries)`);
       return sessionData;
-    } catch (error) {
-      log.warning(`⚠️  Failed to load sessionStorage: ${error}`);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        log.debug(`loadSessionStorage: parse error — ${err instanceof Error ? err.message : String(err)}`);
+      }
       return null;
     }
   }
@@ -469,6 +471,9 @@ export class AuthManager {
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
+          if (page.isClosed()) {
+            throw new Error('Login page closed unexpectedly');
+          }
           const currentUrl = page.url();
           const elapsedSeconds = Math.floor(attempt * (checkIntervalMs / 1000));
 
@@ -636,6 +641,7 @@ export class AuthManager {
         `login_failed_${Date.now()}.png`
       );
       await page.screenshot({ path: screenshotPath });
+      chmodSync(screenshotPath, 0o600);
       log.info(`  📸 Screenshot saved: ${screenshotPath}`);
     } catch (error) {
       log.warning(`  ⚠️  Could not save screenshot: ${error}`);

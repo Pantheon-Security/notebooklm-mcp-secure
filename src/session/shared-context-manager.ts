@@ -255,11 +255,14 @@ export class SharedContextManager {
     this.currentHeadlessMode = shouldBeHeadless;
     // Track close event to force recreation next time
     try {
-      this.globalContext.on("close", () => {
+      const capturedContext = this.globalContext;
+      capturedContext.on("close", () => {
         log.warning("  🛑 Persistent context was closed externally");
-        this.globalContext = null;
-        this.contextCreatedAt = null;
-        this.currentHeadlessMode = null;
+        if (this.globalContext === capturedContext) {
+          this.globalContext = null;
+          this.contextCreatedAt = null;
+          this.currentHeadlessMode = null;
+        }
       });
     } catch {}
 
