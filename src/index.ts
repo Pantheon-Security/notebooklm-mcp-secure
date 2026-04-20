@@ -281,12 +281,12 @@ class NotebookLMMCPServer {
       }
     }
 
-    // List available tools
+    // List available tools — rebuild each call so ask_question description reflects current notebook (I022)
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       log.info("📋 [MCP] list_tools request received");
-      return {
-        tools: this.toolDefinitions,
-      };
+      const allTools = buildToolDefinitions(this.library) as Tool[];
+      const tools = this.settingsManager.filterTools(allTools);
+      return { tools };
     });
 
     // Handle tool calls
