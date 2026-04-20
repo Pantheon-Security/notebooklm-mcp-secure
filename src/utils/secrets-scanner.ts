@@ -446,8 +446,8 @@ export class SecretsScanner {
       }
     }
 
-    // Audit log
-    await audit.security("secrets_detected", criticalCount > 0 ? "critical" : "warning", {
+    // Audit log — fire-and-forget; never let audit failure abort redaction (I324)
+    audit.security("secrets_detected", criticalCount > 0 ? "critical" : "warning", {
       count: secrets.length,
       types: [...new Set(secrets.map((s) => s.type))],
       severities: {
@@ -456,7 +456,7 @@ export class SecretsScanner {
         medium: secrets.filter((s) => s.severity === "medium").length,
         low: secrets.filter((s) => s.severity === "low").length,
       },
-    });
+    }).catch((err) => log.debug(`audit.security failed in scanAndRedact: ${err instanceof Error ? err.message : String(err)}`));
 
     // Check if we should block
     if (this.config.blockOnDetection && (criticalCount > 0 || highCount > 0)) {
