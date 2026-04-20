@@ -60,6 +60,7 @@ import {
   validateWebhookUrl,
   WebhookDispatcher,
 } from "../src/webhooks/webhook-dispatcher.js";
+import { log } from "../src/utils/logger.js";
 
 beforeEach(() => {
   // DNS lookup makes tests slow and non-hermetic; default off for this
@@ -309,6 +310,58 @@ describe("WebhookDispatcher", () => {
       expect(result.success).toBe(false);
       const stats = dispatcher.getStats();
       expect(stats.failureCount).toBeGreaterThanOrEqual(1);
+    });
+
+    it("records each retry attempt and emits structured attempt logs", async () => {
+      const warningSpy = vi.spyOn(log, "warning").mockImplementation(() => undefined);
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(new Response("", { status: 500 }))
+        .mockResolvedValueOnce(new Response("", { status: 502 }))
+        .mockResolvedValueOnce(new Response("", { status: 200 }));
+
+      const wh = await dispatcher.addWebhook({
+        name: "flaky",
+        url: "https://example.com/hook",
+        events: ["*"],
+      });
+
+      const before = dispatcher.getStats();
+      const result = await dispatcher.testWebhook(wh.id);
+      expect(result.success).toBe(true);
+
+      const stats = dispatcher.getStats();
+      expect(stats.totalDeliveries - before.totalDeliveries).toBe(3);
+      expect(
+        warningSpy.mock.calls.filter(([message]) => String(message).includes("webhook_dispatcher delivery_attempt"))
+      ).toHaveLength(3);
+    });
+
+    it("opens the circuit after repeated permanent failures and skips later sends", async () => {
+      vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("connection refused"));
+
+      const wh = await dispatcher.addWebhook({
+        name: "always-down",
+        url: "https://example.com/hook",
+        events: ["*"],
+      });
+      const stored = dispatcher.getWebhook(wh.id);
+      expect(stored).not.toBeNull();
+      if (!stored) {
+        throw new Error("Expected webhook to exist after addWebhook");
+      }
+      stored.retryCount = 1;
+      stored.retryDelayMs = 0;
+
+      for (let i = 0; i < 5; i++) {
+        const result = await dispatcher.testWebhook(wh.id);
+        expect(result.success).toBe(false);
+      }
+
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      const before = fetchSpy.mock.calls.length;
+      const result = await dispatcher.testWebhook(wh.id);
+      expect(result.success).toBe(false);
+      expect(fetchSpy.mock.calls.length).toBe(before);
     });
   });
 });

@@ -238,4 +238,23 @@ describe("AuthManager", () => {
       expect(await am.hardResetState()).toBe(true);
     });
   });
+
+  describe("performLogin", () => {
+    it("honors an AbortSignal and exits without polling for the full window", async () => {
+      const am = new AuthManager();
+      const signal = AbortSignal.abort(new Error("cancelled"));
+      const page = {
+        goto: vi.fn().mockResolvedValue(undefined),
+        isClosed: vi.fn().mockReturnValue(false),
+        url: vi.fn().mockReturnValue("https://accounts.google.com/signin"),
+        waitForTimeout: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const result = await am.performLogin(page as never, undefined, signal);
+
+      expect(result).toBe(false);
+      expect(page.goto).not.toHaveBeenCalled();
+      expect(page.waitForTimeout).not.toHaveBeenCalled();
+    });
+  });
 });

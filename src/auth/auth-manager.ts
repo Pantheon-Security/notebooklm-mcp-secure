@@ -449,8 +449,15 @@ export class AuthManager {
    *
    * SIMPLE & RELIABLE: Just wait for URL to change to notebooklm.google.com
    */
-  async performLogin(page: Page, sendProgress?: ProgressCallback): Promise<boolean> {
+  async performLogin(
+    page: Page,
+    sendProgress?: ProgressCallback,
+    signal?: AbortSignal
+  ): Promise<boolean> {
     try {
+      if (signal?.aborted) {
+        throw signal.reason instanceof Error ? signal.reason : new Error("Login aborted");
+      }
       log.info("🌐 Opening Google login page...");
       log.warning("📝 Please login to your Google account");
       log.warning("⏳ Browser will close automatically once you reach NotebookLM");
@@ -474,6 +481,9 @@ export class AuthManager {
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
+          if (signal?.aborted) {
+            throw signal.reason instanceof Error ? signal.reason : new Error("Login aborted");
+          }
           if (page.isClosed()) {
             throw new Error('Login page closed unexpectedly');
           }
@@ -509,6 +519,9 @@ export class AuthManager {
 
           await page.waitForTimeout(checkIntervalMs);
         } catch (err) {
+          if (signal?.aborted) {
+            throw err;
+          }
           log.debug(`auth-manager: performLogin page URL check failed: ${err instanceof Error ? err.message : String(err)}`);
           await page.waitForTimeout(checkIntervalMs);
           continue;
@@ -516,6 +529,9 @@ export class AuthManager {
       }
 
       // Timeout reached - final check
+      if (signal?.aborted) {
+        throw signal.reason instanceof Error ? signal.reason : new Error("Login aborted");
+      }
       const currentUrl = page.url();
       if (currentUrl.startsWith("https://notebooklm.google.com/")) {
         await sendProgress?.("Login successful (detected on timeout check)!", 9, 10);
@@ -1161,7 +1177,17 @@ export class AuthManager {
         const page = pages.length > 0 ? pages[0] : await context.newPage();
 
         // Perform login with progress updates
-        const loginSuccess = await this.performLogin(page, sendProgress);
+        const loginTimeoutController = new AbortController();
+        const loginTimeoutId = setTimeout(() => {
+          loginTimeoutController.abort(new Error("Login timed out after 120 seconds"));
+        }, 120000);
+
+        let loginSuccess = false;
+        try {
+          loginSuccess = await this.performLogin(page, sendProgress, loginTimeoutController.signal);
+        } finally {
+          clearTimeout(loginTimeoutId);
+        }
 
         if (loginSuccess) {
           // ✅ Save browser state to state.json (for validation & backup)

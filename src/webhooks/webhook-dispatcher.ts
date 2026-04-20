@@ -41,6 +41,12 @@ interface WebhooksStore {
   version: string;
 }
 
+interface CircuitBreakerState {
+  consecutiveFailures: number;
+  openUntil?: number;
+  halfOpenProbeInFlight: boolean;
+}
+
 type WebhookUrlValidation =
   | { ok: true; url: URL }
   | { ok: false; error: string };
@@ -182,6 +188,9 @@ export class WebhookDispatcher {
   private unsubscribe: (() => void) | null = null;
   private deliveryHistory: WebhookDelivery[] = [];
   private maxDeliveryHistory = 100;
+  private readonly circuitBreakerThreshold = 5;
+  private readonly circuitBreakerResetMs = 60_000;
+  private circuitBreakers = new Map<string, CircuitBreakerState>();
   // In-memory SecureCredential store for webhook secrets (I321)
   private webhookSecrets = new Map<string, SecureCredential>();
   // Serialises saveStore() writes so concurrent addWebhook/removeWebhook don't interleave (I277)
@@ -325,6 +334,105 @@ export class WebhookDispatcher {
     return webhook.events.includes(eventType);
   }
 
+  private getCircuitBreakerState(webhookId: string): CircuitBreakerState {
+    const existing = this.circuitBreakers.get(webhookId);
+    if (existing) return existing;
+
+    const state: CircuitBreakerState = {
+      consecutiveFailures: 0,
+      halfOpenProbeInFlight: false,
+    };
+    this.circuitBreakers.set(webhookId, state);
+    return state;
+  }
+
+  private shouldSkipForOpenCircuit(webhook: WebhookConfig): boolean {
+    const state = this.getCircuitBreakerState(webhook.id);
+    if (!state.openUntil) return false;
+
+    const now = Date.now();
+    if (state.openUntil > now) {
+      log.warning(
+        `webhook_dispatcher circuit_open ${JSON.stringify({
+          webhookId: webhook.id,
+          webhookName: webhook.name,
+          urlHost: this.safeHost(webhook.url),
+          openUntil: new Date(state.openUntil).toISOString(),
+        })}`
+      );
+      return true;
+    }
+
+    if (state.halfOpenProbeInFlight) {
+      log.warning(
+        `webhook_dispatcher circuit_half_open_busy ${JSON.stringify({
+          webhookId: webhook.id,
+          webhookName: webhook.name,
+          urlHost: this.safeHost(webhook.url),
+        })}`
+      );
+      return true;
+    }
+
+    state.halfOpenProbeInFlight = true;
+    log.warning(
+      `webhook_dispatcher circuit_half_open_probe ${JSON.stringify({
+        webhookId: webhook.id,
+        webhookName: webhook.name,
+        urlHost: this.safeHost(webhook.url),
+      })}`
+    );
+    return false;
+  }
+
+  private onDeliverySuccess(webhook: WebhookConfig): void {
+    const state = this.getCircuitBreakerState(webhook.id);
+    state.consecutiveFailures = 0;
+    state.openUntil = undefined;
+    state.halfOpenProbeInFlight = false;
+  }
+
+  private onDeliveryFailure(webhook: WebhookConfig): void {
+    const state = this.getCircuitBreakerState(webhook.id);
+    state.consecutiveFailures += 1;
+    state.halfOpenProbeInFlight = false;
+
+    if (state.consecutiveFailures >= this.circuitBreakerThreshold) {
+      state.openUntil = Date.now() + this.circuitBreakerResetMs;
+      log.warning(
+        `webhook_dispatcher circuit_opened ${JSON.stringify({
+          webhookId: webhook.id,
+          webhookName: webhook.name,
+          urlHost: this.safeHost(webhook.url),
+          consecutiveFailures: state.consecutiveFailures,
+          openUntil: new Date(state.openUntil).toISOString(),
+        })}`
+      );
+    }
+  }
+
+  private logAttempt(
+    webhook: WebhookConfig,
+    event: SystemEvent,
+    attempt: number,
+    maxAttempts: number,
+    delivery: WebhookDelivery
+  ): void {
+    log.warning(
+      `webhook_dispatcher delivery_attempt ${JSON.stringify({
+        webhookId: webhook.id,
+        webhookName: webhook.name,
+        eventType: event.type,
+        attempt,
+        maxAttempts,
+        success: delivery.success,
+        statusCode: delivery.statusCode,
+        error: delivery.error,
+        durationMs: delivery.durationMs,
+      })}`
+    );
+  }
+
   /**
    * Send event with retry logic.
    *
@@ -337,6 +445,10 @@ export class WebhookDispatcher {
     webhook: WebhookConfig,
     event: SystemEvent
   ): Promise<boolean> {
+    if (this.shouldSkipForOpenCircuit(webhook)) {
+      return false;
+    }
+
     // Cap retries: max 3 attempts, max 10 s per-request timeout (I276)
     const maxAttempts = Math.min(webhook.retryCount ?? 3, 3);
     const baseDelay = Math.min(webhook.retryDelayMs ?? 1000, 2000);
@@ -375,28 +487,31 @@ export class WebhookDispatcher {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-        const response = await fetch(webhook.url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "User-Agent": `notebooklm-mcp/${process.env.npm_package_version ?? "2026.2.11"}`,
-            ...(signature && {
-              "X-Webhook-Signature": signature,
-              "X-Webhook-Timestamp": String(timestamp),
-            }),
-            ...safeCustomHeaders,
-          },
-          body: payload,
-          signal: controller.signal,
-          // Refuse redirects — a pre-validated host redirecting to cloud
-          // metadata (169.254.169.254) would otherwise bypass validateWebhookUrl.
-          redirect: "error",
-        });
-
-        clearTimeout(timeoutId);
+        let response: Response;
+        try {
+          response = await fetch(webhook.url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": `notebooklm-mcp/${process.env.npm_package_version ?? "2026.2.11"}`,
+              ...(signature && {
+                "X-Webhook-Signature": signature,
+                "X-Webhook-Timestamp": String(timestamp),
+              }),
+              ...safeCustomHeaders,
+            },
+            body: payload,
+            signal: controller.signal,
+            // Refuse redirects — a pre-validated host redirecting to cloud
+            // metadata (169.254.169.254) would otherwise bypass validateWebhookUrl.
+            redirect: "error",
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
 
         const delivery: WebhookDelivery = {
-          id: deliveryId,
+          id: `${deliveryId}-${attempt}`,
           webhookId: webhook.id,
           eventType: event.type,
           timestamp: new Date().toISOString(),
@@ -407,8 +522,10 @@ export class WebhookDispatcher {
         };
 
         this.recordDelivery(delivery);
+        this.logAttempt(webhook, event, attempt, maxAttempts, delivery);
 
         if (response.ok) {
+          this.onDeliverySuccess(webhook);
           log.dim(`  ✅ Webhook delivered: ${webhook.name} (${event.type})`);
           return true;
         }
@@ -418,19 +535,21 @@ export class WebhookDispatcher {
         );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
+        const delivery: WebhookDelivery = {
+          id: `${deliveryId}-${attempt}`,
+          webhookId: webhook.id,
+          eventType: event.type,
+          timestamp: new Date().toISOString(),
+          success: false,
+          error: errorMessage,
+          attempts: attempt,
+          durationMs: Date.now() - startTime,
+        };
+        this.recordDelivery(delivery);
+        this.logAttempt(webhook, event, attempt, maxAttempts, delivery);
 
         if (attempt === maxAttempts) {
-          const delivery: WebhookDelivery = {
-            id: deliveryId,
-            webhookId: webhook.id,
-            eventType: event.type,
-            timestamp: new Date().toISOString(),
-            success: false,
-            error: errorMessage,
-            attempts: attempt,
-            durationMs: Date.now() - startTime,
-          };
-          this.recordDelivery(delivery);
+          this.onDeliveryFailure(webhook);
           log.error(`  ❌ Webhook failed permanently: ${webhook.name} - ${errorMessage}`);
           return false;
         }
@@ -447,6 +566,7 @@ export class WebhookDispatcher {
       }
     }
 
+    this.onDeliveryFailure(webhook);
     return false;
   }
 
@@ -772,6 +892,7 @@ export class WebhookDispatcher {
     const webhook = this.store.webhooks[index];
     this.store.webhooks.splice(index, 1);
     this.webhookSecrets.delete(id); // cleanup SecureCredential (I321)
+    this.circuitBreakers.delete(id);
     this.saveStore();
 
     log.success(`✅ Webhook removed: ${webhook.name}`);
