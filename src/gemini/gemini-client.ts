@@ -170,8 +170,8 @@ export class GeminiClient {
    */
   private getDeprecationWarning(model: string): string | null {
     const DEPRECATED_MODELS: Record<string, string> = {
-      "gemini-2.5-flash": "gemini-2.5-flash is retiring March 31, 2026. Migrate to gemini-3-flash-preview.",
-      "gemini-2.5-pro": "gemini-2.5-pro is retiring March 31, 2026. Migrate to gemini-3-pro-preview.",
+      "gemini-2.5-flash": "gemini-2.5-flash was retired March 31, 2026. Use gemini-3-flash-preview instead.",
+      "gemini-2.5-pro": "gemini-2.5-pro was retired March 31, 2026. Use gemini-3-pro-preview instead.",
     };
     return DEPRECATED_MODELS[model] || null;
   }
