@@ -85,8 +85,9 @@ export function validateNotebookUrl(url: string): string {
     throw new SecurityError(`Domain not allowed: ${hostname}. Only NotebookLM domains are permitted.`);
   }
 
-  // Block path traversal attempts
-  if (parsed.pathname.includes('..') || parsed.pathname.includes('%2e%2e')) {
+  // Block path traversal attempts (URL.pathname already normalises percent-encoding)
+  const decodedPath = decodeURIComponent(parsed.pathname).toLowerCase();
+  if (decodedPath.includes('..')) {
     throw new SecurityError('Path traversal not allowed');
   }
 
@@ -319,6 +320,11 @@ export function checkSecurityContext(): { secure: boolean; warnings: string[] } 
   // Check for plaintext credentials in env
   if (process.env.LOGIN_PASSWORD) {
     warnings.push('LOGIN_PASSWORD is set in environment - consider using a secrets manager');
+  }
+
+  // Check for authentication disabled
+  if (process.env.NLMCP_AUTH_DISABLED === 'true' || process.env.NLMCP_AUTH_ENABLED === 'false') {
+    warnings.push('MCP authentication is disabled (NLMCP_AUTH_DISABLED) - all tools are accessible without a token');
   }
 
   // Check for debug mode

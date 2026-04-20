@@ -508,6 +508,18 @@ class NotebookLMMCPServer {
     await mcpAuth.initialize();
     const authStatus = mcpAuth.getStatus();
 
+    // Audit: verify hash-chain integrity from previous run (I218)
+    try {
+      const integrity = await getAuditLogger().verifyIntegrity();
+      if (!integrity.valid) {
+        log.warning(`⚠️ Audit log integrity check failed: ${integrity.errors.join(", ")}`);
+      } else {
+        log.info("🔒 Audit log integrity verified");
+      }
+    } catch (err) {
+      log.warning(`⚠️ Audit integrity check error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
     // Compliance: surface privacy notice on first run and schedule retention.
     await this.bootstrapCompliance();
 
