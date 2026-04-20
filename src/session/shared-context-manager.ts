@@ -48,6 +48,11 @@ export class SharedContextManager {
     // Must match auth-manager.ts authLockPath for coordination
     this.authLockPath = path.join(CONFIG.dataDir, ".auth-in-progress");
 
+    // Warn if running as root — Chrome sandbox disables itself (I133)
+    if (typeof process.getuid === "function" && process.getuid() === 0) {
+      log.warning("⚠️  Running as root: Chrome sandbox is disabled. Use a non-root user for production.");
+    }
+
     log.info("🌐 SharedContextManager initialized (PERSISTENT MODE)");
     log.info(`  Chrome Profile: ${CONFIG.chromeProfileDir}`);
     log.success("  Fingerprint: PERSISTENT across restarts! 🎯");
@@ -198,6 +203,8 @@ export class SharedContextManager {
         "--disable-dev-shm-usage",
         "--no-first-run",
         "--no-default-browser-check",
+        "--disable-extensions",
+        "--site-per-process",
       ],
     };
 
