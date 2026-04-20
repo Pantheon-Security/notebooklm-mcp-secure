@@ -12,6 +12,7 @@
 import envPaths from "env-paths";
 import fs from "fs";
 import path from "path";
+import { log } from "./utils/logger.js";
 import { mkdirSecure, PERMISSION_MODES } from "./utils/file-permissions.js";
 import { SecureCredential } from "./utils/secure-memory.js";
 
@@ -393,6 +394,26 @@ export function applyBrowserOptions(
 ): Config {
   const config = { ...CONFIG };
 
+  const coerceBooleanOption = (value: unknown, optionName: string): boolean | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value === "boolean") return value;
+
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === "true") {
+        log.warning(`Invalid browser option '${optionName}' received as string; coercing to boolean true`);
+        return true;
+      }
+      if (normalized === "false") {
+        log.warning(`Invalid browser option '${optionName}' received as string; coercing to boolean false`);
+        return false;
+      }
+    }
+
+    log.warning(`Invalid browser option '${optionName}' received; expected boolean but got ${typeof value}. Ignoring value.`);
+    return undefined;
+  };
+
   // Handle legacy show_browser parameter
   if (legacyShowBrowser !== undefined) {
     config.headless = !legacyShowBrowser;
@@ -400,11 +421,13 @@ export function applyBrowserOptions(
 
   // Apply browser_options (takes precedence over legacy parameter)
   if (options) {
-    if (options.show !== undefined) {
-      config.headless = !options.show;
+    const show = coerceBooleanOption(options.show, "show");
+    if (show !== undefined) {
+      config.headless = !show;
     }
-    if (options.headless !== undefined) {
-      config.headless = options.headless;
+    const headless = coerceBooleanOption(options.headless, "headless");
+    if (headless !== undefined) {
+      config.headless = headless;
     }
     if (options.timeout_ms !== undefined) {
       config.browserTimeout = options.timeout_ms;

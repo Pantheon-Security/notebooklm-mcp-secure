@@ -5,7 +5,7 @@
  * and applyBrowserOptions merging.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   parseBoolean,
   parseInteger,
@@ -13,8 +13,13 @@ import {
   applyBrowserOptions,
   CONFIG,
 } from "../src/config.js";
+import { log } from "../src/utils/logger.js";
 
 describe("Config Parsing", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   describe("parseBoolean", () => {
     it("should return true for 'true'", () => {
       expect(parseBoolean("true", false)).toBe(true);
@@ -137,6 +142,20 @@ describe("Config Parsing", () => {
     it("should apply headless option", () => {
       const result = applyBrowserOptions({ headless: false });
       expect(result.headless).toBe(false);
+    });
+
+    it("should coerce string headless values with a warning", () => {
+      const warningSpy = vi.spyOn(log, "warning").mockImplementation(() => undefined);
+      const result = applyBrowserOptions({ headless: "false" as never });
+      expect(result.headless).toBe(false);
+      expect(warningSpy).toHaveBeenCalledWith(expect.stringContaining("coercing to boolean false"));
+    });
+
+    it("should ignore invalid non-boolean headless values with a warning", () => {
+      const warningSpy = vi.spyOn(log, "warning").mockImplementation(() => undefined);
+      const result = applyBrowserOptions({ headless: 0 as never });
+      expect(result.headless).toBe(CONFIG.headless);
+      expect(warningSpy).toHaveBeenCalledWith(expect.stringContaining("expected boolean but got number"));
     });
 
     it("should apply timeout_ms option", () => {
