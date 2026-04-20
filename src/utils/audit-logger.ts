@@ -155,8 +155,9 @@ export class AuditLogger {
             this.previousHash = "GENESIS";
           }
         }
-      } catch {
-        // Start fresh if file is corrupted
+      } catch (err) {
+        // Log corruption rather than silently resetting — silent reset lets tampered chains pass (I217)
+        logger.warning(`audit log chain corruption detected in ${this.currentLogFile}: ${err instanceof Error ? err.message : String(err)}. Restarting hash chain.`);
         this.previousHash = "GENESIS";
       }
     }
