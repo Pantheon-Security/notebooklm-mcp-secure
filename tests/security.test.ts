@@ -10,6 +10,8 @@ import {
   validateQuestion,
   RateLimiter,
   SecurityError,
+  sanitizeForLogging,
+  maskEmail,
 } from "../src/utils/security.js";
 
 describe("Security Utilities", () => {
@@ -106,6 +108,17 @@ describe("Security Utilities", () => {
     it("should accept questions at the max length boundary", () => {
       const maxQuestion = "a".repeat(32000);
       expect(validateQuestion(maxQuestion)).toBe(maxQuestion);
+    });
+  });
+
+  describe("sanitizeForLogging", () => {
+    it("should redact URL credentials", () => {
+      const result = sanitizeForLogging("connecting to https://user:pass@host.com/path");
+      expect(result).not.toContain("pass");
+    });
+
+    it("should mask the local part of an email address", () => {
+      expect(maskEmail("alice@example.com")).toBe("a****@e***.com");
     });
   });
 
