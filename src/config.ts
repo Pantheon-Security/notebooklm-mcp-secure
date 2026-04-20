@@ -288,8 +288,13 @@ function applyEnvOverrides(config: Config): Config {
     // NotebookLM response timeout
     responseTimeout: parseInteger(process.env.NLMCP_RESPONSE_TIMEOUT_MS, config.responseTimeout),
 
-    // Follow-up reminder
-    followUpReminder: process.env.NLMCP_FOLLOW_UP_REMINDER || config.followUpReminder,
+    // Follow-up reminder — validate to prevent env-based prompt injection (I318)
+    followUpReminder: (() => {
+      const raw = process.env.NLMCP_FOLLOW_UP_REMINDER;
+      if (!raw) return config.followUpReminder;
+      // Strip any embedded null bytes or control chars (except newline/tab)
+      return raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "").slice(0, 2000);
+    })(),
     followUpEnabled: parseBoolean(process.env.NLMCP_FOLLOW_UP_ENABLED, config.followUpEnabled),
   };
 }
