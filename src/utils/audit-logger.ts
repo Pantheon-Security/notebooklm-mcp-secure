@@ -76,7 +76,7 @@ function getAuditConfig(): AuditConfig {
   return {
     enabled: process.env.NLMCP_AUDIT_ENABLED !== "false",
     logDir: process.env.NLMCP_AUDIT_DIR || path.join(CONFIG.dataDir, "audit"),
-    retentionDays: parseInt(process.env.NLMCP_AUDIT_RETENTION_DAYS || "30", 10),
+    retentionDays: parseInt(process.env.NLMCP_AUDIT_RETENTION_DAYS || "2555", 10), // 7 years (I220)
     includeDetails: process.env.NLMCP_AUDIT_INCLUDE_DETAILS !== "false",
     hashChainEnabled: process.env.NLMCP_AUDIT_HASH_CHAIN !== "false",
   };
