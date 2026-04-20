@@ -6,6 +6,7 @@
  */
 
 export * from "./types.js";
+export * from "./errors.js";
 export * from "./selectors.js";
 export * from "./selector-discovery.js";
 export * from "./notebook-creator.js";

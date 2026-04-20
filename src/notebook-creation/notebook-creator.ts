@@ -13,6 +13,7 @@ import type {
   FailedSource,
 } from "./types.js";
 import { findElement, waitForElement, getSelectors } from "./selectors.js";
+import { NotebookCreationError, NotebookCreationErrorCode } from "./errors.js";
 import { log } from "../utils/logger.js";
 import { randomDelay, humanType, realisticClick } from "../utils/stealth-utils.js";
 import { CONFIG, NOTEBOOKLM_URL } from "../config.js";
@@ -167,21 +168,44 @@ export class NotebookCreator {
     await randomDelay(2000, 3000);
 
     // Wait for page to be ready
-    await this.page.waitForLoadState("networkidle").catch(() => {});
+    await this.waitForNotebookReady(this.page);
 
     log.success("✅ Browser initialized and navigated to NotebookLM");
+  }
+
+  private async waitForNotebookReady(page: Page): Promise<void> {
+    try {
+      await page.waitForLoadState("networkidle", { timeout: 15000 });
+    } catch (error) {
+      const pageUrl = this.safePageUrl(page);
+      log.warning(
+        `Notebook creation waitForLoadState(networkidle) timed out; falling back to load. url=${pageUrl} error=${error instanceof Error ? error.message : String(error)}`
+      );
+      try {
+        await page.waitForLoadState("load", { timeout: 5000 });
+      } catch (fallbackError) {
+        log.warning(
+          `Notebook creation fallback waitForLoadState(load) failed; continuing after fallback timeout. url=${pageUrl} error=${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`
+        );
+      }
+    }
   }
 
   /**
    * Click the "New notebook" button
    */
   private async clickNewNotebook(): Promise<void> {
-    if (!this.page) throw new Error("Page not initialized");
+    if (!this.page) {
+      throw new NotebookCreationError("Page not initialized", {
+        code: NotebookCreationErrorCode.PAGE_NOT_INITIALIZED,
+      });
+    }
 
     log.info("📝 Clicking 'New notebook' button...");
 
     // Try to find and click the new notebook button
     const selectors = getSelectors("newNotebookButton");
+    let lastError: unknown;
 
     for (const selector of selectors) {
       try {
@@ -193,6 +217,7 @@ export class NotebookCreator {
           return;
         }
       } catch (err) {
+        lastError = err;
         log.debug(`notebook-creator: clicking 'New notebook' button selector: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
@@ -223,12 +248,27 @@ export class NotebookCreator {
           return;
         }
       } catch (err) {
+        lastError = err;
         log.debug(`notebook-creator: clicking 'New notebook' button via text pattern: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
     }
 
-    throw new Error("Could not find 'New notebook' button");
+    throw new NotebookCreationError("Failed to click new notebook", {
+      code: NotebookCreationErrorCode.CLICK_NEW_NOTEBOOK_FAILED,
+      selector: selectors.join(" | "),
+      url: this.safePageUrl(this.page),
+      cause: lastError,
+    });
+  }
+
+  private safePageUrl(page: Page): string {
+    try {
+      return page.url();
+    } catch (err) {
+      log.debug(`notebook-creator: reading page URL failed: ${err instanceof Error ? err.message : String(err)}`);
+      return "[unavailable]";
+    }
   }
 
   /**
