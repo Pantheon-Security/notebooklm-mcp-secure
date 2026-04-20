@@ -1,18 +1,18 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { NotebookCreator } from "../src/notebook-creation/notebook-creator.js";
+import { NotebookNavigation } from "../src/notebook-creation/notebook-nav.js";
 import {
   NotebookCreationError,
   NotebookCreationErrorCode,
 } from "../src/notebook-creation/errors.js";
 import { log } from "../src/utils/logger.js";
 
-describe("NotebookCreator", () => {
+describe("NotebookNavigation", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
   it("warns and falls back when networkidle load state times out", async () => {
-    const creator = new NotebookCreator({} as never, {} as never);
+    const nav = new NotebookNavigation({} as never, {} as never);
     const warningSpy = vi.spyOn(log, "warning").mockImplementation(() => undefined);
     const page = {
       waitForLoadState: vi
@@ -22,7 +22,7 @@ describe("NotebookCreator", () => {
       url: vi.fn().mockReturnValue("https://notebooklm.google.com"),
     };
 
-    await creator["waitForNotebookReady"](page as never);
+    await nav.waitForNotebookReady(page as never);
 
     expect(page.waitForLoadState).toHaveBeenNthCalledWith(1, "networkidle", { timeout: 15000 });
     expect(page.waitForLoadState).toHaveBeenNthCalledWith(2, "load", { timeout: 5000 });
@@ -31,15 +31,15 @@ describe("NotebookCreator", () => {
   });
 
   it("throws a typed NotebookCreationError when the new notebook button cannot be clicked", async () => {
-    const creator = new NotebookCreator({} as never, {} as never);
+    const nav = new NotebookNavigation({} as never, {} as never);
     const lastError = new Error("text fallback failed");
-    creator["page"] = {
+    nav["page"] = {
       $: vi.fn().mockRejectedValue(new Error("selector failed")),
       evaluate: vi.fn().mockRejectedValue(lastError),
       url: vi.fn().mockReturnValue("https://notebooklm.google.com/home"),
     } as never;
 
-    await expect(creator["clickNewNotebook"]()).rejects.toMatchObject({
+    await expect(nav.clickNewNotebook()).rejects.toMatchObject({
       name: "NotebookCreationError",
       code: NotebookCreationErrorCode.CLICK_NEW_NOTEBOOK_FAILED,
       url: "https://notebooklm.google.com/home",

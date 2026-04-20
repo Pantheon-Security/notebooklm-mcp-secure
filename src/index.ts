@@ -137,6 +137,41 @@ const TOOLS_REQUIRING_AUTH = new Set<ToolName>([
   "generate_compliance_report",
 ]);
 
+const ADVANCED_TOOLS = new Set<ToolName>([
+  "export_library",
+  "list_sessions",
+  "close_session",
+  "reset_session",
+  "cleanup_data",
+  "configure_webhook",
+  "list_webhooks",
+  "test_webhook",
+  "remove_webhook",
+  "deep_research",
+  "gemini_query",
+  "get_research_status",
+  "upload_document",
+  "query_document",
+  "list_documents",
+  "delete_document",
+  "query_chunked_document",
+  "get_query_history",
+  "get_notebook_chat_history",
+  "submit_dsar",
+  "export_user_data",
+  "request_data_erasure",
+  "get_data_inventory",
+  "get_privacy_notice",
+  "get_compliance_report",
+  "check_breach_risk",
+  "manage_consent",
+  "grant_consent",
+  "revoke_consent",
+  "report_security_incident",
+  "collect_audit_evidence",
+  "generate_compliance_report",
+]);
+
 /**
  * Main MCP Server Class
  */
@@ -153,6 +188,7 @@ class NotebookLMMCPServer {
   private toolRegistry!: Map<string, ToolHandler>;
   private complianceToolNames: Set<string>;
   private retentionTimer?: NodeJS.Timeout;
+  private readonly advancedToolsEnabled: boolean;
 
   constructor() {
     // Initialize MCP Server
@@ -176,6 +212,7 @@ class NotebookLMMCPServer {
     this.sessionManager = new SessionManager(this.authManager);
     this.library = new NotebookLibrary();
     this.settingsManager = new SettingsManager();
+    this.advancedToolsEnabled = process.env.NLMCP_ADVANCED_TOOLS === "1";
     
     // Initialize handlers
     this.toolHandlers = new ToolHandlers(
@@ -187,10 +224,12 @@ class NotebookLMMCPServer {
 
     // Build and Filter tool definitions
     const allTools = buildToolDefinitions(this.library) as Tool[];
-    this.toolDefinitions = this.settingsManager.filterTools(allTools);
+    this.toolDefinitions = this.filterAdvancedTools(this.settingsManager.filterTools(allTools));
 
     // Track compliance tool names for the short-circuit dispatch path.
-    this.complianceToolNames = new Set(getComplianceTools().map((t) => t.name));
+    this.complianceToolNames = new Set(
+      this.filterAdvancedTools(getComplianceTools() as Tool[]).map((t) => t.name)
+    );
 
     // Setup handlers
     this.setupHandlers();
@@ -202,6 +241,21 @@ class NotebookLMMCPServer {
     log.info(`  Node: ${process.version}`);
     log.info(`  Platform: ${process.platform}`);
     log.info(`  Profile: ${activeSettings.profile} (${this.toolDefinitions.length} tools active)`);
+    log.info(`  Advanced tools: ${this.advancedToolsEnabled ? "enabled" : "disabled"}`);
+  }
+
+  private filterAdvancedTools<T extends { name: string }>(tools: T[]): T[] {
+    if (this.advancedToolsEnabled) return tools;
+    return tools.filter((tool) => !isToolName(tool.name) || !ADVANCED_TOOLS.has(tool.name));
+  }
+
+  private filterAdvancedToolRegistry(registry: Map<string, ToolHandler>): Map<string, ToolHandler> {
+    if (this.advancedToolsEnabled) return registry;
+    return new Map(
+      Array.from(registry.entries()).filter(
+        ([name]) => !isToolName(name) || !ADVANCED_TOOLS.has(name)
+      )
+    );
   }
 
   /**
@@ -212,7 +266,7 @@ class NotebookLMMCPServer {
     this.resourceHandlers.registerHandlers(this.server);
 
     // Build tool registry once (not per-request)
-    this.toolRegistry = new Map<string, ToolHandler>([
+    this.toolRegistry = this.filterAdvancedToolRegistry(new Map<string, ToolHandler>([
       // Ask Question
       ["ask_question", (args, progress) => this.toolHandlers.handleAskQuestion(asToolInput<Parameters<ToolHandlers["handleAskQuestion"]>[0]>(args), progress)],
       // Notebook Management
@@ -271,7 +325,7 @@ class NotebookLMMCPServer {
       ["query_chunked_document", (args) => this.toolHandlers.handleQueryChunkedDocument(asToolInput<Parameters<ToolHandlers["handleQueryChunkedDocument"]>[0]>(args))],
       ["get_query_history", (args) => this.toolHandlers.handleGetQueryHistory(asToolInput<Parameters<ToolHandlers["handleGetQueryHistory"]>[0]>(args))],
       ["get_notebook_chat_history", (args) => this.toolHandlers.handleGetNotebookChatHistory(asToolInput<Parameters<ToolHandlers["handleGetNotebookChatHistory"]>[0]>(args))],
-    ]);
+    ]));
 
     // Startup assertion: every registered tool must be explicitly auth-classified (I313)
     for (const toolName of this.toolRegistry.keys()) {
@@ -284,7 +338,7 @@ class NotebookLMMCPServer {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       log.info("📋 [MCP] list_tools request received");
       const allTools = buildToolDefinitions(this.library) as Tool[];
-      const tools = this.settingsManager.filterTools(allTools);
+      const tools = this.filterAdvancedTools(this.settingsManager.filterTools(allTools));
       return { tools };
     });
 
