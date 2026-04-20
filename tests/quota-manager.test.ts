@@ -122,11 +122,11 @@ describe("QuotaManager", () => {
       expect(qm.canCreateNotebook().allowed).toBe(true);
     });
 
-    it("denies when at/above limit", () => {
+    it("denies when at/above limit", async () => {
       const qm = new QuotaManager();
-      // Push usage to the limit
+      // Push usage to the limit (await — incrementNotebookCount is async-queued)
       const limit = qm.getSettings().limits.notebooks;
-      for (let i = 0; i < limit; i++) qm.incrementNotebookCount();
+      for (let i = 0; i < limit; i++) await qm.incrementNotebookCount();
       const r = qm.canCreateNotebook();
       expect(r.allowed).toBe(false);
       expect(r.reason).toMatch(/limit reached/i);
@@ -239,10 +239,10 @@ describe("QuotaManager", () => {
   });
 
   describe("incrementNotebookCount", () => {
-    it("increments and persists", () => {
+    it("increments and persists", async () => {
       const qm = new QuotaManager();
-      qm.incrementNotebookCount();
-      qm.incrementNotebookCount();
+      await qm.incrementNotebookCount();
+      await qm.incrementNotebookCount();
       expect(qm.getUsage().notebooks).toBe(2);
       // New manager reads the persisted count.
       const qm2 = new QuotaManager();

@@ -7,7 +7,7 @@
 import type { Page } from "patchright";
 import { log } from "../utils/logger.js";
 import { CONFIG } from "../config.js";
-import { withLock } from "../utils/file-lock.js";
+import { isLocked, withLock } from "../utils/file-lock.js";
 import fs from "fs";
 import path from "path";
 
@@ -63,6 +63,10 @@ const TIER_LIMITS: Record<LicenseTier, QuotaLimits> = {
     queriesPerDay: 50,
   },
 };
+
+const MAX_REASONABLE_QUERIES = 10_000;
+
+let notebookIncrementQueue: Promise<void> = Promise.resolve();
 
 export class QuotaManager {
   private settings: QuotaSettings;
@@ -126,7 +130,25 @@ export class QuotaManager {
       log.info(`💾 Saved quota settings`);
     } catch (error) {
       log.error(`❌ Could not save quota settings: ${error}`);
+      throw error;
     }
+  }
+
+  /**
+   * Reset daily query counters when the date changes and persist the rollover.
+   */
+  private rolloverIfNeeded(): boolean {
+    const today = new Date().toISOString().split("T")[0];
+
+    if (this.settings.usage.lastQueryDate === today) {
+      return false;
+    }
+
+    this.settings.usage.queriesUsedToday = 0;
+    this.settings.usage.lastQueryDate = today;
+    this.settings.usage.lastUpdated = new Date().toISOString();
+    this.saveSettings();
+    return true;
   }
 
   /**
@@ -138,17 +160,43 @@ export class QuotaManager {
 
     const tierInfo = await page.evaluate(() => {
       // @ts-expect-error - DOM types
+      const accountSection = document.querySelector(
+        [
+          "[data-testid*='account']",
+          "[data-testid*='plan']",
+          "[data-testid*='subscription']",
+          "[aria-label*='Account']",
+          "[aria-label*='Plan']",
+          "[aria-label*='Subscription']",
+          "settings-dialog",
+          "account-menu",
+          "mat-dialog-container",
+          "aside",
+          "nav",
+        ].join(", ")
+      );
+      const accountText = accountSection?.textContent?.toUpperCase() || "";
+      // @ts-expect-error - DOM types
       const allText = document.body.innerText.toUpperCase();
 
+      const hasTierLabel = (text: string, tier: "FREE" | "PLUS" | "PRO" | "ULTRA") => {
+        const escapedTier = tier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`\\b${escapedTier}\\b\\s*PLAN\\b|\\bPLAN\\b\\s*${escapedTier}\\b`).test(text);
+      };
+
+      const tierSignals = accountText || allText;
+
       // ── Signal 1: explicit tier badges / text ──────────────────────────────
-      if (allText.includes("ULTRA")) return "ultra";
+      if (hasTierLabel(tierSignals, "ULTRA")) return "ultra";
 
       // NotebookLM Pro was rebranded to "NotebookLM Plus" / "One AI Premium"
       if (
-        allText.includes("NOTEBOOKLM PLUS") ||
-        allText.includes("ONE AI PREMIUM") ||
-        allText.includes("GOOGLE ONE AI") ||
-        allText.includes("AI PREMIUM")
+        accountText.includes("NOTEBOOKLM PLUS") ||
+        accountText.includes("ONE AI PREMIUM") ||
+        accountText.includes("GOOGLE ONE AI") ||
+        accountText.includes("AI PREMIUM") ||
+        hasTierLabel(tierSignals, "PLUS") ||
+        hasTierLabel(tierSignals, "PRO")
       ) {
         return "pro";
       }
@@ -394,10 +442,10 @@ export class QuotaManager {
     const queryUsage = await this.extractQueryUsageFromUI(page);
     if (queryUsage) {
       // Update local tracking with Google's numbers
-      this.settings.usage.queriesUsedToday = queryUsage.used;
+      this.settings.usage.queriesUsedToday = Math.min(queryUsage.used, MAX_REASONABLE_QUERIES);
       this.settings.limits.queriesPerDay = queryUsage.limit;
       this.settings.usage.lastQueryDate = new Date().toISOString().split("T")[0];
-      log.info(`  Synced query usage from Google: ${queryUsage.used}/${queryUsage.limit}`);
+      log.info(`  Synced query usage from Google: ${this.settings.usage.queriesUsedToday}/${queryUsage.limit}`);
     }
 
     // Check for rate limit
@@ -473,10 +521,23 @@ export class QuotaManager {
   /**
    * Increment notebook count
    */
-  incrementNotebookCount(): void {
-    this.settings.usage.notebooks++;
-    this.settings.usage.lastUpdated = new Date().toISOString();
-    this.saveSettings();
+  incrementNotebookCount(): Promise<void> {
+    notebookIncrementQueue = notebookIncrementQueue
+      .catch((error) => {
+        log.error(`❌ Notebook increment queue recovered from prior failure: ${error}`);
+      })
+      .then(async () => {
+        await withLock(this.settingsPath, async () => {
+          this.settings = this.loadSettings();
+          this.settings.usage.notebooks++;
+          this.settings.usage.lastUpdated = new Date().toISOString();
+          this.saveSettings();
+        });
+      })
+      .catch((error) => {
+        log.error(`❌ Could not increment notebook count: ${error}`);
+      });
+    return notebookIncrementQueue;
   }
 
   /**
@@ -591,12 +652,8 @@ export class QuotaManager {
    * Check if can make query
    */
   canMakeQuery(): { allowed: boolean; reason?: string } {
-    const today = new Date().toISOString().split("T")[0];
-
-    // Reset if new day
-    if (this.settings.usage.lastQueryDate !== today) {
-      this.settings.usage.queriesUsedToday = 0;
-      this.settings.usage.lastQueryDate = today;
+    if (!isLocked(this.settingsPath)) {
+      this.rolloverIfNeeded();
     }
 
     const { queriesUsedToday } = this.settings.usage;
@@ -671,13 +728,7 @@ export class QuotaManager {
     };
     warnings: string[];
   } {
-    const today = new Date().toISOString().split("T")[0];
-
-    // Reset if new day
-    if (this.settings.usage.lastQueryDate !== today) {
-      this.settings.usage.queriesUsedToday = 0;
-      this.settings.usage.lastQueryDate = today;
-    }
+    this.rolloverIfNeeded();
 
     const { tier, limits, usage } = this.settings;
 
