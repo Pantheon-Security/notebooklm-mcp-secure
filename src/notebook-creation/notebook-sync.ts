@@ -130,8 +130,8 @@ export class NotebookSync {
         log.info("  📂 Clicked 'My notebooks' tab");
         await randomDelay(1500, 2000);
       }
-    } catch {
-      // Tab might already be selected or doesn't exist
+    } catch (err) {
+      log.debug(`notebook sync: failed to click My notebooks tab: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     // Switch to grid view — UUIDs only exist in grid view's project-button elements
@@ -253,8 +253,8 @@ export class NotebookSync {
         await this.page.waitForSelector('project-button', { timeout: 8000 }).catch(() => {});
         await randomDelay(1000, 1500);
       }
-    } catch {
-      // Grid toggle may not exist
+    } catch (err) {
+      log.debug(`notebook sync: failed to switch to grid view: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -317,8 +317,8 @@ export class NotebookSync {
           if (sourceMatch) sourceCount = parseInt(sourceMatch[1], 10);
 
           results.push({ title, url, sourceCount, createdDate });
-        } catch {
-          // Skip individual failures
+        } catch (err) {
+          log.debug(`notebook sync: failed to extract notebook card: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
 
@@ -744,8 +744,8 @@ export class NotebookSync {
     if (this.page) {
       try {
         await this.page.close();
-      } catch {
-        // Ignore cleanup errors
+      } catch (err) {
+        log.debug(`notebook sync: failed to close page: ${err instanceof Error ? err.message : String(err)}`);
       }
       this.page = null;
     }

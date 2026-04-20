@@ -10,6 +10,8 @@
  * Note: Must be authenticated first via setup_auth tool.
  */
 
+import { log } from "../utils/logger.js";
+
 export const NOTEBOOKLM_SELECTORS = {
   /** New notebook / Create button on homepage
    * Discovered: "addCreate new" with aria="Create new notebook" */
@@ -235,7 +237,8 @@ export async function findElement(
       if (element) {
         return element;
       }
-    } catch {
+    } catch (err) {
+      log.debug(`selector not found (${selector}): ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
   }
@@ -269,7 +272,8 @@ export async function waitForElement(
       if (element) {
         return element;
       }
-    } catch {
+    } catch (err) {
+      log.debug(`waitForElement: ${selector} timed out: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
   }
