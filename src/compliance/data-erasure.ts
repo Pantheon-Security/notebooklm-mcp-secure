@@ -1,7 +1,7 @@
 /**
  * Data Erasure Tool
  *
- * Complete deletion of user data with secure wiping.
+ * Deletion of user data with best-effort logical wiping.
  * Implements GDPR Article 17 (Right to Erasure / Right to be Forgotten).
  *
  * Added by Pantheon Security for enterprise compliance support.
@@ -12,10 +12,14 @@ import path from "path";
 import fs from "fs";
 import { getConfig } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
+import { AuthManager } from "../auth/auth-manager.js";
+import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import { getConsentManager } from "./consent-manager.js";
 import { getPrivacyNoticeManager } from "./privacy-notice.js";
 import type { ErasureRequest, ErasureScope, ErasureResult } from "./types.js";
+
+type ErasureResultWithError = ErasureResult & { error?: string };
 
 /**
  * Generate a UUID v4
@@ -38,37 +42,47 @@ const DEFAULT_SCOPE: ErasureScope = {
 };
 
 /**
- * Secure file overwrite before deletion
+ * Best-effort logical wipe before deletion.
+ * On SSDs and CoW filesystems (btrfs, APFS) physical erasure cannot be guaranteed;
+ * GDPR compliance requires full-disk encryption at rest.
  */
-function secureOverwrite(filePath: string, passes: number = 3): void {
-  try {
-    const stats = fs.statSync(filePath);
-    const size = stats.size;
+function secureOverwrite(filePath: string): void {
+  const stats = fs.statSync(filePath);
+  const size = stats.size;
+  const fd = fs.openSync(filePath, "r+");
 
-    // Multiple passes of random data
-    for (let pass = 0; pass < passes; pass++) {
-      const randomData = crypto.randomBytes(size);
-      fs.writeFileSync(filePath, randomData);
+  try {
+    const zeros = Buffer.alloc(Math.min(size, 1024 * 1024), 0);
+    let written = 0;
+
+    while (written < size) {
+      const chunkSize = Math.min(zeros.length, size - written);
+      fs.writeSync(fd, zeros, 0, chunkSize, written);
+      written += chunkSize;
     }
 
-    // Final pass with zeros
-    const zeros = Buffer.alloc(size, 0);
-    fs.writeFileSync(filePath, zeros);
-  } catch {
-    // File might not exist or can't be written to
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
   }
+
+  fs.unlinkSync(filePath);
 }
 
 /**
- * Recursively delete a directory with secure wiping
+ * Recursively delete a directory with best-effort logical wiping
  */
-function secureDeleteDirectory(dirPath: string, secureWipe: boolean = true): { files: number; bytes: number } {
+function secureDeleteDirectory(
+  dirPath: string,
+  secureWipe: boolean = true
+): { files: number; bytes: number; errors: string[] } {
   let files = 0;
   let bytes = 0;
+  const errors: string[] = [];
 
   try {
     if (!fs.existsSync(dirPath)) {
-      return { files, bytes };
+      return { files, bytes, errors };
     }
 
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
@@ -80,6 +94,7 @@ function secureDeleteDirectory(dirPath: string, secureWipe: boolean = true): { f
         const result = secureDeleteDirectory(fullPath, secureWipe);
         files += result.files;
         bytes += result.bytes;
+        errors.push(...result.errors);
       } else {
         try {
           const stats = fs.statSync(fullPath);
@@ -88,22 +103,31 @@ function secureDeleteDirectory(dirPath: string, secureWipe: boolean = true): { f
 
           if (secureWipe) {
             secureOverwrite(fullPath);
+          } else {
+            fs.unlinkSync(fullPath);
           }
-
-          fs.unlinkSync(fullPath);
-        } catch {
-          // Continue with other files
+        } catch (err) {
+          errors.push(err instanceof Error ? err.message : String(err));
         }
       }
     }
 
     // Remove the directory itself
     fs.rmdirSync(dirPath);
-  } catch {
-    // Directory might not exist
+  } catch (err) {
+    errors.push(err instanceof Error ? err.message : String(err));
   }
 
-  return { files, bytes };
+  return { files, bytes, errors };
+}
+
+async function clearChromeProfile(chromeProfileDir: string): Promise<{ files: number; bytes: number; errors: string[] }> {
+  const authManager = new AuthManager();
+  if (await authManager.hasSavedState()) {
+    log.warning("Chrome may still be running; profile deletion may be incomplete.");
+  }
+
+  return secureDeleteDirectory(chromeProfileDir, true);
 }
 
 /**
@@ -299,7 +323,7 @@ export class DataErasureManager {
    */
   private async eraseNotebooks(config: ReturnType<typeof getConfig>): Promise<ErasureResult> {
     const libraryPath = path.join(config.configDir, "library.json");
-    const result: ErasureResult = {
+    const result: ErasureResultWithError = {
       data_type: "notebook_library",
       path: libraryPath,
       items_deleted: 0,
@@ -315,13 +339,13 @@ export class DataErasureManager {
         result.items_deleted = 1;
 
         secureOverwrite(libraryPath);
-        fs.unlinkSync(libraryPath);
         result.verified = !fs.existsSync(libraryPath);
       } else {
         result.verified = true;
       }
-    } catch {
+    } catch (err) {
       result.verified = false;
+      result.error = err instanceof Error ? err.message : String(err);
     }
 
     return result;
@@ -332,7 +356,7 @@ export class DataErasureManager {
    */
   private async eraseSettings(config: ReturnType<typeof getConfig>): Promise<ErasureResult> {
     const settingsPath = path.join(config.configDir, "settings.json");
-    const result: ErasureResult = {
+    const result: ErasureResultWithError = {
       data_type: "user_settings",
       path: settingsPath,
       items_deleted: 0,
@@ -352,8 +376,9 @@ export class DataErasureManager {
       } else {
         result.verified = true;
       }
-    } catch {
+    } catch (err) {
       result.verified = false;
+      result.error = err instanceof Error ? err.message : String(err);
     }
 
     return result;
@@ -366,7 +391,7 @@ export class DataErasureManager {
     const browserStateDir = path.join(config.dataDir, "browser_state");
     const chromeProfileDir = path.join(config.dataDir, "chrome_profile");
 
-    const result: ErasureResult = {
+    const result: ErasureResultWithError = {
       data_type: "browser_data",
       path: config.dataDir,
       items_deleted: 0,
@@ -375,31 +400,45 @@ export class DataErasureManager {
       verified: false,
     };
 
-    // Erase browser state (encrypted cookies, etc.)
-    if (fs.existsSync(browserStateDir)) {
-      const browserResult = secureDeleteDirectory(browserStateDir, true);
-      result.items_deleted += browserResult.files;
-      result.size_bytes += browserResult.bytes;
-    }
+    try {
+      const errors: string[] = [];
 
-    // Erase Chrome profile
-    if (fs.existsSync(chromeProfileDir)) {
-      const chromeResult = secureDeleteDirectory(chromeProfileDir, true);
-      result.items_deleted += chromeResult.files;
-      result.size_bytes += chromeResult.bytes;
-    }
+      // Erase browser state (encrypted cookies, etc.)
+      if (fs.existsSync(browserStateDir)) {
+        const browserResult = secureDeleteDirectory(browserStateDir, true);
+        result.items_deleted += browserResult.files;
+        result.size_bytes += browserResult.bytes;
+        errors.push(...browserResult.errors);
+      }
 
-    // Erase session files
-    const sessionsDir = path.join(config.dataDir, "sessions");
-    if (fs.existsSync(sessionsDir)) {
-      const sessionResult = secureDeleteDirectory(sessionsDir, true);
-      result.items_deleted += sessionResult.files;
-      result.size_bytes += sessionResult.bytes;
-    }
+      // Erase Chrome profile
+      if (fs.existsSync(chromeProfileDir)) {
+        const chromeResult = await clearChromeProfile(chromeProfileDir);
+        result.items_deleted += chromeResult.files;
+        result.size_bytes += chromeResult.bytes;
+        errors.push(...chromeResult.errors);
+      }
 
-    result.verified = !fs.existsSync(browserStateDir) &&
-                      !fs.existsSync(chromeProfileDir) &&
-                      !fs.existsSync(sessionsDir);
+      // Erase session files
+      const sessionsDir = path.join(config.dataDir, "sessions");
+      if (fs.existsSync(sessionsDir)) {
+        const sessionResult = secureDeleteDirectory(sessionsDir, true);
+        result.items_deleted += sessionResult.files;
+        result.size_bytes += sessionResult.bytes;
+        errors.push(...sessionResult.errors);
+      }
+
+      result.verified = !fs.existsSync(browserStateDir) &&
+                        !fs.existsSync(chromeProfileDir) &&
+                        !fs.existsSync(sessionsDir);
+
+      if (errors.length > 0) {
+        result.error = errors.join("; ");
+      }
+    } catch (err) {
+      result.verified = false;
+      result.error = err instanceof Error ? err.message : String(err);
+    }
 
     return result;
   }
@@ -410,7 +449,7 @@ export class DataErasureManager {
   private async eraseAuditLogs(config: ReturnType<typeof getConfig>): Promise<ErasureResult> {
     const auditDir = path.join(config.dataDir, "audit");
 
-    const result: ErasureResult = {
+    const result: ErasureResultWithError = {
       data_type: "audit_logs",
       path: auditDir,
       items_deleted: 0,
@@ -424,6 +463,9 @@ export class DataErasureManager {
       result.items_deleted = auditResult.files;
       result.size_bytes = auditResult.bytes;
       result.verified = !fs.existsSync(auditDir);
+      if (auditResult.errors.length > 0) {
+        result.error = auditResult.errors.join("; ");
+      }
     } else {
       result.verified = true;
     }
@@ -437,7 +479,7 @@ export class DataErasureManager {
   private async eraseEncryptionKeys(config: ReturnType<typeof getConfig>): Promise<ErasureResult> {
     const keysPath = path.join(config.dataDir, "pq-keys.enc");
 
-    const result: ErasureResult = {
+    const result: ErasureResultWithError = {
       data_type: "encryption_keys",
       path: keysPath,
       items_deleted: 0,
@@ -452,15 +494,14 @@ export class DataErasureManager {
         result.size_bytes = stats.size;
         result.items_deleted = 1;
 
-        // Crypto shred: overwrite with random data multiple times
-        secureOverwrite(keysPath, 7);
-        fs.unlinkSync(keysPath);
+        secureOverwrite(keysPath);
         result.verified = !fs.existsSync(keysPath);
       } else {
         result.verified = true;
       }
-    } catch {
+    } catch (err) {
       result.verified = false;
+      result.error = err instanceof Error ? err.message : String(err);
     }
 
     return result;
