@@ -13,6 +13,7 @@ export default defineConfig({
   test: {
     // Match the existing convention: all tests under tests/
     include: ["tests/**/*.test.ts"],
+    setupFiles: ["./tests/setup-vitest.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "html"],
