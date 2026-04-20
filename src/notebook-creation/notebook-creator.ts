@@ -63,7 +63,7 @@ export class NotebookCreator {
       const createdNotebookUrl = this.page!.url();
       log.info(`📍 Notebook URL after creation: ${createdNotebookUrl}`);
       if (!createdNotebookUrl.includes("/notebook/")) {
-        throw new Error(`Failed to create notebook - unexpected URL: ${createdNotebookUrl}`);
+        throw new Error("Failed to create notebook - unexpected URL received (check logs for details)");
       }
 
       // Store the notebook ID for verification later
