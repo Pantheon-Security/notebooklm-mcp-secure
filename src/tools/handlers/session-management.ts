@@ -8,6 +8,7 @@ import type { HandlerContext } from "./types.js";
 import type { ToolResult } from "../../types.js";
 import { CONFIG } from "../../config.js";
 import { log } from "../../utils/logger.js";
+import { getSanitizedErrorMessage } from "./error-utils.js";
 
 /**
  * Handle list_sessions tool
@@ -61,11 +62,11 @@ export async function handleListSessions(ctx: HandlerContext): Promise<
       data: result,
     };
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] list_sessions failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -100,15 +101,16 @@ export async function handleCloseSession(
       log.warning(`⚠️  [TOOL] Session ${session_id} not found`);
       return {
         success: false,
+        data: null,
         error: `Session ${session_id} not found`,
       };
     }
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] close_session failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -133,6 +135,7 @@ export async function handleResetSession(
       log.warning(`⚠️  [TOOL] Session ${session_id} not found`);
       return {
         success: false,
+        data: null,
         error: `Session ${session_id} not found`,
       };
     }
@@ -149,11 +152,11 @@ export async function handleResetSession(
       },
     };
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] reset_session failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -265,7 +268,7 @@ export async function handleGetHealth(
           deepCheckNotebook = "none available";
         }
       } catch (deepCheckError) {
-        log.warning(`  ⚠️ Deep check failed: ${deepCheckError instanceof Error ? deepCheckError.message : String(deepCheckError)}`);
+        log.warning(`  ⚠️ Deep check failed: ${getSanitizedErrorMessage(deepCheckError)}`);
         chatUiAccessible = false;
       }
     }
@@ -301,11 +304,11 @@ export async function handleGetHealth(
       data: result,
     };
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] get_health failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }

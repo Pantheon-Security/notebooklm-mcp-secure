@@ -78,6 +78,9 @@ import {
 
 export type { HandlerContext } from "./types.js";
 
+const RATE_LIMIT_MAX_REQUESTS = 100;
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+
 /**
  * ToolHandlers — facade class that delegates to domain handler functions.
  *
@@ -86,6 +89,7 @@ export type { HandlerContext } from "./types.js";
  */
 export class ToolHandlers {
   private ctx: HandlerContext;
+  private geminiClient: GeminiClient | null = null;
 
   constructor(
     sessionManager: SessionManager,
@@ -96,9 +100,19 @@ export class ToolHandlers {
       sessionManager,
       authManager,
       library,
-      rateLimiter: new RateLimiter(100, 60000),
-      geminiClient: new GeminiClient(),
+      rateLimiter: new RateLimiter(RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_MS),
+      getGeminiClient: () => this.getGeminiClient(),
     };
+  }
+
+  private getGeminiClient(): GeminiClient | null {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) {
+      return null;
+    }
+
+    this.geminiClient ??= new GeminiClient(apiKey);
+    return this.geminiClient;
   }
 
   // === Ask Question ===

@@ -9,6 +9,7 @@ import type { ToolResult } from "../../types.js";
 import { log } from "../../utils/logger.js";
 import { getWebhookDispatcher, type WebhookConfig, type WebhookStats } from "../../webhooks/index.js";
 import type { EventType } from "../../events/event-types.js";
+import { getSanitizedErrorMessage } from "./error-utils.js";
 
 export async function handleConfigureWebhook(
   _ctx: HandlerContext,
@@ -60,9 +61,9 @@ export async function handleConfigureWebhook(
       return { success: true, data: webhook };
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] configure_webhook failed: ${errorMessage}`);
-    return { success: false, error: errorMessage };
+    return { success: false, data: null, error: errorMessage };
   }
 }
 
@@ -85,9 +86,9 @@ export async function handleListWebhooks(
       data: { webhooks, stats },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] list_webhooks failed: ${errorMessage}`);
-    return { success: false, error: errorMessage };
+    return { success: false, data: null, error: errorMessage };
   }
 }
 
@@ -120,9 +121,9 @@ export async function handleTestWebhook(
       };
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] test_webhook failed: ${errorMessage}`);
-    return { success: false, error: errorMessage };
+    return { success: false, data: null, error: errorMessage };
   }
 }
 
@@ -150,12 +151,13 @@ export async function handleRemoveWebhook(
       log.warning(`⚠️ [TOOL] Webhook not found: ${args.id}`);
       return {
         success: false,
+        data: null,
         error: `Webhook not found: ${args.id}`,
       };
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] remove_webhook failed: ${errorMessage}`);
-    return { success: false, error: errorMessage };
+    return { success: false, data: null, error: errorMessage };
   }
 }

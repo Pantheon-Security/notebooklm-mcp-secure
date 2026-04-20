@@ -7,6 +7,10 @@ import type { BrowserOptions } from "../../config.js";
 import type { ToolResult, ProgressCallback } from "../../types.js";
 import { log } from "../../utils/logger.js";
 import { audit } from "../../utils/audit-logger.js";
+import {
+  getErrorAuditArgs,
+  getSanitizedErrorMessage,
+} from "./error-utils.js";
 
 /**
  * Handle setup_auth tool
@@ -46,6 +50,7 @@ export async function handleSetupAuth(
     log.error("❌ setup_auth requires show_browser:true — cannot login interactively in headless mode");
     return {
       success: false,
+      data: null,
       authenticated: false,
       error: "setup_auth requires show_browser:true. " +
         "Calling it without a visible browser wipes your saved credentials then fails to restore them. " +
@@ -94,25 +99,38 @@ export async function handleSetupAuth(
 
       // Audit: failed authentication
       await audit.auth("setup_auth", false, { reason: "cancelled_or_failed" });
-      await audit.tool("setup_auth", {}, false, Date.now() - startTime, "Authentication failed or was cancelled");
+      await audit.tool(
+        "setup_auth",
+        getErrorAuditArgs("setup_auth", "Authentication failed or was cancelled"),
+        false,
+        Date.now() - startTime,
+        "Authentication failed or was cancelled"
+      );
 
       return {
         success: false,
+        data: null,
         error: "Authentication failed or was cancelled",
       };
     }
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     const durationSeconds = (Date.now() - startTime) / 1000;
     log.error(`❌ [TOOL] setup_auth failed: ${errorMessage} (${durationSeconds.toFixed(1)}s)`);
 
     // Audit: auth error
     await audit.auth("setup_auth", false, { error: errorMessage });
-    await audit.tool("setup_auth", {}, false, Date.now() - startTime, errorMessage);
+    await audit.tool(
+      "setup_auth",
+      getErrorAuditArgs("setup_auth", errorMessage),
+      false,
+      Date.now() - startTime,
+      errorMessage
+    );
 
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -158,6 +176,7 @@ export async function handleReAuth(
     log.error("❌ re_auth requires show_browser:true — cannot login interactively in headless mode");
     return {
       success: false,
+      data: null,
       error: "re_auth requires show_browser:true. Google login is interactive and cannot complete " +
         "in headless mode. Calling re_auth headlessly wipes your saved credentials then fails to " +
         "restore them, destroying auth for all concurrent sessions. Pass show_browser:true.",
@@ -209,15 +228,22 @@ export async function handleReAuth(
 
       // Audit: failed re-auth
       await audit.auth("re_auth", false, { reason: "cancelled_or_failed" });
-      await audit.tool("re_auth", {}, false, Date.now() - startTime, "Re-authentication failed or was cancelled");
+      await audit.tool(
+        "re_auth",
+        getErrorAuditArgs("re_auth", "Re-authentication failed or was cancelled"),
+        false,
+        Date.now() - startTime,
+        "Re-authentication failed or was cancelled"
+      );
 
       return {
         success: false,
+        data: null,
         error: "Re-authentication failed or was cancelled",
       };
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     const durationSeconds = (Date.now() - startTime) / 1000;
     log.error(
       `❌ [TOOL] re_auth failed: ${errorMessage} (${durationSeconds.toFixed(1)}s)`
@@ -225,10 +251,17 @@ export async function handleReAuth(
 
     // Audit: re-auth error
     await audit.auth("re_auth", false, { error: errorMessage });
-    await audit.tool("re_auth", {}, false, Date.now() - startTime, errorMessage);
+    await audit.tool(
+      "re_auth",
+      getErrorAuditArgs("re_auth", errorMessage),
+      false,
+      Date.now() - startTime,
+      errorMessage
+    );
 
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }

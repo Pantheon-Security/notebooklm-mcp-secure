@@ -16,5 +16,5 @@ export interface HandlerContext {
   authManager: AuthManager;
   library: NotebookLibrary;
   rateLimiter: RateLimiter;
-  geminiClient: GeminiClient;
+  getGeminiClient: () => GeminiClient | null;
 }

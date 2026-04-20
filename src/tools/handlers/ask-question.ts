@@ -23,6 +23,10 @@ import { audit } from "../../utils/audit-logger.js";
 import { validateResponse } from "../../utils/response-validator.js";
 import { getQuotaManager } from "../../quota/index.js";
 import { getQueryLogger } from "../../logging/index.js";
+import {
+  getErrorAuditArgs,
+  getSanitizedErrorMessage,
+} from "./error-utils.js";
 
 /**
  * Handle ask_question tool
@@ -81,9 +85,16 @@ export async function handleAskQuestion(
         session_id: rateLimitKey,
         remaining: ctx.rateLimiter.getRemaining(rateLimitKey),
       });
-      await audit.tool("ask_question", args, false, Date.now() - startTime, "Rate limit exceeded");
+      await audit.tool(
+        "ask_question",
+        getErrorAuditArgs("ask_question", "Rate limit exceeded"),
+        false,
+        Date.now() - startTime,
+        "Rate limit exceeded"
+      );
       return {
         success: false,
+        data: null,
         error: `Rate limit exceeded. Please wait before making more requests. Remaining: ${ctx.rateLimiter.getRemaining(rateLimitKey)}`,
       };
     }
@@ -93,23 +104,39 @@ export async function handleAskQuestion(
     const canQuery = quotaManager.canMakeQuery();
     if (!canQuery.allowed) {
       log.warning(`⚠️ Quota limit: ${canQuery.reason}`);
-      await audit.tool("ask_question", args, false, Date.now() - startTime, canQuery.reason || "Query quota exceeded");
+      const quotaError = canQuery.reason || "Query quota exceeded";
+      await audit.tool(
+        "ask_question",
+        getErrorAuditArgs("ask_question", quotaError),
+        false,
+        Date.now() - startTime,
+        quotaError
+      );
       return {
         success: false,
-        error: canQuery.reason || "Daily query limit reached. Try again tomorrow or upgrade your plan.",
+        data: null,
+        error: quotaError || "Daily query limit reached. Try again tomorrow or upgrade your plan.",
       };
     }
   } catch (error) {
     if (error instanceof SecurityError) {
-      log.error(`🛡️ [SECURITY] Validation failed: ${error.message}`);
+      const errorMessage = getSanitizedErrorMessage(error);
+      log.error(`🛡️ [SECURITY] Validation failed: ${errorMessage}`);
       await audit.security("validation_failed", "error", {
         tool: "ask_question",
-        error: error.message,
+        error: errorMessage,
       });
-      await audit.tool("ask_question", args, false, Date.now() - startTime, error.message);
+      await audit.tool(
+        "ask_question",
+        getErrorAuditArgs("ask_question", errorMessage),
+        false,
+        Date.now() - startTime,
+        errorMessage
+      );
       return {
         success: false,
-        error: `Security validation failed: ${error.message}`,
+        data: null,
+        error: `Security validation failed: ${errorMessage}`,
       };
     }
     throw error;
@@ -259,8 +286,7 @@ export async function handleAskQuestion(
       data: result,
     };
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
 
     // Special handling for rate limit errors
     if (error instanceof RateLimitError || errorMessage.toLowerCase().includes("rate limit")) {
@@ -268,9 +294,16 @@ export async function handleAskQuestion(
       await audit.security("notebooklm_rate_limit", "warning", {
         session_id: safeSessionId,
       });
-      await audit.tool("ask_question", args, false, Date.now() - startTime, "NotebookLM rate limit");
+      await audit.tool(
+        "ask_question",
+        getErrorAuditArgs("ask_question", "NotebookLM rate limit"),
+        false,
+        Date.now() - startTime,
+        "NotebookLM rate limit"
+      );
       return {
         success: false,
+        data: null,
         error:
           "NotebookLM rate limit reached (50 queries/day for free accounts).\n\n" +
           "You can:\n" +
@@ -282,9 +315,16 @@ export async function handleAskQuestion(
     }
 
     log.error(`❌ [TOOL] ask_question failed: ${errorMessage}`);
-    await audit.tool("ask_question", args, false, Date.now() - startTime, errorMessage);
+    await audit.tool(
+      "ask_question",
+      getErrorAuditArgs("ask_question", errorMessage),
+      false,
+      Date.now() - startTime,
+      errorMessage
+    );
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }

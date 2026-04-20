@@ -51,7 +51,7 @@ export interface AskQuestionResult {
  */
 export interface ToolResult<T = unknown> {
   success: boolean;
-  data?: T;
+  data?: T | null;
   error?: string;
 }
 

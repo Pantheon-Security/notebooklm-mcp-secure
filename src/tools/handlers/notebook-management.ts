@@ -8,6 +8,7 @@ import type { HandlerContext } from "./types.js";
 import type { AddNotebookInput, UpdateNotebookInput } from "../../library/types.js";
 import type { ToolResult } from "../../types.js";
 import { log } from "../../utils/logger.js";
+import { getSanitizedErrorMessage } from "./error-utils.js";
 
 /**
  * Handle add_notebook tool
@@ -27,10 +28,11 @@ export async function handleAddNotebook(
       data: { notebook },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] add_notebook failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -52,10 +54,11 @@ export async function handleListNotebooks(
       data: { notebooks },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] list_notebooks failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -77,6 +80,7 @@ export async function handleGetNotebook(
       log.warning(`⚠️  [TOOL] Notebook not found: ${args.id}`);
       return {
         success: false,
+        data: null,
         error: `Notebook not found: ${args.id}`,
       };
     }
@@ -87,10 +91,11 @@ export async function handleGetNotebook(
       data: { notebook },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] get_notebook failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -114,10 +119,11 @@ export async function handleSelectNotebook(
       data: { notebook },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] select_notebook failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -141,10 +147,11 @@ export async function handleUpdateNotebook(
       data: { notebook },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] update_notebook failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -166,6 +173,7 @@ export async function handleRemoveNotebook(
       log.warning(`⚠️  [TOOL] Notebook not found: ${args.id}`);
       return {
         success: false,
+        data: null,
         error: `Notebook not found: ${args.id}`,
       };
     }
@@ -184,14 +192,16 @@ export async function handleRemoveNotebook(
       log.warning(`⚠️  [TOOL] Notebook not found: ${args.id}`);
       return {
         success: false,
+        data: null,
         error: `Notebook not found: ${args.id}`,
       };
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] remove_notebook failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -215,10 +225,11 @@ export async function handleSearchNotebooks(
       data: { notebooks },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] search_notebooks failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -240,10 +251,11 @@ export async function handleGetLibraryStats(
       data: stats,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] get_library_stats failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }

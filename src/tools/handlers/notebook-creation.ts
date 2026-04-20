@@ -25,6 +25,10 @@ import { validateNotebookUrl } from "../../utils/security.js";
 import { getQuotaManager } from "../../quota/index.js";
 import { log } from "../../utils/logger.js";
 import { audit } from "../../utils/audit-logger.js";
+import {
+  getErrorAuditArgs,
+  getSanitizedErrorMessage,
+} from "./error-utils.js";
 
 export async function handleCreateNotebook(
   ctx: HandlerContext,
@@ -69,6 +73,7 @@ export async function handleCreateNotebook(
       log.warning(`⚠️ Quota limit: ${canCreate.reason}`);
       return {
         success: false,
+        data: null,
         error: canCreate.reason || "Notebook quota limit reached",
       };
     }
@@ -80,6 +85,7 @@ export async function handleCreateNotebook(
       log.warning(`⚠️ Quota limit: ${reason}`);
       return {
         success: false,
+        data: null,
         error: reason,
       };
     }
@@ -129,16 +135,20 @@ export async function handleCreateNotebook(
       data: result,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] create_notebook failed: ${errorMessage}`);
 
-    await audit.tool("create_notebook", {
-      name: args.name,
-      error: errorMessage,
-    }, false, 0, errorMessage);
+    await audit.tool(
+      "create_notebook",
+      getErrorAuditArgs("create_notebook", errorMessage),
+      false,
+      0,
+      errorMessage
+    );
 
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -241,7 +251,7 @@ export async function handleBatchCreateNotebooks(
           }
         }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getSanitizedErrorMessage(error);
         results.push({
           name: notebook.name,
           success: false,
@@ -277,10 +287,11 @@ export async function handleBatchCreateNotebooks(
       },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] batch_create_notebooks failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -320,15 +331,20 @@ export async function handleSyncLibrary(
       data: result,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] sync_library failed: ${errorMessage}`);
 
-    await audit.tool("sync_library", {
-      error: errorMessage,
-    }, false, 0, errorMessage);
+    await audit.tool(
+      "sync_library",
+      getErrorAuditArgs("sync_library", errorMessage),
+      false,
+      0,
+      errorMessage
+    );
 
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -380,10 +396,11 @@ export async function handleListSources(
       data: result,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] list_sources failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -452,10 +469,11 @@ export async function handleAddSource(
       ...(result.error && { error: result.error }),
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] add_source failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -748,7 +766,7 @@ export async function handleAddFolder(
             log.warning(`  ⚠️  Failed: ${fileName} — ${result.error}`);
           }
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
+          const msg = getSanitizedErrorMessage(err);
           failedFiles.push({ file: filePath, error: msg });
           log.warning(`  ⚠️  Error: ${fileName} — ${msg}`);
         }
@@ -776,9 +794,9 @@ export async function handleAddFolder(
       }),
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] add_folder failed: ${errorMessage}`);
-    return { success: false, error: errorMessage };
+    return { success: false, data: null, error: errorMessage };
   }
 }
 
@@ -841,10 +859,11 @@ export async function handleRemoveSource(
       ...(result.error && { error: result.error }),
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] remove_source failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }

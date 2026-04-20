@@ -26,6 +26,7 @@ import {
   type GenerateDataTableResult,
   type GetDataTableResult,
 } from "../../notebook-creation/data-table-manager.js";
+import { getSanitizedErrorMessage } from "./error-utils.js";
 
 export async function handleGenerateAudioOverview(
   ctx: HandlerContext,
@@ -79,10 +80,11 @@ export async function handleGenerateAudioOverview(
       ...(result.error && { error: result.error }),
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] generate_audio_overview failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -135,10 +137,11 @@ export async function handleGetAudioStatus(
       data: status,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] get_audio_status failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -197,10 +200,11 @@ export async function handleDownloadAudio(
       ...(result.error && { error: result.error }),
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] download_audio failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -264,10 +268,11 @@ export async function handleGenerateVideoOverview(
       ...(result.error && { error: result.error }),
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] generate_video_overview failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -320,10 +325,11 @@ export async function handleGetVideoStatus(
       data: status,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] get_video_status failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -381,10 +387,11 @@ export async function handleGenerateDataTable(
       ...(result.error && { error: result.error }),
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] generate_data_table failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -442,10 +449,11 @@ export async function handleGetDataTable(
       ...(result.error && { error: result.error }),
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] get_data_table failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }

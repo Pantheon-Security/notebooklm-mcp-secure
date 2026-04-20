@@ -27,6 +27,18 @@ import type {
   QueryDocumentResult,
   ListDocumentsResult,
 } from "../../gemini/index.js";
+import {
+  getErrorAuditArgs,
+  getSanitizedErrorMessage,
+} from "./error-utils.js";
+
+function getConfiguredGeminiClient(ctx: HandlerContext) {
+  const geminiClient = ctx.getGeminiClient();
+  if (!geminiClient) {
+    return null;
+  }
+  return geminiClient;
+}
 
 /**
  * Handle deep_research tool
@@ -45,11 +57,13 @@ export async function handleDeepResearch(
   log.info(`  Query: "${sanitizeForLogging(args.query.substring(0, 100))}"...`);
 
   // Check if Gemini is available
-  if (!ctx.geminiClient.isAvailable()) {
+  const geminiClient = getConfiguredGeminiClient(ctx);
+  if (!geminiClient) {
     log.error(`❌ [TOOL] deep_research failed: Gemini API key not configured`);
     return {
       success: false,
-      error: "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+      data: null,
+      error: "GEMINI_API_KEY is not configured.",
     };
   }
 
@@ -71,7 +85,7 @@ export async function handleDeepResearch(
     }
 
     // Start the research
-    const interaction = await ctx.geminiClient.deepResearch({
+    const interaction = await geminiClient.deepResearch({
       query: args.query,
       background: true,
       waitForCompletion: args.wait_for_completion !== false,
@@ -101,11 +115,17 @@ export async function handleDeepResearch(
       },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     const durationMs = Date.now() - startTime;
     log.error(`❌ [TOOL] deep_research failed: ${errorMessage}`);
-    await audit.tool("deep_research", { query: sanitizeForLogging(args.query) }, false, durationMs, errorMessage);
-    return { success: false, error: errorMessage };
+    await audit.tool(
+      "deep_research",
+      getErrorAuditArgs("deep_research", errorMessage),
+      false,
+      durationMs,
+      errorMessage
+    );
+    return { success: false, data: null, error: errorMessage };
   }
 }
 
@@ -131,11 +151,13 @@ export async function handleGeminiQuery(
   if (args.tools) log.info(`  Tools: ${args.tools.join(", ")}`);
 
   // Check if Gemini is available
-  if (!ctx.geminiClient.isAvailable()) {
+  const geminiClient = getConfiguredGeminiClient(ctx);
+  if (!geminiClient) {
     log.error(`❌ [TOOL] gemini_query failed: Gemini API key not configured`);
     return {
       success: false,
-      error: "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+      data: null,
+      error: "GEMINI_API_KEY is not configured.",
     };
   }
 
@@ -173,7 +195,7 @@ export async function handleGeminiQuery(
       }),
     } : undefined;
 
-    const interaction = await ctx.geminiClient.query({
+    const interaction = await geminiClient.query({
       query: args.query,
       model: args.model,
       tools,
@@ -214,11 +236,17 @@ export async function handleGeminiQuery(
       },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     const durationMs = Date.now() - startTime;
     log.error(`❌ [TOOL] gemini_query failed: ${errorMessage}`);
-    await audit.tool("gemini_query", { query: sanitizeForLogging(args.query) }, false, durationMs, errorMessage);
-    return { success: false, error: errorMessage };
+    await audit.tool(
+      "gemini_query",
+      getErrorAuditArgs("gemini_query", errorMessage),
+      false,
+      durationMs,
+      errorMessage
+    );
+    return { success: false, data: null, error: errorMessage };
   }
 }
 
@@ -235,11 +263,13 @@ export async function handleGetResearchStatus(
   log.info(`  Interaction ID: ${args.interaction_id}`);
 
   // Check if Gemini is available
-  if (!ctx.geminiClient.isAvailable()) {
+  const geminiClient = getConfiguredGeminiClient(ctx);
+  if (!geminiClient) {
     log.error(`❌ [TOOL] get_research_status failed: Gemini API key not configured`);
     return {
       success: false,
-      error: "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+      data: null,
+      error: "GEMINI_API_KEY is not configured.",
     };
   }
 
@@ -249,7 +279,7 @@ export async function handleGetResearchStatus(
       throw new Error("Interaction ID cannot be empty");
     }
 
-    const interaction = await ctx.geminiClient.getInteraction(args.interaction_id);
+    const interaction = await geminiClient.getInteraction(args.interaction_id);
 
     log.success(`✅ [TOOL] get_research_status: ${interaction.status}`);
 
@@ -258,9 +288,9 @@ export async function handleGetResearchStatus(
       data: interaction,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] get_research_status failed: ${errorMessage}`);
-    return { success: false, error: errorMessage };
+    return { success: false, data: null, error: errorMessage };
   }
 }
 
@@ -281,11 +311,13 @@ export async function handleUploadDocument(
   log.info(`  File: ${args.file_path}`);
 
   // Check if Gemini is available
-  if (!ctx.geminiClient.isAvailable()) {
+  const geminiClient = getConfiguredGeminiClient(ctx);
+  if (!geminiClient) {
     log.error(`❌ [TOOL] upload_document failed: Gemini API key not configured`);
     return {
       success: false,
-      error: "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+      data: null,
+      error: "GEMINI_API_KEY is not configured.",
     };
   }
 
@@ -295,7 +327,7 @@ export async function handleUploadDocument(
       throw new Error("File path cannot be empty");
     }
 
-    const result = await ctx.geminiClient.uploadDocument({
+    const result = await geminiClient.uploadDocument({
       filePath: args.file_path,
       displayName: args.display_name,
     });
@@ -310,11 +342,17 @@ export async function handleUploadDocument(
       data: result,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     const durationMs = Date.now() - startTime;
-    await audit.tool("upload_document", { file: sanitizeForLogging(args.file_path) }, false, durationMs, errorMessage);
+    await audit.tool(
+      "upload_document",
+      getErrorAuditArgs("upload_document", errorMessage),
+      false,
+      durationMs,
+      errorMessage
+    );
     log.error(`❌ [TOOL] upload_document failed: ${errorMessage}`);
-    return { success: false, error: errorMessage };
+    return { success: false, data: null, error: errorMessage };
   }
 }
 
@@ -336,11 +374,13 @@ export async function handleQueryDocument(
   log.info(`  Query: ${args.query.substring(0, 50)}...`);
 
   // Check if Gemini is available
-  if (!ctx.geminiClient.isAvailable()) {
+  const geminiClient = getConfiguredGeminiClient(ctx);
+  if (!geminiClient) {
     log.error(`❌ [TOOL] query_document failed: Gemini API key not configured`);
     return {
       success: false,
-      error: "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+      data: null,
+      error: "GEMINI_API_KEY is not configured.",
     };
   }
 
@@ -353,7 +393,7 @@ export async function handleQueryDocument(
       throw new Error("Query cannot be empty");
     }
 
-    const result = await ctx.geminiClient.queryDocument({
+    const result = await geminiClient.queryDocument({
       fileName: args.file_name,
       query: args.query,
       model: args.model as GeminiModel | undefined,
@@ -370,11 +410,17 @@ export async function handleQueryDocument(
       data: result,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     const durationMs = Date.now() - startTime;
-    await audit.tool("query_document", { file: args.file_name }, false, durationMs, errorMessage);
+    await audit.tool(
+      "query_document",
+      getErrorAuditArgs("query_document", errorMessage),
+      false,
+      durationMs,
+      errorMessage
+    );
     log.error(`❌ [TOOL] query_document failed: ${errorMessage}`);
-    return { success: false, error: errorMessage };
+    return { success: false, data: null, error: errorMessage };
   }
 }
 
@@ -390,16 +436,18 @@ export async function handleListDocuments(
   log.info(`🔧 [TOOL] list_documents called`);
 
   // Check if Gemini is available
-  if (!ctx.geminiClient.isAvailable()) {
+  const geminiClient = getConfiguredGeminiClient(ctx);
+  if (!geminiClient) {
     log.error(`❌ [TOOL] list_documents failed: Gemini API key not configured`);
     return {
       success: false,
-      error: "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+      data: null,
+      error: "GEMINI_API_KEY is not configured.",
     };
   }
 
   try {
-    const result = await ctx.geminiClient.listFiles(args.page_size || 100);
+    const result = await geminiClient.listFiles(args.page_size || 100);
 
     log.success(`✅ [TOOL] list_documents: ${result.totalCount} files`);
 
@@ -408,9 +456,9 @@ export async function handleListDocuments(
       data: result,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] list_documents failed: ${errorMessage}`);
-    return { success: false, error: errorMessage };
+    return { success: false, data: null, error: errorMessage };
   }
 }
 
@@ -427,11 +475,13 @@ export async function handleDeleteDocument(
   log.info(`  File: ${args.file_name}`);
 
   // Check if Gemini is available
-  if (!ctx.geminiClient.isAvailable()) {
+  const geminiClient = getConfiguredGeminiClient(ctx);
+  if (!geminiClient) {
     log.error(`❌ [TOOL] delete_document failed: Gemini API key not configured`);
     return {
       success: false,
-      error: "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+      data: null,
+      error: "GEMINI_API_KEY is not configured.",
     };
   }
 
@@ -441,7 +491,7 @@ export async function handleDeleteDocument(
       throw new Error("File name cannot be empty");
     }
 
-    await ctx.geminiClient.deleteFile(args.file_name);
+    await geminiClient.deleteFile(args.file_name);
 
     log.success(`✅ [TOOL] delete_document: ${args.file_name} deleted`);
 
@@ -450,9 +500,9 @@ export async function handleDeleteDocument(
       data: { deleted: true, fileName: args.file_name },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] delete_document failed: ${errorMessage}`);
-    return { success: false, error: errorMessage };
+    return { success: false, data: null, error: errorMessage };
   }
 }
 
@@ -479,11 +529,13 @@ export async function handleQueryChunkedDocument(
   log.info(`  Query: ${args.query.substring(0, 50)}...`);
 
   // Check if Gemini is available
-  if (!ctx.geminiClient.isAvailable()) {
+  const geminiClient = getConfiguredGeminiClient(ctx);
+  if (!geminiClient) {
     log.error(`❌ [TOOL] query_chunked_document failed: Gemini API key not configured`);
     return {
       success: false,
-      error: "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+      data: null,
+      error: "GEMINI_API_KEY is not configured.",
     };
   }
 
@@ -496,7 +548,7 @@ export async function handleQueryChunkedDocument(
       throw new Error("Query cannot be empty");
     }
 
-    const result = await ctx.geminiClient.queryChunkedDocument(
+    const result = await geminiClient.queryChunkedDocument(
       args.file_names,
       args.query,
       { model: args.model }
@@ -515,9 +567,9 @@ export async function handleQueryChunkedDocument(
       },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] query_chunked_document failed: ${errorMessage}`);
-    return { success: false, error: errorMessage };
+    return { success: false, data: null, error: errorMessage };
   }
 }
 
@@ -594,10 +646,11 @@ export async function handleGetQueryHistory(
       },
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] get_query_history failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
@@ -652,6 +705,7 @@ export async function handleGetNotebookChatHistory(
       if (!notebook) {
         return {
           success: false,
+          data: null,
           error: `Notebook not found: ${args.notebook_id}. Use list_notebooks to see available notebooks.`,
         };
       }
@@ -663,6 +717,7 @@ export async function handleGetNotebookChatHistory(
       if (!activeNotebook) {
         return {
           success: false,
+          data: null,
           error: "No notebook specified. Provide notebook_id or notebook_url, or set an active notebook.",
         };
       }
@@ -821,10 +876,11 @@ export async function handleGetNotebookChatHistory(
       await ctx.sessionManager.closeSession(sessionId);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getSanitizedErrorMessage(error);
     log.error(`❌ [TOOL] get_notebook_chat_history failed: ${errorMessage}`);
     return {
       success: false,
+      data: null,
       error: errorMessage,
     };
   }
