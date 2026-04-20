@@ -98,6 +98,7 @@ export class MCPAuthenticator {
 
   constructor(config?: Partial<MCPAuthConfig>) {
     this.config = { ...getAuthConfig(), ...config };
+    log.info(`  🔐 MCP Auth: ${this.config.enabled ? "ENABLED" : "DISABLED"} (token file: ${this.config.tokenFile || "none"})`);
   }
 
   /**
