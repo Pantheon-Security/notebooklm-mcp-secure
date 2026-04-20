@@ -9,6 +9,8 @@ import path from "path";
 
 // Pre-compiled regex patterns for sanitizeForLogging (avoid recompilation per call)
 const EMAIL_SANITIZE_PATTERN = /([a-zA-Z0-9._%+-])([a-zA-Z0-9._%+-]*)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+// Protocol-agnostic credential-in-URL pattern (I208)
+const URL_CREDENTIAL_PATTERN = /([a-z][a-z0-9+\-.]*:\/\/)[^/:@\s]+:[^/@\s]+@/gi;
 const SECRET_SANITIZE_PATTERNS = [
   /password[=:]\s*["']?([^"'\s]+)/gi,
   /secret[=:]\s*["']?([^"'\s]+)/gi,
@@ -193,6 +195,10 @@ export function sanitizeForLogging(value: string): string {
     });
   }
 
+  // Redact credentials embedded in any URL scheme (I208)
+  URL_CREDENTIAL_PATTERN.lastIndex = 0;
+  result = result.replace(URL_CREDENTIAL_PATTERN, "$1***:***@");
+
   return result;
 }
 
@@ -200,15 +206,18 @@ export function sanitizeForLogging(value: string): string {
  * Mask an email for logging (more aggressive than general sanitization)
  */
 export function maskEmail(email: string): string {
-  if (!email || typeof email !== 'string' || !email.includes('@')) {
-    return '***@***.***';
-  }
-
-  const [name, domain] = email.split('@');
-  if (name.length <= 2) {
-    return `${'*'.repeat(name.length)}@${domain}`;
-  }
-  return `${name[0]}${'*'.repeat(name.length - 2)}${name[name.length - 1]}@${domain}`;
+  const at = email.lastIndexOf('@');
+  if (at < 0) return '***';
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  const maskedLocal = local.length <= 2
+    ? '***'
+    : local[0] + '*'.repeat(Math.min(local.length - 1, 4)) + (local.length > 5 ? local.slice(-1) : '');
+  const dotIdx = domain.lastIndexOf('.');
+  const maskedDomain = dotIdx > 0
+    ? domain[0] + '***' + domain.slice(dotIdx)
+    : domain[0] + '***';
+  return `${maskedLocal}@${maskedDomain}`;
 }
 
 /**

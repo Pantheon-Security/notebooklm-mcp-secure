@@ -15,6 +15,7 @@ import { CONFIG } from "../config.js";
 import { eventEmitter } from "../events/event-emitter.js";
 import type { SystemEvent, EventType } from "../events/event-types.js";
 import { scanAndRedactSecrets } from "../utils/secrets-scanner.js";
+import { SecureCredential } from "../utils/secure-memory.js";
 import type {
   WebhookConfig,
   WebhookDelivery,
@@ -171,12 +172,16 @@ export async function validateWebhookUrl(rawUrl: string): Promise<WebhookUrlVali
   return { ok: true, url: parsed };
 }
 
+const WEBHOOK_SECRET_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 export class WebhookDispatcher {
   private storePath: string;
   private store: WebhooksStore;
   private unsubscribe: (() => void) | null = null;
   private deliveryHistory: WebhookDelivery[] = [];
   private maxDeliveryHistory = 100;
+  // In-memory SecureCredential store for webhook secrets (I321)
+  private webhookSecrets = new Map<string, SecureCredential>();
 
   constructor() {
     this.storePath = path.join(CONFIG.dataDir, "webhooks.json");
@@ -352,8 +357,9 @@ export class WebhookDispatcher {
       try {
         // Include unix timestamp in HMAC to prevent indefinite replay (I271)
         const timestamp = Math.floor(Date.now() / 1000);
-        const signature = webhook.secret
-          ? this.sign(payload, webhook.secret, timestamp)
+        const secret = this.webhookSecrets.get(webhook.id)?.getValue() ?? webhook.secret;
+        const signature = secret
+          ? this.sign(payload, secret, timestamp)
           : undefined;
 
         const controller = new AbortController();
@@ -659,7 +665,7 @@ export class WebhookDispatcher {
       enabled: true,
       events: input.events || ["*"],
       format: input.format || "generic",
-      secret: input.secret,
+      secret: undefined, // secret never persisted to disk
       headers: input.headers,
       retryCount: 3,
       retryDelayMs: 1000,
@@ -667,6 +673,11 @@ export class WebhookDispatcher {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+
+    // Store secret in SecureCredential, not in the persisted webhook object (I321)
+    if (input.secret) {
+      this.webhookSecrets.set(webhook.id, new SecureCredential(input.secret, WEBHOOK_SECRET_TTL_MS));
+    }
 
     this.store.webhooks.push(webhook);
     this.saveStore();
@@ -723,6 +734,7 @@ export class WebhookDispatcher {
 
     const webhook = this.store.webhooks[index];
     this.store.webhooks.splice(index, 1);
+    this.webhookSecrets.delete(id); // cleanup SecureCredential (I321)
     this.saveStore();
 
     log.success(`✅ Webhook removed: ${webhook.name}`);

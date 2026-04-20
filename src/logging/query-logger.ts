@@ -86,6 +86,10 @@ function generateQueryId(): string {
   return crypto.randomBytes(8).toString("hex");
 }
 
+const MAX_LOG_FILE_BYTES = 100 * 1024 * 1024; // 100 MB per daily file (I232)
+const TRUNCATED_FIELD_LENGTH = 500;
+const TRUNCATED_SUFFIX = "...[truncated]";
+
 /**
  * Query Logger Class
  *
@@ -177,7 +181,6 @@ export class QueryLogger {
     try {
       while (this.writeQueue.length > 0) {
         const batch = this.writeQueue.splice(0, 100);
-        const lines = batch.map(e => JSON.stringify(e)).join("\n") + "\n";
 
         // Check if we need to rotate to new day's file
         const today = new Date().toISOString().split("T")[0];
@@ -185,6 +188,28 @@ export class QueryLogger {
         if (this.currentLogFile !== expectedFile) {
           this.currentLogFile = expectedFile;
         }
+
+        // Enforce per-file size cap (I232) — truncate fields if approaching limit
+        let currentFileSize = (() => {
+          try { return fs.statSync(this.currentLogFile).size; } catch { return 0; }
+        })();
+
+        const lines = batch.map((e) => {
+          const serialized = JSON.stringify(e);
+          const entryBytes = Buffer.byteLength(serialized + "\n");
+          if (currentFileSize + entryBytes > MAX_LOG_FILE_BYTES) {
+            const truncated = {
+              ...e,
+              question: e.question.slice(0, TRUNCATED_FIELD_LENGTH) + TRUNCATED_SUFFIX,
+              answer: e.answer.slice(0, TRUNCATED_FIELD_LENGTH) + TRUNCATED_SUFFIX,
+            };
+            const ts = JSON.stringify(truncated);
+            currentFileSize += Buffer.byteLength(ts + "\n");
+            return ts;
+          }
+          currentFileSize += entryBytes;
+          return serialized;
+        }).join("\n") + "\n";
 
         appendFileSecure(this.currentLogFile, lines, PERMISSION_MODES.OWNER_READ_WRITE);
       }
@@ -345,27 +370,29 @@ export class QueryLogger {
   /**
    * Get all queries from all log files
    */
-  private async getAllQueries(): Promise<QueryLogEntry[]> {
+  private async getAllQueries(limit: number = 1000): Promise<QueryLogEntry[]> {
     const logFiles = this.getLogFiles();
     const allQueries: QueryLogEntry[] = [];
 
     for (const file of logFiles) {
+      if (allQueries.length >= limit) break;
       const filePath = path.join(this.config.logDir, file);
       const entries = this.readLogFile(filePath);
       allQueries.push(...entries);
     }
 
-    return allQueries;
+    return allQueries.slice(0, limit);
   }
 
   /**
    * Filter queries across all log files
    */
   private async filterQueries(
-    predicate: (entry: QueryLogEntry) => boolean
+    predicate: (entry: QueryLogEntry) => boolean,
+    limit: number = 1000
   ): Promise<QueryLogEntry[]> {
-    const allQueries = await this.getAllQueries();
-    return allQueries.filter(predicate);
+    const allQueries = await this.getAllQueries(limit * 10); // over-fetch to account for filter
+    return allQueries.filter(predicate).slice(0, limit);
   }
 }
 

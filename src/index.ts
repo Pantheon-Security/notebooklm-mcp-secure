@@ -62,6 +62,7 @@ import {
 } from "./compliance/compliance-tools.js";
 import { getPrivacyNoticeManager, getPrivacyNoticeCLIText } from "./compliance/privacy-notice.js";
 import { runRetentionPolicies } from "./compliance/retention-engine.js";
+import { getBreachDetector } from "./compliance/breach-detection.js";
 import type { ToolResult } from "./types.js";
 
 type ProgressReporter = (message: string, progress?: number, total?: number) => Promise<void>;
@@ -99,6 +100,19 @@ function toToolArgs(value: unknown): ToolArgs {
 function asToolInput<T>(args: ToolArgs): T {
   return args as unknown as T;
 }
+
+const TOOLS_EXEMPT_FROM_AUTH: Array<ToolName> = [
+  "ask_question", "add_notebook", "list_notebooks", "get_notebook", "select_notebook",
+  "update_notebook", "remove_notebook", "search_notebooks", "get_library_stats",
+  "get_quota", "set_quota_tier", "get_project_info", "create_notebook",
+  "batch_create_notebooks", "sync_library", "list_sessions", "close_session", "reset_session",
+  "get_health", "list_sources", "add_source", "remove_source",
+  "generate_audio_overview", "get_audio_status", "generate_video_overview", "get_video_status",
+  "generate_data_table", "get_data_table", "list_webhooks",
+  "deep_research", "gemini_query", "get_research_status",
+  "query_document", "list_documents", "query_chunked_document",
+  "get_query_history", "get_notebook_chat_history",
+];
 
 const TOOLS_REQUIRING_AUTH: Array<ToolName> = [
   "add_folder",
@@ -259,6 +273,13 @@ class NotebookLMMCPServer {
       ["get_query_history", (args) => this.toolHandlers.handleGetQueryHistory(asToolInput<Parameters<ToolHandlers["handleGetQueryHistory"]>[0]>(args))],
       ["get_notebook_chat_history", (args) => this.toolHandlers.handleGetNotebookChatHistory(asToolInput<Parameters<ToolHandlers["handleGetNotebookChatHistory"]>[0]>(args))],
     ]);
+
+    // Startup assertion: every registered tool must be explicitly auth-classified (I313)
+    for (const toolName of this.toolRegistry.keys()) {
+      if (isToolName(toolName) && !TOOLS_REQUIRING_AUTH.includes(toolName) && !TOOLS_EXEMPT_FROM_AUTH.includes(toolName)) {
+        log.warning(`⚠️ Tool '${toolName}' not in auth lists — defaulting to unauthenticated`);
+      }
+    }
 
     // List available tools
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -477,7 +498,21 @@ class NotebookLMMCPServer {
       log.warning(`⚠️ Retention engine bootstrap failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    log.info("🛡️  Breach detector ready");
+    // Subscribe breach detector to audit event stream (I244)
+    try {
+      const breachDetector = getBreachDetector();
+      getAuditLogger().onEvent(async (event) => {
+        if (event.eventType !== "auth" && event.eventType !== "security") return;
+        try {
+          await breachDetector.checkEvent(event.eventName, event.details);
+        } catch (err) {
+          log.warning(`breach detector checkEvent failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      });
+      log.info("🛡️  Breach detector subscribed to audit events");
+    } catch (err) {
+      log.warning(`⚠️ Breach detector bootstrap failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /**

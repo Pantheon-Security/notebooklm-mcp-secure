@@ -100,6 +100,7 @@ export class AuditLogger {
   private pendingEvents: AuditEvent[] = [];
   private hashChainWarningLogged: boolean = false;
   private writeFailureLogged: boolean = false;
+  private eventSubscribers: Array<(event: AuditEvent) => Promise<void>> = [];
   private stats = {
     totalEvents: 0,
     toolEvents: 0,
@@ -268,9 +269,21 @@ export class AuditLogger {
         appendFileSecure(logFile, line, PERMISSION_MODES.OWNER_READ_WRITE);
         this.pendingEvents = this.pendingEvents.filter((pendingEvent) => pendingEvent !== event);
       });
+
+      // Fan-out to subscribers after successful write (I244)
+      for (const sub of this.eventSubscribers) {
+        sub(event).catch(() => {}); // fire-and-forget, never block audit writes
+      }
     } catch (error) {
       this.handleWriteFailure(event, error);
     }
+  }
+
+  /**
+   * Subscribe to audit events as they are written to disk (I244)
+   */
+  onEvent(handler: (event: AuditEvent) => Promise<void>): void {
+    this.eventSubscribers.push(handler);
   }
 
   /**
