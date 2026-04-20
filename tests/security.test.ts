@@ -166,5 +166,14 @@ describe("Security Utilities", () => {
       limiter.clear();
       expect(limiter.getRemaining("test")).toBe(3);
     });
+
+    it("Map size stays bounded under 10 001 distinct keys (I303)", () => {
+      const bigLimiter = new RateLimiter(100, 60000);
+      for (let i = 0; i < 10_001; i++) {
+        bigLimiter.isAllowed(`key-${i}`);
+      }
+      // Internal map must not exceed 10 000 entries
+      expect(bigLimiter.size()).toBeLessThanOrEqual(10_000);
+    });
   });
 });

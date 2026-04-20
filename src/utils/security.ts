@@ -302,6 +302,13 @@ export class RateLimiter {
   }
 
   /**
+   * Return number of distinct tracked keys
+   */
+  size(): number {
+    return this.requests.size;
+  }
+
+  /**
    * Clear all rate limit data
    */
   clear(): void {
