@@ -69,6 +69,10 @@ describe("Config Parsing", () => {
       expect(parseInteger("3.14", 0)).toBe(3);
       expect(parseInteger("9.99", 0)).toBe(9);
     });
+
+    it("should handle scientific notation via Number parsing", () => {
+      expect(parseInteger("1e9", 0)).toBe(1000000000);
+    });
   });
 
   describe("parseArray", () => {
@@ -94,6 +98,10 @@ describe("Config Parsing", () => {
 
     it("should handle single values", () => {
       expect(parseArray("single", [])).toEqual(["single"]);
+    });
+
+    it("should parse semicolon-separated values", () => {
+      expect(parseArray("a;b;c", [])).toEqual(["a", "b", "c"]);
     });
   });
 
