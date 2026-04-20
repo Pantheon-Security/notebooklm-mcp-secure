@@ -15,13 +15,13 @@ import type {
 import { findElement, waitForElement, getSelectors } from "./selectors.js";
 import { log } from "../utils/logger.js";
 import { randomDelay, humanType, realisticClick } from "../utils/stealth-utils.js";
-import { CONFIG } from "../config.js";
+import { CONFIG, NOTEBOOKLM_URL } from "../config.js";
 import { AuthManager } from "../auth/auth-manager.js";
 import { SharedContextManager } from "../session/shared-context-manager.js";
 import fs from "fs";
 import path from "path";
 
-const NOTEBOOKLM_URL = "https://notebooklm.google.com/";
+
 
 /**
  * Creates NotebookLM notebooks with sources

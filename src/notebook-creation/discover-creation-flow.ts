@@ -1,3 +1,4 @@
+import { NOTEBOOKLM_URL } from "../config.js";
 /**
  * Discover Creation Flow
  *
@@ -10,7 +11,7 @@ import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
 import type { Page } from "patchright";
 
-const NOTEBOOKLM_URL = "https://notebooklm.google.com/";
+
 
 interface ElementInfo {
   tag: string;

@@ -8,12 +8,12 @@
 import type { Page } from "patchright";
 import { log } from "../utils/logger.js";
 import { randomDelay } from "../utils/stealth-utils.js";
-import { CONFIG } from "../config.js";
+import { CONFIG, NOTEBOOKLM_URL } from "../config.js";
 import { AuthManager } from "../auth/auth-manager.js";
 import { SharedContextManager } from "../session/shared-context-manager.js";
 import type { NotebookLibrary } from "../library/notebook-library.js";
 
-const NOTEBOOKLM_URL = "https://notebooklm.google.com/";
+
 
 export interface ActualNotebook {
   title: string;

@@ -9,9 +9,9 @@ import type { Page, BrowserContext } from "patchright";
 import type { ElementInfo, DiscoveryResult, SelectorInfo } from "./types.js";
 import { log } from "../utils/logger.js";
 import { randomDelay, realisticClick } from "../utils/stealth-utils.js";
-import { CONFIG } from "../config.js";
+import { CONFIG, NOTEBOOKLM_URL } from "../config.js";
 
-const NOTEBOOKLM_URL = "https://notebooklm.google.com/";
+
 
 /**
  * Keywords to identify UI elements by their text/aria-label
