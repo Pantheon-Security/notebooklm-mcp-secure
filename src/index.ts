@@ -167,7 +167,6 @@ class NotebookLMMCPServer {
           resources: {},
           prompts: {},
           completions: {}, // Required for completion/complete handler
-          logging: {},
         },
       }
     );
