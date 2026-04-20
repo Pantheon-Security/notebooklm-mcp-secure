@@ -20,11 +20,12 @@
  * Added by Pantheon Security for hardened fork.
  */
 
-import crypto from "crypto";
+import crypto, { hkdfSync } from "crypto";
 import fs from "fs";
 import path from "path";
 import os from "os";
 import { ml_kem768 } from "@noble/post-quantum/ml-kem.js";
+import { CONFIG } from "../config.js";
 import { log } from "./logger.js";
 import { audit } from "./audit-logger.js";
 import {
@@ -45,7 +46,7 @@ export interface EncryptionConfig {
   keyFile?: string;
   /** Use machine-derived key as fallback */
   useMachineKey: boolean;
-  /** PBKDF2 iterations (default: 100000) */
+  /** PBKDF2 iterations (default: 600000) */
   pbkdf2Iterations: number;
   /** Use post-quantum encryption (default: true) */
   usePostQuantum: boolean;
@@ -101,6 +102,7 @@ const NONCE_LENGTH = 12;  // 96 bits for ChaCha20
 const SALT_LENGTH = 32;
 const CURRENT_VERSION = 3; // Version 3 = Post-Quantum + ChaCha20-Poly1305
 const CLASSICAL_VERSION = 2; // Version 2 = ChaCha20-Poly1305 classical
+const DEFAULT_PBKDF2_ITERATIONS = 600_000;
 // Legacy versions for migration (detected by presence of 'iv' and 'tag' fields)
 // LEGACY_PQ_VERSION = 2 (old PQ with AES-GCM)
 // LEGACY_CLASSICAL_VERSION = 1 (old classical with AES-GCM)
@@ -114,15 +116,26 @@ function getEncryptionConfig(): EncryptionConfig {
     key: process.env.NLMCP_ENCRYPTION_KEY,
     keyFile: process.env.NLMCP_ENCRYPTION_KEY_FILE,
     useMachineKey: process.env.NLMCP_USE_MACHINE_KEY !== "false",
-    pbkdf2Iterations: parseInt(process.env.NLMCP_PBKDF2_ITERATIONS || "100000", 10),
+    pbkdf2Iterations: parseInt(
+      process.env.NLMCP_PBKDF2_ITERATIONS || String(DEFAULT_PBKDF2_ITERATIONS),
+      10
+    ),
     usePostQuantum: process.env.NLMCP_USE_POST_QUANTUM !== "false",
   };
+}
+
+function hkdfDerive(ikm: Buffer, salt: Buffer, info: string, length: number): Buffer {
+  return Buffer.from(hkdfSync("sha256", ikm, salt, Buffer.from(info), length));
 }
 
 /**
  * Derive a key from a passphrase using PBKDF2
  */
-export function deriveKey(passphrase: string, salt: Buffer, iterations: number = 100000): Buffer {
+export function deriveKey(
+  passphrase: string,
+  salt: Buffer,
+  iterations: number = DEFAULT_PBKDF2_ITERATIONS
+): Buffer {
   return crypto.pbkdf2Sync(passphrase, salt, iterations, KEY_LENGTH, "sha256");
 }
 
@@ -146,6 +159,23 @@ export function getMachineKey(): string {
   const hash = crypto.createHash("sha256").update(combined).digest("hex");
 
   return hash;
+}
+
+export function getOrCreateMachineKey(keyPath: string): Buffer {
+  if (fs.existsSync(keyPath)) {
+    const existingKey = fs.readFileSync(keyPath);
+    if (existingKey.length !== KEY_LENGTH) {
+      throw new Error(`Invalid machine key length: expected ${KEY_LENGTH} bytes, got ${existingKey.length}`);
+    }
+    return existingKey;
+  }
+
+  mkdirSecure(path.dirname(keyPath), PERMISSION_MODES.OWNER_FULL);
+
+  const machineKey = crypto.randomBytes(KEY_LENGTH);
+  writeFileSecure(keyPath, machineKey, PERMISSION_MODES.OWNER_READ_WRITE);
+  fs.chmodSync(keyPath, 0o600);
+  return machineKey;
 }
 
 /**
@@ -180,10 +210,12 @@ export function encryptPQ(
   const nonce = crypto.randomBytes(NONCE_LENGTH);
 
   // Step 3: Derive ChaCha20 key from shared secret + salt
-  const chachaKey = crypto.createHash("sha256")
-    .update(Buffer.from(sharedSecret))
-    .update(salt)
-    .digest();
+  const chachaKey = hkdfDerive(
+    Buffer.from(sharedSecret),
+    salt,
+    "notebooklm-mcp-key-derivation",
+    KEY_LENGTH
+  );
 
   // Step 4: Encrypt with ChaCha20-Poly1305
   const cipher = crypto.createCipheriv(ALGORITHM, chachaKey, nonce, {
@@ -229,10 +261,12 @@ export function decryptPQ(
 
   // Step 2: Derive ChaCha20 key
   const salt = Buffer.from(encryptedData.salt, "base64");
-  const chachaKey = crypto.createHash("sha256")
-    .update(Buffer.from(sharedSecret))
-    .update(salt)
-    .digest();
+  const chachaKey = hkdfDerive(
+    Buffer.from(sharedSecret),
+    salt,
+    "notebooklm-mcp-key-derivation",
+    KEY_LENGTH
+  );
 
   // Step 3: Split ciphertext and auth tag
   const ciphertextWithTag = Buffer.from(encryptedData.ciphertext, "base64");
@@ -318,10 +352,12 @@ function decryptLegacyAES(
     const encapsulatedKey = new Uint8Array(Buffer.from(encryptedData.encapsulatedKey, "base64"));
     const sharedSecret = ml_kem768.decapsulate(encapsulatedKey, pqSecretKey);
     const salt = Buffer.from(encryptedData.salt, "base64");
-    aesKey = crypto.createHash("sha256")
-      .update(Buffer.from(sharedSecret))
-      .update(salt)
-      .digest();
+    aesKey = hkdfDerive(
+      Buffer.from(sharedSecret),
+      salt,
+      "notebooklm-mcp-key-derivation",
+      KEY_LENGTH
+    );
   } else {
     aesKey = key;
   }
@@ -368,7 +404,7 @@ export class SecureStorage {
   constructor(config?: Partial<EncryptionConfig>) {
     this.config = { ...getEncryptionConfig(), ...config };
     this.keyStorePath = path.join(
-      process.env.NLMCP_CONFIG_DIR || path.join(os.homedir(), ".notebooklm-mcp"),
+      process.env.NLMCP_CONFIG_DIR || CONFIG.configDir || path.join(os.homedir(), ".notebooklm-mcp"),
       "pq-keys.enc"
     );
   }
@@ -431,14 +467,23 @@ export class SecureStorage {
       return;
     }
 
-    // Priority 3: Machine-derived key (fallback)
+    // Priority 3: Persisted random machine key (fallback)
     if (this.config.useMachineKey) {
-      const machineKey = getMachineKey();
+      const machineKey = getOrCreateMachineKey(
+        path.join(process.env.NLMCP_CONFIG_DIR || CONFIG.configDir, "machine.key")
+      );
       const salt = Buffer.from("notebooklm-mcp-secure-salt-v3", "utf-8");
-      this.classicalKey = deriveKey(machineKey, salt, this.config.pbkdf2Iterations);
-      log.warning("  ⚠️ Using machine-derived classical key (less secure)");
+      this.classicalKey = crypto.pbkdf2Sync(
+        machineKey,
+        salt,
+        this.config.pbkdf2Iterations,
+        KEY_LENGTH,
+        "sha256"
+      );
+      machineKey.fill(0);
+      log.warning("  ⚠️ Using persisted machine classical key (fallback)");
       log.info("     Set NLMCP_ENCRYPTION_KEY for better security");
-      await audit.security("encryption_init", "warning", { key_source: "machine_derived", algorithm: ALGORITHM });
+      await audit.security("encryption_init", "warning", { key_source: "machine_persisted", algorithm: ALGORITHM });
       return;
     }
 
