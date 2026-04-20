@@ -813,7 +813,7 @@ export class WebhookDispatcher {
       type: "question_answered",
       timestamp: new Date().toISOString(),
       source: "notebooklm-mcp",
-      version: "1.7.0",
+      version: process.env.npm_package_version ?? "2026.2.11",
       payload: {
         question_length: 50,
         answer_length: 200,

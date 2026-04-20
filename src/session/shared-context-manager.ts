@@ -54,7 +54,7 @@ export class SharedContextManager {
 
     // Cleanup old isolated profiles at startup (best-effort)
     if (CONFIG.cleanupInstancesOnStartup) {
-      void this.pruneIsolatedProfiles("startup");
+      this.pruneIsolatedProfiles("startup").catch((err) => log.warning(`  ⚠️  Startup profile prune failed: ${err instanceof Error ? err.message : String(err)}`));
     }
   }
 
@@ -74,28 +74,21 @@ export class SharedContextManager {
    * @param overrideHeadless Optional override for headless mode (true = show browser)
    */
   async getOrCreateContext(overrideHeadless?: boolean): Promise<BrowserContext> {
-    // Check if headless mode needs to be changed (e.g., show_browser=true)
-    // If yes, close the browser so it gets recreated with the new mode
-    if (this.needsHeadlessModeChange(overrideHeadless)) {
-      log.warning("🔄 Headless mode change detected - recreating browser context...");
-      await this.closeContext();
-    }
+    // All headless-change + recreation logic runs inside the file lock so two
+    // concurrent callers cannot both close and recreate the context (I131).
+    await withLock(this.contextLockPath, async () => {
+      if (this.needsHeadlessModeChange(overrideHeadless)) {
+        log.warning("🔄 Headless mode change detected - recreating browser context...");
+        await this.closeContext();
+      }
 
-    if (await this.needsRecreation()) {
-      // Use file locking to prevent concurrent context creation race conditions
-      // Timeout is 60 seconds since Chrome launch can take time
-      await withLock(this.contextLockPath, async () => {
-        // Double-check inside lock (another process may have created it)
-        if (await this.needsRecreation()) {
-          log.warning("🔄 Creating/Loading persistent context...");
-          await this.recreateContext(overrideHeadless);
-        } else {
-          log.success("♻️  Context was created by another process while waiting for lock");
-        }
-      }, { timeout: 60000 });
-    } else {
-      log.success("♻️  Reusing existing persistent context");
-    }
+      if (await this.needsRecreation()) {
+        log.warning("🔄 Creating/Loading persistent context...");
+        await this.recreateContext(overrideHeadless);
+      } else {
+        log.success("♻️  Reusing existing persistent context");
+      }
+    }, { timeout: 60000 });
 
     return this.globalContext!;
   }
