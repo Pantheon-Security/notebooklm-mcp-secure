@@ -12,6 +12,7 @@ import path from "path";
 import fs from "fs";
 import { getConfig } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
+import { withLock } from "../utils/file-lock.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import { getDataInventory } from "./data-inventory.js";
 import type { DSARResponse, DataInventoryEntry } from "./types.js";
@@ -44,6 +45,7 @@ export class DSARHandler {
   private requestsFile: string;
   private requests: DSARRequest[] = [];
   private loaded: boolean = false;
+  private pendingWrite: Promise<void> = Promise.resolve();
 
   private constructor() {
     const config = getConfig();
@@ -63,14 +65,16 @@ export class DSARHandler {
   /**
    * Load requests from storage
    */
-  private async load(): Promise<void> {
-    if (this.loaded) return;
+  private async load(forceReload: boolean = false): Promise<void> {
+    if (this.loaded && !forceReload) return;
 
     try {
       if (fs.existsSync(this.requestsFile)) {
         const content = fs.readFileSync(this.requestsFile, "utf-8");
         const data = JSON.parse(content);
         this.requests = data.requests || [];
+      } else {
+        this.requests = [];
       }
     } catch {
       this.requests = [];
@@ -96,22 +100,43 @@ export class DSARHandler {
   }
 
   /**
+   * Serialize in-process mutations to avoid overlapping load/save cycles.
+   */
+  private async queueWrite<T>(operation: () => Promise<T>): Promise<T> {
+    let result!: T;
+
+    const run = this.pendingWrite.then(async () => {
+      result = await operation();
+    });
+
+    this.pendingWrite = run.then(() => undefined, () => undefined);
+    await run;
+    return result;
+  }
+
+  /**
    * Submit a new DSAR
    */
   public async submitRequest(
     type: DSARRequest["type"] = "access"
   ): Promise<DSARRequest> {
-    await this.load();
+    const request = await this.queueWrite(() =>
+      withLock(this.requestsFile, async () => {
+        await this.load(true);
 
-    const request: DSARRequest = {
-      request_id: generateUUID(),
-      submitted_at: new Date().toISOString(),
-      type,
-      status: "pending",
-    };
+        const nextRequest: DSARRequest = {
+          request_id: generateUUID(),
+          submitted_at: new Date().toISOString(),
+          type,
+          status: "pending",
+        };
 
-    this.requests.push(request);
-    await this.save();
+        this.requests.push(nextRequest);
+        await this.save();
+
+        return nextRequest;
+      })
+    );
 
     // Log the request
     const logger = getComplianceLogger();
@@ -133,24 +158,37 @@ export class DSARHandler {
    * Process a DSAR and generate response
    */
   public async processRequest(requestId: string): Promise<DSARResponse | null> {
-    await this.load();
+    let requestType: DSARRequest["type"] | undefined;
 
-    const request = this.requests.find(r => r.request_id === requestId);
-    if (!request) {
+    const response = await this.queueWrite(() =>
+      withLock(this.requestsFile, async () => {
+        await this.load(true);
+
+        const request = this.requests.find(r => r.request_id === requestId);
+        if (!request) {
+          return null;
+        }
+
+        requestType = request.type;
+
+        request.status = "processing";
+        await this.save();
+
+        // Generate response based on request type
+        const generatedResponse = await this.generateResponse(request);
+
+        request.status = "completed";
+        request.completed_at = new Date().toISOString();
+        request.response = generatedResponse;
+        await this.save();
+
+        return generatedResponse;
+      })
+    );
+
+    if (!response) {
       return null;
     }
-
-    request.status = "processing";
-    await this.save();
-
-    // Generate response based on request type
-    const response = await this.generateResponse(request);
-
-    // Update request
-    request.status = "completed";
-    request.completed_at = new Date().toISOString();
-    request.response = response;
-    await this.save();
 
     // Log completion
     const logger = getComplianceLogger();
@@ -161,7 +199,7 @@ export class DSARHandler {
       true,
       {
         request_id: requestId,
-        request_type: request.type,
+        request_type: requestType,
         data_categories: response.personal_data.length,
       }
     );
@@ -213,7 +251,7 @@ export class DSARHandler {
       request_id: request.request_id,
       submitted_at: request.submitted_at,
       completed_at: new Date().toISOString(),
-      subject_verified: true, // Local-only, so user is inherently verified
+      subject_verified: false, // Identity verification not implemented
 
       personal_data: personalData,
 
@@ -247,41 +285,23 @@ export class DSARHandler {
       };
     }
 
-    // For other types, try to get actual data
+    // For other types, return storage metadata only. Never include file content.
     try {
       if (fs.existsSync(entry.storage_location)) {
         const stats = fs.statSync(entry.storage_location);
 
         if (stats.isFile()) {
-          // For small files, include content summary
-          if (stats.size < 10000) {
-            const content = fs.readFileSync(entry.storage_location, "utf-8");
-            try {
-              const data = JSON.parse(content);
-              return {
-                type: entry.data_type,
-                record_count: Array.isArray(data) ? data.length : 1,
-                last_modified: stats.mtime.toISOString(),
-              };
-            } catch {
-              return {
-                type: entry.data_type,
-                size_bytes: stats.size,
-                last_modified: stats.mtime.toISOString(),
-              };
-            }
-          } else {
-            return {
-              type: entry.data_type,
-              size_bytes: stats.size,
-              last_modified: stats.mtime.toISOString(),
-            };
-          }
-        } else if (stats.isDirectory()) {
-          const files = fs.readdirSync(entry.storage_location);
           return {
             type: entry.data_type,
-            file_count: files.length,
+            file_name: path.basename(entry.storage_location),
+            size_bytes: stats.size,
+            last_modified: stats.mtime.toISOString(),
+          };
+        } else if (stats.isDirectory()) {
+          return {
+            type: entry.data_type,
+            file_name: path.basename(entry.storage_location),
+            size_bytes: 0,
             last_modified: stats.mtime.toISOString(),
           };
         }

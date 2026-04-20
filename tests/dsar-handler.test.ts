@@ -178,13 +178,12 @@ describe("DSARHandler", () => {
       expect(r).toBeNull();
     });
 
-    it("KNOWN LIMITATION (I252): subject_verified hardcoded true — should be a signed claim", async () => {
+    it("I252 fixed: subject_verified is false (identity verification not implemented)", async () => {
       const handler = DSARHandler.getInstance();
       const req = await handler.submitRequest("access");
       const response = await handler.processRequest(req.request_id);
-      // Asserting current behavior so future fix (I252) breaks this test
-      // as a forcing function to update the contract.
-      expect(response?.subject_verified).toBe(true);
+      // I252: subject_verified must be false — the system does not verify identity.
+      expect(response?.subject_verified).toBe(false);
     });
   });
 
