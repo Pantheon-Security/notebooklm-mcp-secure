@@ -596,7 +596,6 @@ class NotebookLMMCPServer {
     }
     log.info("");
     log.info("📖 For documentation, see: README.md");
-    log.info("📖 For MCP details, see: MCP_INFOS.md");
     log.info("");
   }
 }

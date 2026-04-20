@@ -137,6 +137,7 @@ export class AuditLogger {
    * Initialize log file for today
    */
   private initializeLogFile(): void {
+    // Day boundary is UTC (ISO 8601 date). Log rotation happens at UTC midnight. (I221)
     const today = new Date().toISOString().split("T")[0];
     this.currentLogFile = path.join(this.config.logDir, `audit-${today}.jsonl`);
 
