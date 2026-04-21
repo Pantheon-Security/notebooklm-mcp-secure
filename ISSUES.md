@@ -4,6 +4,32 @@
 > Generated 2026-04-17 against `main` @ 2973097 (v2026.2.11)
 > Organized by area so you can work file-by-file. Severity inline.
 
+## Status — 2026-04-21 (Day 3 complete)
+
+**Closed this session (38 issues):**
+
+Highs — security hardening + browser reliability:
+- Auth type safety + token salt: I007, I110
+- Test coverage (browser-session, shared-context-manager, prompt-injection): I128, I215
+- Auth/webhook hardening: I123, I274, I276
+- Notebook creator reliability + typed errors: I159, I161
+- Session headless guard: I131
+- Selector timeout budget: I145
+- Advanced tools env flag + notebook-creator split: I069, I154
+
+Mediums — MCP protocol + schema correctness:
+- Response shape (structuredContent, isError, transport tags, shutdown flush): I010, I011, I012, I013, I014
+- Annotation correctness (readOnlyHint, idempotentHint): I035, I036, I037, I038, I039
+- Schema bounds (deep_research, list_documents, query history, chat history, browser timeout, batch): I050, I051, I052, I053, I054, I055, I056, I057
+- Config + types cleanup (getConfig alias, followUpReminder, BrowserOptions, Tool re-export): I024, I025, I026, I029
+- Source tool contracts + as-any reduction: I063, I064, I015
+
+**Running totals after Day 3:**
+- 565 tests passing (up from 259 after Day 2)
+- tsc --noEmit clean
+
+---
+
 ## Status — 2026-04-18 (Day 2 complete)
 
 **Closed across two days of work (42 issues):**
