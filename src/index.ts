@@ -68,6 +68,9 @@ import type { ToolResult } from "./types.js";
 type ProgressReporter = (message: string, progress?: number, total?: number) => Promise<void>;
 type ToolArgs = Record<string, unknown>;
 type ToolHandler = (args: ToolArgs, progress?: ProgressReporter) => Promise<ToolResult>;
+type ToolErrorType = "transport" | "domain";
+
+const LIST_TOOLS_PAGE_SIZE = 25;
 
 const TOOL_NAMES = [
   "ask_question", "add_notebook", "list_notebooks", "get_notebook", "select_notebook",
@@ -99,6 +102,20 @@ function toToolArgs(value: unknown): ToolArgs {
 
 function asToolInput<T>(args: ToolArgs): T {
   return args as unknown as T;
+}
+
+function parseListToolsCursor(cursor: string | undefined, totalTools: number): number {
+  if (!cursor) return 0;
+  const offset = Number.parseInt(cursor, 10);
+  if (!Number.isInteger(offset) || offset < 0 || offset >= totalTools) return 0;
+  return offset;
+}
+
+function classifyToolError(error: unknown): ToolErrorType {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(transport|protocol|json-?rpc|connection|stdio|notification)\b/i.test(message)
+    ? "transport"
+    : "domain";
 }
 
 const TOOLS_EXEMPT_FROM_AUTH = new Set<ToolName>([
@@ -335,11 +352,18 @@ class NotebookLMMCPServer {
     }
 
     // List available tools — rebuild each call so ask_question description reflects current notebook (I022)
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+    this.server.setRequestHandler(ListToolsRequestSchema, async (request) => {
       log.info("📋 [MCP] list_tools request received");
       const allTools = buildToolDefinitions(this.library) as Tool[];
       const tools = this.filterAdvancedTools(this.settingsManager.filterTools(allTools));
-      return { tools };
+      const offset = parseListToolsCursor(request.params?.cursor, tools.length);
+      const page = tools.slice(offset, offset + LIST_TOOLS_PAGE_SIZE);
+      const nextOffset = offset + page.length;
+
+      return {
+        tools: page,
+        ...(nextOffset < tools.length && { nextCursor: String(nextOffset) }),
+      };
     });
 
     // Handle tool calls
@@ -374,6 +398,7 @@ class NotebookLMMCPServer {
               text: JSON.stringify({
                 success: false,
                 error: authResult.error || "Authentication required",
+                _errorType: "domain",
               }),
             },
           ],
@@ -408,14 +433,20 @@ class NotebookLMMCPServer {
         const handler = this.toolRegistry.get(name);
         if (!handler) {
           log.error(`❌ [MCP] Unknown tool: ${name}`);
+          const errorBody = {
+            success: false,
+            error: `Unknown tool: ${name}`,
+            _errorType: "domain" as const,
+          };
           return {
             isError: true,
             content: [
               {
                 type: "text",
-                text: JSON.stringify({ success: false, error: `Unknown tool: ${name}` }, null, 2),
+                text: JSON.stringify(errorBody, null, 2),
               },
             ],
+            structuredContent: errorBody,
           };
         }
 
@@ -429,9 +460,11 @@ class NotebookLMMCPServer {
               text: JSON.stringify(result, null, 2),
             },
           ],
+          structuredContent: result,
         };
       } catch (error) {
         const rawMessage = error instanceof Error ? error.message : String(error);
+        const errorType = classifyToolError(error);
         log.error(`❌ [MCP] Tool execution error for '${name}': ${rawMessage}`);
 
         // Sanitize before returning to client: strip absolute paths and stack fragments (I328)
@@ -440,14 +473,21 @@ class NotebookLMMCPServer {
           .replace(/\bat\s+\S+\s+\(\S+:\d+:\d+\)/g, "")
           .trim();
 
+        const errorBody = {
+          success: false,
+          error: sanitized,
+          _errorType: errorType,
+        };
+
         return {
           isError: true,
           content: [
             {
               type: "text",
-              text: JSON.stringify({ success: false, error: sanitized }, null, 2),
+              text: JSON.stringify(errorBody, null, 2),
             },
           ],
+          structuredContent: errorBody,
         };
       }
     });
@@ -459,7 +499,34 @@ class NotebookLMMCPServer {
   private setupShutdownHandlers(): void {
     let shuttingDown = false;
 
-    const shutdown = async (signal: string) => {
+    const flushFatalError = async (signal: string, error?: unknown) => {
+      if (signal !== "uncaughtException" && signal !== "unhandledRejection") return;
+
+      const message = error instanceof Error ? error.message : String(error ?? signal);
+      try {
+        await this.server.notification({
+          method: "notifications/message",
+          params: {
+            level: "error",
+            logger: "notebooklm-mcp",
+            data: {
+              success: false,
+              error: message,
+              _errorType: "transport",
+              signal,
+            },
+          },
+        });
+      } catch (notifyError) {
+        log.warning(
+          `⚠️ Failed to flush fatal MCP error notification: ${
+            notifyError instanceof Error ? notifyError.message : String(notifyError)
+          }`
+        );
+      }
+    };
+
+    const shutdown = async (signal: string, error?: unknown) => {
       if (shuttingDown) {
         return;
       }
@@ -468,6 +535,8 @@ class NotebookLMMCPServer {
       log.info(`\n🛑 Received ${signal}, shutting down gracefully...`);
 
       try {
+        await flushFatalError(signal, error);
+
         if (this.retentionTimer) {
           clearInterval(this.retentionTimer);
           this.retentionTimer = undefined;
@@ -487,8 +556,8 @@ class NotebookLMMCPServer {
       }
     };
 
-    const requestShutdown = (signal: string) => {
-      void shutdown(signal);
+    const requestShutdown = (signal: string, error?: unknown) => {
+      void shutdown(signal, error);
     };
 
     process.on("SIGINT", () => requestShutdown("SIGINT"));
@@ -497,13 +566,13 @@ class NotebookLMMCPServer {
     process.on("uncaughtException", (error) => {
       log.error(`💥 Uncaught exception: ${error}`);
       log.error(error.stack || "");
-      requestShutdown("uncaughtException");
+      requestShutdown("uncaughtException", error);
     });
 
     process.on("unhandledRejection", (reason, promise) => {
       log.error(`💥 Unhandled rejection at: ${promise}`);
       log.error(`Reason: ${reason}`);
-      requestShutdown("unhandledRejection");
+      requestShutdown("unhandledRejection", reason);
     });
   }
 
