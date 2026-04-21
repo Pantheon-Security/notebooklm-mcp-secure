@@ -50,12 +50,15 @@ export async function handleSetupAuth(
     log.error("❌ setup_auth requires show_browser:true — cannot login interactively in headless mode");
     return {
       success: false,
-      data: null,
-      authenticated: false,
+      data: {
+        status: "error",
+        message: "setup_auth requires show_browser:true",
+        authenticated: false,
+      },
       error: "setup_auth requires show_browser:true. " +
         "Calling it without a visible browser wipes your saved credentials then fails to restore them. " +
         "Run the auth-now.mjs script instead, or pass show_browser:true.",
-    } as any;
+    };
   }
 
   const startTime = Date.now();

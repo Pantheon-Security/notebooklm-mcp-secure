@@ -750,15 +750,24 @@ export async function handleGetNotebookChatHistory(
       // Extract all chat messages from the DOM
       type ChatMessage = { role: "user" | "assistant"; content: string; index: number };
       const messages = await page.evaluate((): Array<{ role: string; content: string; index: number }> => {
+        type MessageElement = {
+          classList?: { contains(className: string): boolean };
+          innerText?: string;
+          querySelector(selector: string): { innerText?: string } | null;
+        };
+        const doc = globalThis as typeof globalThis & {
+          document: {
+            querySelectorAll(selector: string): Iterable<MessageElement>;
+          };
+        };
         const result: Array<{ role: string; content: string; index: number }> = [];
 
         // Get all message containers (both user and assistant)
         // User messages: .from-user-container  /  Assistant messages: .to-user-container
-        // @ts-expect-error - DOM types available in browser context
-        const allContainers = document.querySelectorAll(".from-user-container, .to-user-container");
+        const allContainers = doc.document.querySelectorAll(".from-user-container, .to-user-container");
 
         let idx = 0;
-        allContainers.forEach((container: any) => {
+        for (const container of allContainers) {
           const isUser = container.classList?.contains("from-user-container");
           const isAssistant = container.classList?.contains("to-user-container");
 
@@ -787,7 +796,7 @@ export async function handleGetNotebookChatHistory(
               }
             }
           }
-        });
+        }
 
         return result;
       }) as ChatMessage[];

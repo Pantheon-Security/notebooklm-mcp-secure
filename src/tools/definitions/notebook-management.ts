@@ -493,6 +493,8 @@ Or with direct URL:
     name: "add_source",
     description: `Add a source to an existing NotebookLM notebook.
 
+If neither \`notebook_id\` nor \`notebook_url\` is provided, this tool uses the currently active notebook from the local library.
+
 ## Source Types
 - **url**: Web page URL
 - **text**: Text content (paste)
@@ -624,6 +626,8 @@ Or with direct URL:
   {
     name: "remove_source",
     description: `Remove a source from a NotebookLM notebook.
+
+If neither \`notebook_id\` nor \`notebook_url\` is provided, this tool uses the currently active notebook from the local library.
 
 ## Usage
 1. First call list_sources to get source IDs

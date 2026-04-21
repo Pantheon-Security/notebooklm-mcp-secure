@@ -96,12 +96,14 @@ function isToolName(name: string): name is ToolName {
 }
 
 function toToolArgs(value: unknown): ToolArgs {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as ToolArgs;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return Object.fromEntries(Object.entries(value));
+  }
   return {};
 }
 
 function asToolInput<T>(args: ToolArgs): T {
-  return args as unknown as T;
+  return args as T;
 }
 
 function parseListToolsCursor(cursor: string | undefined, totalTools: number): number {
@@ -240,12 +242,12 @@ class NotebookLMMCPServer {
     this.resourceHandlers = new ResourceHandlers(this.library);
 
     // Build and Filter tool definitions
-    const allTools = buildToolDefinitions(this.library) as Tool[];
+    const allTools = buildToolDefinitions(this.library);
     this.toolDefinitions = this.filterAdvancedTools(this.settingsManager.filterTools(allTools));
 
     // Track compliance tool names for the short-circuit dispatch path.
     this.complianceToolNames = new Set(
-      this.filterAdvancedTools(getComplianceTools() as Tool[]).map((t) => t.name)
+      this.filterAdvancedTools(getComplianceTools()).map((t) => t.name)
     );
 
     // Setup handlers
@@ -354,7 +356,7 @@ class NotebookLMMCPServer {
     // List available tools — rebuild each call so ask_question description reflects current notebook (I022)
     this.server.setRequestHandler(ListToolsRequestSchema, async (request) => {
       log.info("📋 [MCP] list_tools request received");
-      const allTools = buildToolDefinitions(this.library) as Tool[];
+      const allTools = buildToolDefinitions(this.library);
       const tools = this.filterAdvancedTools(this.settingsManager.filterTools(allTools));
       const offset = parseListToolsCursor(request.params?.cursor, tools.length);
       const page = tools.slice(offset, offset + LIST_TOOLS_PAGE_SIZE);
@@ -426,7 +428,7 @@ class NotebookLMMCPServer {
         // TextContent[] directly. Short-circuit before the generic wrapper
         // so dashboard/report text isn't double-encoded as JSON.
         if (this.complianceToolNames.has(name)) {
-          const content = await handleComplianceToolCall(name, (args ?? {}) as Record<string, unknown>);
+          const content = await handleComplianceToolCall(name, toToolArgs(args));
           return { content };
         }
 
