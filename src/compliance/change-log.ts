@@ -10,7 +10,7 @@
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
-import { getConfig } from "../config.js";
+import { CONFIG } from "../config.js";
 import { mkdirSecure, appendFileSecure } from "../utils/file-permissions.js";
 import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
@@ -32,7 +32,7 @@ export class ChangeLog {
   private currentLogFile: string = "";
 
   private constructor() {
-    const config = getConfig();
+    const config = CONFIG;
     this.logDir = path.join(config.dataDir, "compliance", "changes");
     mkdirSecure(this.logDir);
     this.initializeLogFile();

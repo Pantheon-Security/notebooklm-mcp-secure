@@ -10,7 +10,7 @@
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
-import { getConfig } from "../config.js";
+import { CONFIG, type Config } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
 import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
@@ -100,7 +100,7 @@ export class RetentionEngine {
   private lastRunFile: string;
 
   private constructor() {
-    const config = getConfig();
+    const config = CONFIG;
     this.policiesFile = path.join(config.configDir, "retention-policies.json");
     this.archiveDir = path.join(config.dataDir, "archive");
     this.lastRunFile = path.join(config.configDir, "retention-last-run.json");
@@ -309,7 +309,7 @@ export class RetentionEngine {
    */
   private async executePolicy(policy: RetentionPolicy): Promise<RetentionResult[]> {
     const results: RetentionResult[] = [];
-    const config = getConfig();
+    const config = CONFIG;
 
     for (const dataType of policy.data_types) {
       const result: RetentionResult = {
@@ -387,7 +387,7 @@ export class RetentionEngine {
   /**
    * Get the storage location for a data type
    */
-  private getDataLocation(dataType: string, config: ReturnType<typeof getConfig>): string | null {
+  private getDataLocation(dataType: string, config: Config): string | null {
     const locations: Record<string, string> = {
       "audit_logs": path.join(config.dataDir, "audit"),
       "compliance_events": path.join(config.dataDir, "compliance"),

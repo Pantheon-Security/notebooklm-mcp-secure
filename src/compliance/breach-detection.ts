@@ -10,7 +10,7 @@
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
-import { getConfig } from "../config.js";
+import { CONFIG } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
 import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
@@ -161,7 +161,7 @@ export class BreachDetector {
   private blockedPatterns: Set<string> = new Set();
 
   private constructor() {
-    const config = getConfig();
+    const config = CONFIG;
     this.rulesFile = path.join(config.configDir, "breach-rules.json");
     this.enabled = process.env.NLMCP_BREACH_DETECTION !== "false";
   }

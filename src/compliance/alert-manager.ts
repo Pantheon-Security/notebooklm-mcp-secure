@@ -10,7 +10,7 @@
 import crypto from "crypto";
 import path from "path";
 import https from "https";
-import { getConfig } from "../config.js";
+import { CONFIG } from "../config.js";
 import { mkdirSecure, appendFileSecure } from "../utils/file-permissions.js";
 import { log } from "../utils/logger.js";
 import type { Alert, AlertConfig, AlertSeverity } from "./types.js";
@@ -69,7 +69,7 @@ export class AlertManager {
 
   private constructor() {
     this.config = getAlertConfig();
-    const config = getConfig();
+    const config = CONFIG;
     this.alertsDir = path.join(config.dataDir, "alerts");
 
     if (this.config.enabled && this.config.channels.file) {

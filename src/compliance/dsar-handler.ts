@@ -10,7 +10,7 @@
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
-import { getConfig } from "../config.js";
+import { CONFIG } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
 import { withLock } from "../utils/file-lock.js";
 import { log } from "../utils/logger.js";
@@ -49,7 +49,7 @@ export class DSARHandler {
   private pendingWrite: Promise<void> = Promise.resolve();
 
   private constructor() {
-    const config = getConfig();
+    const config = CONFIG;
     this.requestsFile = path.join(config.dataDir, "compliance", "dsar-requests.json");
   }
 

@@ -9,7 +9,7 @@
 
 import path from "path";
 import fs from "fs";
-import { getConfig } from "../config.js";
+import { CONFIG } from "../config.js";
 import { writeFileSecure, mkdirSecure } from "../utils/file-permissions.js";
 import { log } from "../utils/logger.js";
 import { getConsentManager } from "./consent-manager.js";
@@ -41,7 +41,7 @@ export class PrivacyNoticeManager {
   private loaded: boolean = false;
 
   private constructor() {
-    const config = getConfig();
+    const config = CONFIG;
     this.acknowledgmentFile = path.join(config.configDir, "privacy-acknowledgment.json");
   }
 

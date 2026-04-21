@@ -3,7 +3,7 @@
  */
 
 import type { HandlerContext } from "./types.js";
-import type { BrowserOptions } from "../../config.js";
+import type { BrowserOptions } from "../../notebook-creation/browser-options.js";
 import type { ToolResult, ProgressCallback } from "../../types.js";
 import { log } from "../../utils/logger.js";
 import { audit } from "../../utils/audit-logger.js";

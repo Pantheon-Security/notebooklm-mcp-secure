@@ -10,7 +10,7 @@
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
-import { getConfig } from "../config.js";
+import { CONFIG } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
 import { log } from "../utils/logger.js";
 import { getComplianceDashboard } from "./dashboard.js";
@@ -90,7 +90,7 @@ export class ReportGenerator {
   private reportsDir: string;
 
   private constructor() {
-    const config = getConfig();
+    const config = CONFIG;
     this.reportsDir = path.join(config.dataDir, "reports");
     mkdirSecure(this.reportsDir);
   }

@@ -10,7 +10,7 @@
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
-import { getConfig } from "../config.js";
+import { CONFIG } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
 import { log } from "../utils/logger.js";
 import { getDataClassifier } from "./data-classification.js";
@@ -39,7 +39,7 @@ export class DataInventory {
   private loaded: boolean = false;
 
   private constructor() {
-    const config = getConfig();
+    const config = CONFIG;
     this.inventoryFile = path.join(config.configDir, "data-inventory.json");
   }
 
@@ -101,7 +101,7 @@ export class DataInventory {
    * Auto-discover data based on known data types and locations
    */
   private async autoDiscover(): Promise<void> {
-    const config = getConfig();
+    const config = CONFIG;
     const classifier = getDataClassifier();
 
     // Known data locations

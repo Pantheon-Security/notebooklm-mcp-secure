@@ -10,7 +10,7 @@
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
-import { getConfig } from "../config.js";
+import { CONFIG, type Config } from "../config.js";
 import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import { getConsentManager } from "./consent-manager.js";
@@ -59,7 +59,7 @@ export class DataExporter {
    */
   public async exportAll(options: Partial<ExportOptions> = {}): Promise<DataExport> {
     const opts: ExportOptions = { ...DEFAULT_OPTIONS, ...options };
-    const config = getConfig();
+    const config = CONFIG;
 
     // Log the export request
     const logger = getComplianceLogger();
@@ -114,7 +114,7 @@ export class DataExporter {
   /**
    * Export notebook library
    */
-  private async exportNotebooks(config: ReturnType<typeof getConfig>): Promise<unknown[]> {
+  private async exportNotebooks(config: Config): Promise<unknown[]> {
     const libraryPath = path.join(config.configDir, "library.json");
 
     try {
@@ -134,7 +134,7 @@ export class DataExporter {
   /**
    * Export user settings
    */
-  private async exportSettings(config: ReturnType<typeof getConfig>): Promise<unknown> {
+  private async exportSettings(config: Config): Promise<unknown> {
     const settingsPath = path.join(config.configDir, "settings.json");
 
     try {
@@ -153,7 +153,7 @@ export class DataExporter {
   /**
    * Export session history (if retained)
    */
-  private async exportSessions(config: ReturnType<typeof getConfig>): Promise<unknown[]> {
+  private async exportSessions(config: Config): Promise<unknown[]> {
     const sessionsDir = path.join(config.dataDir, "sessions");
     const sessions: unknown[] = [];
 
@@ -191,7 +191,7 @@ export class DataExporter {
    * Export audit logs
    */
   private async exportAuditLogs(
-    config: ReturnType<typeof getConfig>,
+    config: Config,
     options: ExportOptions
   ): Promise<unknown[]> {
     const auditDir = path.join(config.dataDir, "audit");
@@ -251,7 +251,7 @@ export class DataExporter {
    * Export compliance events
    */
   private async exportComplianceEvents(
-    config: ReturnType<typeof getConfig>,
+    config: Config,
     options: ExportOptions
   ): Promise<ComplianceEvent[]> {
     const complianceDir = path.join(config.dataDir, "compliance");

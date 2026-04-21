@@ -9,7 +9,7 @@
 
 import path from "path";
 import fs from "fs";
-import { getConfig } from "../config.js";
+import { CONFIG } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
 import { log } from "../utils/logger.js";
 import type { PolicyDocument, PolicyType } from "./types.js";
@@ -265,7 +265,7 @@ export class PolicyDocManager {
   private loaded: boolean = false;
 
   private constructor() {
-    const config = getConfig();
+    const config = CONFIG;
     this.policiesFile = path.join(config.configDir, "policies.json");
   }
 

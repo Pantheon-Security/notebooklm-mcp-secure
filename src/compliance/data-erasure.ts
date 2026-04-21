@@ -10,7 +10,7 @@
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
-import { getConfig } from "../config.js";
+import { CONFIG, type Config } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
 import { AuthManager } from "../auth/auth-manager.js";
 import { log } from "../utils/logger.js";
@@ -140,7 +140,7 @@ export class DataErasureManager {
   private loaded: boolean = false;
 
   private constructor() {
-    const config = getConfig();
+    const config = CONFIG;
     this.erasureLogFile = path.join(config.dataDir, "compliance", "erasure-log.json");
   }
 
@@ -261,7 +261,7 @@ export class DataErasureManager {
       return request; // Already executed
     }
 
-    const config = getConfig();
+    const config = CONFIG;
     const results: ErasureResult[] = [];
 
     // Execute erasure based on scope
@@ -327,7 +327,7 @@ export class DataErasureManager {
   /**
    * Erase notebook library
    */
-  private async eraseNotebooks(config: ReturnType<typeof getConfig>): Promise<ErasureResult> {
+  private async eraseNotebooks(config: Config): Promise<ErasureResult> {
     const libraryPath = path.join(config.configDir, "library.json");
     const result: ErasureResultWithError = {
       data_type: "notebook_library",
@@ -360,7 +360,7 @@ export class DataErasureManager {
   /**
    * Erase user settings
    */
-  private async eraseSettings(config: ReturnType<typeof getConfig>): Promise<ErasureResult> {
+  private async eraseSettings(config: Config): Promise<ErasureResult> {
     const settingsPath = path.join(config.configDir, "settings.json");
     const result: ErasureResultWithError = {
       data_type: "user_settings",
@@ -393,7 +393,7 @@ export class DataErasureManager {
   /**
    * Erase browser data
    */
-  private async eraseBrowserData(config: ReturnType<typeof getConfig>): Promise<ErasureResult> {
+  private async eraseBrowserData(config: Config): Promise<ErasureResult> {
     const browserStateDir = path.join(config.dataDir, "browser_state");
     const chromeProfileDir = path.join(config.dataDir, "chrome_profile");
 
@@ -452,7 +452,7 @@ export class DataErasureManager {
   /**
    * Erase audit logs
    */
-  private async eraseAuditLogs(config: ReturnType<typeof getConfig>): Promise<ErasureResult> {
+  private async eraseAuditLogs(config: Config): Promise<ErasureResult> {
     const auditDir = path.join(config.dataDir, "audit");
 
     const result: ErasureResultWithError = {
@@ -482,7 +482,7 @@ export class DataErasureManager {
   /**
    * Erase encryption keys (crypto shred)
    */
-  private async eraseEncryptionKeys(config: ReturnType<typeof getConfig>): Promise<ErasureResult> {
+  private async eraseEncryptionKeys(config: Config): Promise<ErasureResult> {
     const keysPath = path.join(config.dataDir, "pq-keys.enc");
 
     const result: ErasureResultWithError = {

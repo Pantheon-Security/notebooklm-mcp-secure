@@ -11,7 +11,7 @@ import https from "https";
 import dgram from "dgram";
 import path from "path";
 import fs from "fs";
-import { getConfig } from "../config.js";
+import { CONFIG } from "../config.js";
 import { mkdirSecure, appendFileSecure } from "../utils/file-permissions.js";
 import { log } from "../utils/logger.js";
 import type { SIEMConfig, SIEMFormat, AlertSeverity } from "./types.js";
@@ -92,7 +92,7 @@ export class SIEMExporter {
 
   private constructor() {
     this.config = getSIEMConfig();
-    const config = getConfig();
+    const config = CONFIG;
     this.failedDir = path.join(config.dataDir, "siem_failed");
 
     if (this.config.enabled) {

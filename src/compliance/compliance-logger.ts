@@ -12,7 +12,7 @@ import path from "path";
 import fs from "fs";
 import { mkdirSecure, appendFileSecure } from "../utils/file-permissions.js";
 import { log } from "../utils/logger.js";
-import { getConfig } from "../config.js";
+import { CONFIG } from "../config.js";
 import type {
   ComplianceEvent,
   ComplianceEventCategory,
@@ -74,7 +74,7 @@ export class ComplianceLogger {
   private lastHash: string = "0".repeat(64); // Genesis hash
 
   private constructor() {
-    const config = getConfig();
+    const config = CONFIG;
     const envEnabled = process.env.NLMCP_COMPLIANCE_ENABLED;
 
     this.enabled = envEnabled !== undefined

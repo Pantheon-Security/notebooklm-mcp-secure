@@ -10,7 +10,7 @@
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
-import { getConfig } from "../config.js";
+import { CONFIG } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
 import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
@@ -102,7 +102,7 @@ export class EvidenceCollector {
   private evidenceDir: string;
 
   private constructor() {
-    const config = getConfig();
+    const config = CONFIG;
     this.evidenceDir = path.join(config.dataDir, "evidence");
     mkdirSecure(this.evidenceDir);
   }
@@ -574,7 +574,7 @@ export class EvidenceCollector {
     id: string,
     collectedAt: string
   ): Promise<EvidenceItem> {
-    const config = getConfig();
+    const config = CONFIG;
 
     // Collect non-sensitive configuration
     const data = {

@@ -10,7 +10,7 @@
 import os from "os";
 import fs from "fs";
 import path from "path";
-import { getConfig } from "../config.js";
+import { CONFIG } from "../config.js";
 import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import { getConsentManager } from "./consent-manager.js";
@@ -221,7 +221,7 @@ export class HealthMonitor {
    */
   private async checkDataDirectory(): Promise<ComponentHealth> {
     const startTime = Date.now();
-    const config = getConfig();
+    const config = CONFIG;
 
     try {
       if (!fs.existsSync(config.dataDir)) {
@@ -259,7 +259,7 @@ export class HealthMonitor {
    */
   private async checkConfigDirectory(): Promise<ComponentHealth> {
     const startTime = Date.now();
-    const config = getConfig();
+    const config = CONFIG;
 
     try {
       if (!fs.existsSync(config.configDir)) {
@@ -295,7 +295,7 @@ export class HealthMonitor {
    */
   private async checkAuditLogging(): Promise<ComponentHealth> {
     const startTime = Date.now();
-    const config = getConfig();
+    const config = CONFIG;
 
     try {
       const auditDir = path.join(config.dataDir, "audit");
@@ -397,7 +397,7 @@ export class HealthMonitor {
    */
   private async checkEncryption(): Promise<ComponentHealth> {
     const startTime = Date.now();
-    const config = getConfig();
+    const config = CONFIG;
 
     try {
       // Check if encryption is enabled

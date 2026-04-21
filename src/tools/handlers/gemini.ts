@@ -8,7 +8,8 @@
 
 import type { HandlerContext } from "./types.js";
 import type { ToolResult, ProgressCallback } from "../../types.js";
-import { CONFIG, applyBrowserOptions } from "../../config.js";
+import { CONFIG } from "../../config.js";
+import { applyBrowserOptions } from "../../notebook-creation/browser-options.js";
 import { log } from "../../utils/logger.js";
 import { audit } from "../../utils/audit-logger.js";
 import {

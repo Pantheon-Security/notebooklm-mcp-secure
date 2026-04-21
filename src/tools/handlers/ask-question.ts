@@ -3,7 +3,8 @@
  */
 
 import type { HandlerContext } from "./types.js";
-import { CONFIG, type BrowserOptions } from "../../config.js";
+import { CONFIG } from "../../config.js";
+import type { BrowserOptions } from "../../notebook-creation/browser-options.js";
 import { log } from "../../utils/logger.js";
 import type {
   AskQuestionResult,

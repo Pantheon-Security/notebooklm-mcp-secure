@@ -55,20 +55,7 @@ export interface ToolResult<T = unknown> {
   error?: string;
 }
 
-/**
- * MCP Tool definition
- */
-export interface Tool {
-  name: string;
-  title?: string;
-  description: string;
-  inputSchema: {
-    type: "object";
-    additionalProperties?: boolean;
-    properties: Record<string, any>;
-    required?: string[];
-  };
-}
+export type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 /**
  * Options for human-like typing

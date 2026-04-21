@@ -10,7 +10,7 @@
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
-import { getConfig } from "../config.js";
+import { CONFIG } from "../config.js";
 import { mkdirSecure, writeFileSecure } from "../utils/file-permissions.js";
 import { log } from "../utils/logger.js";
 import { getComplianceLogger } from "./compliance-logger.js";
@@ -67,7 +67,7 @@ export class ConsentManager {
   private requireConsent: boolean;
 
   private constructor() {
-    const config = getConfig();
+    const config = CONFIG;
     this.consentFile = path.join(config.configDir, "consent.json");
     this.consentVersion = process.env.NLMCP_CONSENT_VERSION || DEFAULT_CONSENT_VERSION;
     this.requireConsent = process.env.NLMCP_CONSENT_REQUIRED?.toLowerCase() !== "false";
