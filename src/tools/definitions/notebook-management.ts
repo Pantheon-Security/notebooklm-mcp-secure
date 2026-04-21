@@ -69,7 +69,7 @@ Visit https://notebooklm.google/ → Login (free: 100 notebooks, 50 sources each
         content_types: {
           type: "array",
           items: { type: "string", maxLength: 100 },
-          maxItems: 20,
+          maxItems: 50,
           description:
             "Types of content (e.g., ['documentation', 'examples', 'best practices'])",
         },

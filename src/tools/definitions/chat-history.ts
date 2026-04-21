@@ -62,8 +62,8 @@ Paginate through history:
       limit: {
         type: "number",
         minimum: 1,
-        maximum: 200,
-        description: "Maximum number of message pairs to return (default: 50, max: 200).",
+        maximum: 500,
+        description: "Maximum number of message pairs to return (default: 50, max: 500).",
       },
       offset: {
         type: "number",

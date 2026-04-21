@@ -28,6 +28,29 @@ import {
   getSanitizedErrorMessage,
 } from "./error-utils.js";
 
+function validateBrowserOptionRanges(browserOptions?: BrowserOptions): string | null {
+  const stealth = browserOptions?.stealth;
+  if (!stealth) return null;
+
+  if (
+    stealth.typing_wpm_min !== undefined &&
+    stealth.typing_wpm_max !== undefined &&
+    stealth.typing_wpm_min > stealth.typing_wpm_max
+  ) {
+    return "browser_options.stealth.typing_wpm_min must be less than or equal to typing_wpm_max";
+  }
+
+  if (
+    stealth.delay_min_ms !== undefined &&
+    stealth.delay_max_ms !== undefined &&
+    stealth.delay_min_ms > stealth.delay_max_ms
+  ) {
+    return "browser_options.stealth.delay_min_ms must be less than or equal to delay_max_ms";
+  }
+
+  return null;
+}
+
 /**
  * Handle ask_question tool
  */
@@ -116,6 +139,22 @@ export async function handleAskQuestion(
         success: false,
         data: null,
         error: quotaError || "Daily query limit reached. Try again tomorrow or upgrade your plan.",
+      };
+    }
+
+    const browserOptionError = validateBrowserOptionRanges(browser_options);
+    if (browserOptionError) {
+      await audit.tool(
+        "ask_question",
+        getErrorAuditArgs("ask_question", browserOptionError),
+        false,
+        Date.now() - startTime,
+        browserOptionError
+      );
+      return {
+        success: false,
+        data: null,
+        error: browserOptionError,
       };
     }
   } catch (error) {
