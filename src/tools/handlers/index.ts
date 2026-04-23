@@ -56,6 +56,10 @@ import {
   handleGetVideoStatus,
   handleGenerateDataTable,
   handleGetDataTable,
+  handleGenerateSlides,
+  handleGetSlidesStatus,
+  handleGenerateInfographic,
+  handleGetInfographicStatus,
 } from "./audio-video.js";
 import {
   handleConfigureWebhook,
@@ -233,6 +237,18 @@ export class ToolHandlers {
   }
   handleGetDataTable(args: Parameters<typeof handleGetDataTable>[1]) {
     return handleGetDataTable(this.ctx, args);
+  }
+  handleGenerateSlides(args: Parameters<typeof handleGenerateSlides>[1]) {
+    return handleGenerateSlides(this.ctx, args);
+  }
+  handleGetSlidesStatus(args: Parameters<typeof handleGetSlidesStatus>[1]) {
+    return handleGetSlidesStatus(this.ctx, args);
+  }
+  handleGenerateInfographic(args: Parameters<typeof handleGenerateInfographic>[1]) {
+    return handleGenerateInfographic(this.ctx, args);
+  }
+  handleGetInfographicStatus(args: Parameters<typeof handleGetInfographicStatus>[1]) {
+    return handleGetInfographicStatus(this.ctx, args);
   }
 
   // === Webhooks ===
