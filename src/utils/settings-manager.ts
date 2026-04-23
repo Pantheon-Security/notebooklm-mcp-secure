@@ -53,7 +53,7 @@ const PROFILES: Record<ProfileName, string[]> = {
     "list_sources",
     "add_source",
     "remove_source",
-    // Studio features (audio, video, data tables)
+    // Studio features (audio, video, data tables, slides, infographic)
     "generate_audio_overview",
     "get_audio_status",
     "download_audio",
@@ -61,6 +61,10 @@ const PROFILES: Record<ProfileName, string[]> = {
     "get_video_status",
     "generate_data_table",
     "get_data_table",
+    "generate_slides",
+    "get_slides_status",
+    "generate_infographic",
+    "get_infographic_status",
     // Session & system
     "get_health",
     "setup_auth",
