@@ -12,14 +12,32 @@
 
 export const NOTEBOOKLM_SELECTORS = {
   /** New notebook / Create button on homepage
-   * Discovered: "addCreate new" with aria="Create new notebook" */
+   *
+   * Live DOM inspection April 2026 (ja locale):
+   *   <button class="mdc-button mat-mdc-button-base create-new-button mat-tonal-button ..."
+   *           aria-label="ノートブックを新規作成"
+   *           jslog="236819;track:generic_click,impression">
+   *     add 新規作成
+   *   </button>
+   *
+   * Locale-independent signals (most resilient first):
+   *   1. `.create-new-button` class — stable since Dec 2025
+   *   2. `jslog^="236819"` — Google click-tracking ID (locale-agnostic)
+   *   3. aria-label contains translation of "create new" in ja/en/fr
+   */
   newNotebookButton: {
-    primary: 'button[aria-label="Create new notebook"]',
+    primary: 'button.create-new-button',                             // Class: locale-independent
     fallbacks: [
-      'button[aria-label*="Create new"]',
-      'button[aria-label*="Create"]',
+      'button[jslog^="236819"]',                                     // Google click-tracking ID
+      'button[aria-label*="新規作成"]',                                 // ja "create new"
+      'button[aria-label*="新しい"]',                                   // ja "new"
+      'button[aria-label*="Create new"]',                            // en
+      'button[aria-label*="Create"]',                                // en short
+      'button[aria-label*="Créer"]',                                  // fr
+      'button[aria-label*="Nouveau"]',                                // fr
+      'mat-card.create-new-action-button',                            // Card variant fallback
     ],
-    confirmed: true, // December 2025
+    confirmed: true, // April 2026 — locale-independent class confirmed
   },
 
   /** Notebook name input field
@@ -85,28 +103,142 @@ export const NOTEBOOKLM_SELECTORS = {
     confirmed: true, // December 2025
   },
 
-  /** URL input field - appears after clicking Discover sources */
+  /** URL input field — appears after clicking Website/URL source type
+   *
+   * Live DOM inspection April 2026 (ja locale):
+   *   <textarea class="mat-mdc-input-element cdk-textarea-autosize query-box-textarea ..."
+   *             aria-label="URL を入力"
+   *             placeholder="リンクを貼り付ける"
+   *             jslog="279306;track:impression,input_">
+   *
+   * NOTE: NotebookLM replaced the old `<input type="url">` with a `<textarea>`
+   * (enables multi-URL paste + YouTube detection). The old primary selector
+   * will never match the new UI.
+   *
+   * Locale-independent signals:
+   *   1. `textarea[jslog^="279306"]` — Google tracking ID for this input
+   *   2. `mat-dialog-container textarea` inside the URL sub-dialog
+   *   3. aria-label matches "URL" (same word in most Latin locales + ja)
+   */
   urlInput: {
-    primary: 'input[type="url"]',
+    primary: 'textarea[jslog^="279306"]',                            // jslog: locale-independent
     fallbacks: [
-      'input[type="text"][placeholder*="URL"]',
-      'input[type="text"][placeholder*="http"]',
-      'input[aria-label*="URL"]',
-      'textarea[placeholder*="URL"]',
+      'mat-dialog-container textarea[aria-label*="URL" i]',          // Dialog-scoped aria
+      'textarea[aria-label*="URL" i]',                                // Global aria fallback
+      'textarea[placeholder*="リンク"]',                                // ja placeholder
+      'textarea[placeholder*="link" i]',                              // en placeholder
+      'textarea[placeholder*="URL"]',                                 // Placeholder "URL"
+      'input[type="url"]',                                            // Legacy input tag
+      'input[type="text"][placeholder*="http"]',                      // Legacy pattern
     ],
-    confirmed: false,
+    confirmed: true, // April 2026
   },
 
-  /** Text input/paste area - appears after clicking "Copied text"
-   * Discovered: class contains "text-area" */
-  textInput: {
-    primary: 'textarea.text-area',
+  /** Website/URL source type button inside the Add source dialog
+   *
+   * Live DOM inspection April 2026 (ja locale):
+   *   <button class="mdc-button ... drop-zone-icon-button mdc-button--outlined ..."
+   *           jslog="279308;track:generic_click,impression">
+   *     link video_youtube ウェブサイト
+   *   </button>
+   *
+   * Locale-independent: jslog ID is stable across locales; Material icon names
+   * (`link`, `video_youtube`) in textContent are also never translated.
+   */
+  urlSourceTypeButton: {
+    primary: 'mat-dialog-container button[jslog^="279308"]',
     fallbacks: [
-      'textarea[class*="text-area"]',
-      'textarea.mat-mdc-form-field-textarea-control',
-      'textarea:not([readonly]):not(.query-box-input)',
+      'button[jslog^="279308"]',                                      // Global jslog
+      'mat-dialog-container button.drop-zone-icon-button:has(mat-icon:text("link"))', // Icon-based
+      'button[aria-label*="ウェブサイト"]',                             // ja
+      'button[aria-label*="Website" i]',                              // en
+      'button[aria-label*="URL" i]',                                  // en/ja URL
     ],
-    confirmed: true, // December 2025
+    confirmed: true, // April 2026
+  },
+
+  /** Text paste source type button inside the Add source dialog
+   * jslog 279295 — "コピーしたテキスト" / "Copied text" */
+  textSourceTypeButton: {
+    primary: 'mat-dialog-container button[jslog^="279295"]',
+    fallbacks: [
+      'button[jslog^="279295"]',
+      'mat-dialog-container button.drop-zone-icon-button:has(mat-icon:text("content_paste"))',
+      'button[aria-label*="コピーしたテキスト"]',
+      'button[aria-label*="Copied text" i]',
+      'button[aria-label*="Paste"]',
+    ],
+    confirmed: true, // April 2026
+  },
+
+  /** File upload source type button inside the Add source dialog
+   * jslog 279304 — "ファイルをアップロード" / "Upload files" */
+  fileSourceTypeButton: {
+    primary: 'mat-dialog-container button[jslog^="279304"]',
+    fallbacks: [
+      'button[jslog^="279304"]',
+      'mat-dialog-container button.drop-zone-icon-button:has(mat-icon:text("upload"))',
+      'button[aria-label*="ファイルをアップロード"]',
+      'button[aria-label*="Upload" i]',
+    ],
+    confirmed: true, // April 2026
+  },
+
+  /** Google Drive source type button (read-only reference) — jslog 279299 */
+  driveSourceTypeButton: {
+    primary: 'mat-dialog-container button[jslog^="279299"]',
+    fallbacks: [
+      'button[jslog^="279299"]',
+      'button[aria-label*="ドライブ"]',
+      'button[aria-label*="Drive" i]',
+    ],
+    confirmed: true,
+  },
+
+  /** Insert/Submit button inside the URL sub-dialog (jslog 279307)
+   * Disabled until a valid URL is typed; once enabled, click or press Enter. */
+  urlInsertButton: {
+    primary: 'mat-dialog-container button[jslog^="279307"]',
+    fallbacks: [
+      'button[jslog^="279307"]',
+      'mat-dialog-container button:not([disabled])[class*="unelevated"]',
+      'button[aria-label="挿入"]',
+      'button[aria-label*="Insert" i]',
+    ],
+    confirmed: true,
+  },
+
+  /** Insert/Submit button inside the Text-paste sub-dialog (jslog 279297) */
+  textInsertButton: {
+    primary: 'mat-dialog-container button[jslog^="279297"]',
+    fallbacks: [
+      'button[jslog^="279297"]',
+      'button[aria-label="挿入"]',
+      'button[aria-label*="Insert" i]',
+    ],
+    confirmed: true,
+  },
+
+  /** Text input/paste area — appears after clicking "Copied text"
+   *
+   * Live DOM inspection April 2026 (ja locale):
+   *   <textarea class="mat-mdc-input-element copied-text-input-textarea ..."
+   *             aria-label="貼り付けたテキスト"
+   *             placeholder="ここにテキストを貼り付けてください"
+   *             jslog="279298;track:impression,input_">
+   */
+  textInput: {
+    primary: 'textarea.copied-text-input-textarea',                  // Class: locale-independent
+    fallbacks: [
+      'textarea[jslog^="279298"]',                                   // jslog
+      'mat-dialog-container textarea[aria-label*="貼り付け"]',         // ja
+      'mat-dialog-container textarea[aria-label*="paste" i]',         // en
+      'mat-dialog-container textarea[aria-label*="text" i]',          // en
+      'textarea.text-area',                                           // Legacy
+      'textarea[class*="text-area"]',                                 // Legacy partial
+      'textarea.mat-mdc-form-field-textarea-control',                 // Angular Material
+    ],
+    confirmed: true, // April 2026
   },
 
   /** File input element

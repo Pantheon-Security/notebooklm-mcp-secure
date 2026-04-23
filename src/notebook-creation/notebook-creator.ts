@@ -155,13 +155,19 @@ export class NotebookCreator {
 
   /**
    * Click the "New notebook" button
+   *
+   * Strategy (most → least resilient):
+   *   1. Class/jslog primary selectors from selectors.ts (locale-independent)
+   *   2. Aria-label fallbacks (ja/en/fr)
+   *   3. Text-content search across multiple locales
+   *   4. DOM dump to log on failure to ease future UI drift debugging
    */
   private async clickNewNotebook(): Promise<void> {
     if (!this.page) throw new Error("Page not initialized");
 
     log.info("📝 Clicking 'New notebook' button...");
 
-    // Try to find and click the new notebook button
+    // Try to find and click the new notebook button via declared selectors
     const selectors = getSelectors("newNotebookButton");
 
     for (const selector of selectors) {
@@ -170,7 +176,7 @@ export class NotebookCreator {
         if (element && await element.isVisible()) {
           await realisticClick(this.page, selector, true);
           await randomDelay(1000, 2000);
-          log.success("✅ Clicked 'New notebook' button");
+          log.success(`✅ Clicked 'New notebook' button (selector: ${selector})`);
           return;
         }
       } catch {
@@ -178,14 +184,18 @@ export class NotebookCreator {
       }
     }
 
-    // Try text-based selectors as fallback via evaluate (since :has-text() isn't supported)
-    const textPatterns = ["New notebook", "Create notebook", "Create new", "New"];
+    // Text-based fallback — include ja/en/fr patterns
+    const textPatterns = [
+      "新規作成", "新しい", "作成",           // ja
+      "New notebook", "Create notebook", "Create new", "New", "Create",  // en
+      "Nouveau", "Créer",                   // fr
+    ];
 
     for (const pattern of textPatterns) {
       try {
         const clicked = await this.page.evaluate((searchText) => {
           // @ts-expect-error - DOM types
-          const elements = document.querySelectorAll('button, a, [role="button"]');
+          const elements = document.querySelectorAll('button, a, [role="button"], mat-card');
           for (const el of elements) {
             const elText = (el as any).textContent?.toLowerCase() || "";
             const ariaLabel = (el as any).getAttribute("aria-label")?.toLowerCase() || "";
@@ -199,7 +209,7 @@ export class NotebookCreator {
 
         if (clicked) {
           await randomDelay(1000, 2000);
-          log.success("✅ Clicked 'New notebook' button (text match)");
+          log.success(`✅ Clicked 'New notebook' button (text match: "${pattern}")`);
           return;
         }
       } catch {
@@ -207,7 +217,48 @@ export class NotebookCreator {
       }
     }
 
+    // Dump top DOM candidates to aid future fixing — matches Direction.md ガードレール
+    await this.dumpHomepageCandidates();
     throw new Error("Could not find 'New notebook' button");
+  }
+
+  /**
+   * Emit a log of likely candidate buttons on the homepage so the next
+   * maintainer can update selectors.ts without re-running browser discovery.
+   * Called only when all selectors have failed.
+   */
+  private async dumpHomepageCandidates(): Promise<void> {
+    if (!this.page) return;
+    try {
+      const snapshot = await this.page.evaluate(() => {
+        // @ts-expect-error - DOM types
+        const els = document.querySelectorAll('button, [role="button"], mat-card, a');
+        const out: any[] = [];
+        for (const el of els) {
+          const text = ((el as any).textContent || '').trim().slice(0, 60);
+          const aria = (el as any).getAttribute('aria-label') || '';
+          const cls = ((el as any).className || '').toString().slice(0, 100);
+          const jslog = (el as any).getAttribute('jslog') || '';
+          if (!text && !aria) continue;
+          // Heuristic: only keep "create-ish" candidates to limit noise
+          const combined = (text + ' ' + aria + ' ' + cls).toLowerCase();
+          if (/create|new|add|start|作成|新規|nouveau|créer/i.test(combined)) {
+            out.push({ tag: (el as any).tagName, text, aria, cls, jslog: jslog.slice(0, 32) });
+          }
+          if (out.length >= 10) break;
+        }
+        return out;
+      });
+      log.warning("🧭 DOM dump — homepage 'create'-like candidates (first 10):");
+      for (const s of snapshot) {
+        log.dim(`    ${s.tag} text="${s.text}" aria="${s.aria}" cls="${s.cls}" jslog="${s.jslog}"`);
+      }
+      if (snapshot.length === 0) {
+        log.dim("    (no create/new/add candidates found — page may not have loaded)");
+      }
+    } catch (e) {
+      log.dim(`    (dumpHomepageCandidates failed: ${e})`);
+    }
   }
 
   /**
@@ -496,107 +547,170 @@ export class NotebookCreator {
   }
 
   /**
-   * Add a URL source
+   * Add a URL source (April 2026 flow)
+   *
+   * 1. Click Website/URL tile — jslog 279308 (locale-independent)
+   * 2. Fill <textarea> inside URL sub-dialog — jslog 279306 (was <input type="url">)
+   * 3. Click Insert — jslog 279307 (or press Enter)
    */
   private async addUrlSource(url: string): Promise<void> {
     if (!this.page) throw new Error("Page not initialized");
 
     log.info(`🔗 Adding URL source: ${url}`);
 
-    // Click "Website" option - discovered as span with "Website" text
-    await this.clickSourceTypeByText(["Website", "webWebsite", "Link", "Discover sources"]);
+    // Step 1: Click URL tile via jslog/icon/text fallback chain
+    const tileClicked = await this.page.evaluate(() => {
+      // Primary: jslog
+      // @ts-expect-error - DOM types
+      const byJslog = document.querySelector(
+        'mat-dialog-container button[jslog^="279308"], button[jslog^="279308"]'
+      ) as any;
+      if (byJslog) { byJslog.click(); return 'jslog'; }
+      // Secondary: Material icon "link"
+      // @ts-expect-error - DOM types
+      const tiles = document.querySelectorAll(
+        'mat-dialog-container button.drop-zone-icon-button, button.drop-zone-icon-button'
+      );
+      for (const tile of tiles) {
+        const iconText = (tile as any).querySelector?.('mat-icon')?.textContent?.trim() || '';
+        if (iconText === 'link' || iconText.startsWith('link ')) { (tile as any).click(); return 'icon'; }
+      }
+      // Tertiary: text in any locale
+      // @ts-expect-error - DOM types
+      const buttons = document.querySelectorAll('button, [role="button"], mat-chip, span');
+      for (const btn of buttons) {
+        const combined = ((btn as any).textContent + ' ' + ((btn as any).getAttribute?.('aria-label') || '')).toLowerCase();
+        if (/ウェブサイト|webウェブ|website|url|link|リンク|site web/i.test(combined) &&
+            !/input|入力/.test(combined)) {
+          (btn as any).click();
+          return 'text';
+        }
+      }
+      return '';
+    });
+    if (!tileClicked) {
+      log.warning("⚠️ Could not click URL/Website tile");
+    } else {
+      log.dim(`    URL tile clicked via: ${tileClicked}`);
+    }
+    await randomDelay(800, 1200);
 
-    // Find and fill URL input
-    await randomDelay(500, 1000);
+    // Step 2: Fill URL input via selectors.ts chain (textarea first)
     const selectors = getSelectors("urlInput");
-
+    let filled = false;
     for (const selector of selectors) {
       try {
         const input = await this.page.$(selector);
         if (input && await input.isVisible()) {
           await humanType(this.page, selector, url, { withTypos: false });
-          await randomDelay(500, 1000);
-
-          // Submit
-          await this.clickSubmitButton();
-          await this.waitForSourceProcessing();
-          return;
+          log.dim(`    URL typed into: ${selector}`);
+          filled = true;
+          break;
         }
       } catch {
         continue;
       }
     }
+    if (!filled) {
+      throw new Error("Could not find URL input field");
+    }
+    await randomDelay(500, 1000);
 
-    throw new Error("Could not find URL input field");
+    // Step 3: Submit via Insert button (jslog 279307) or Enter
+    const submitted = await this.page.evaluate(() => {
+      // @ts-expect-error - DOM types
+      const btn = document.querySelector(
+        'mat-dialog-container button[jslog^="279307"]:not([disabled]), button[jslog^="279307"]:not([disabled])'
+      ) as any;
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    if (!submitted) {
+      await this.page.keyboard.press("Enter");
+    }
+
+    await this.waitForSourceProcessing();
   }
 
   /**
-   * Add a text source
+   * Add a text source (April 2026 flow)
+   *
+   * 1. Click "Copied text" tile — jslog 279295 (locale-independent)
+   * 2. Fill <textarea class="copied-text-input-textarea"> — jslog 279298
+   * 3. Click Insert — jslog 279297
    */
   private async addTextSource(text: string, title?: string): Promise<void> {
     if (!this.page) throw new Error("Page not initialized");
 
     log.info(`📝 Adding text source${title ? `: ${title}` : ""}`);
 
-    // Click "Copied text" source type chip.
-    // NOTE: This chip label is locale-dependent ("Texte copié" in French etc.).
-    // We try locale-independent data attributes first, then fall back to English text.
+    // Step 1: Click "Copied text" tile — jslog/icon/text fallback chain
     const textOptionClicked = await this.page.evaluate(() => {
-      // Primary: data attribute (locale-independent, if NotebookLM uses stable data-type values)
+      // Primary: jslog 279295
       // @ts-expect-error - DOM types
-      const byData = document.querySelector('[data-source-type="text"], [data-type="text"], mat-chip[value="text"]') as any;
-      if (byData) {
-        byData.click();
-        return { clicked: true, method: "data-attr", text: byData.textContent?.substring(0, 30) };
-      }
+      const byJslog = document.querySelector(
+        'mat-dialog-container button[jslog^="279295"], button[jslog^="279295"]'
+      ) as any;
+      if (byJslog) { byJslog.click(); return { clicked: true, method: "jslog" }; }
 
-      // Fallback: text match (English only — may miss French/other locales)
+      // Secondary: Material icon "content_paste"
       // @ts-expect-error - DOM types
-      const chips = document.querySelectorAll('mat-chip, mat-chip-option, [mat-chip-option]');
-      for (const chip of chips) {
-        const text = (chip as any).textContent?.trim() || "";
-        if (text.includes("Copied text")) {
-          (chip as any).click();
-          return { clicked: true, method: "mat-chip", text: text.substring(0, 30) };
+      const tiles = document.querySelectorAll(
+        'mat-dialog-container button.drop-zone-icon-button, button.drop-zone-icon-button'
+      );
+      for (const tile of tiles) {
+        const iconText = (tile as any).querySelector?.('mat-icon')?.textContent?.trim() || '';
+        if (iconText === 'content_paste' || iconText.startsWith('content_paste ')) {
+          (tile as any).click();
+          return { clicked: true, method: "icon" };
         }
       }
 
-      // Fallback: find span with exact text and click its closest clickable ancestor
+      // Tertiary: data/value attributes
       // @ts-expect-error - DOM types
-      const spans = document.querySelectorAll('span');
-      for (const span of spans) {
-        const text = (span as any).textContent?.trim() || "";
-        if (text === "Copied text") {
-          // Try to find clickable parent (mat-chip, button, or div with click handler)
-          let target = span as any;
-          for (let i = 0; i < 5; i++) {
-            if (target.parentElement) {
-              target = target.parentElement;
-              const tagName = target.tagName?.toLowerCase();
-              if (tagName === "mat-chip" || tagName === "mat-chip-option" || tagName === "button") {
-                target.click();
-                return { clicked: true, method: "parent-" + tagName };
-              }
-            }
-          }
-          // If no good parent, just click the span
-          (span as any).click();
-          return { clicked: true, method: "span-direct" };
+      const byData = document.querySelector('[data-source-type="text"], [data-type="text"], mat-chip[value="text"]') as any;
+      if (byData) { byData.click(); return { clicked: true, method: "data-attr" }; }
+
+      // Fallback: multi-locale text match
+      // @ts-expect-error - DOM types
+      const buttons = document.querySelectorAll('button, [role="button"], mat-chip, mat-chip-option');
+      for (const btn of buttons) {
+        const combined = ((btn as any).textContent + ' ' + ((btn as any).getAttribute?.('aria-label') || '')).toLowerCase();
+        if (/copied text|paste|コピーしたテキスト|貼り付け|texte copié|paste text/i.test(combined)) {
+          (btn as any).click();
+          return { clicked: true, method: "text" };
         }
       }
       return { clicked: false };
     });
     if (!textOptionClicked.clicked) {
       log.warning("⚠️ Could not click 'Copied text' option");
+    } else {
+      log.dim(`    Text tile clicked via: ${textOptionClicked.method}`);
     }
 
     // Wait for text area to appear
     await randomDelay(2000, 2500);
 
-    // Find the text area - discovered as textarea.text-area
-    const textarea = await this.page.$('textarea.text-area') ||
-                     await this.page.$('textarea[class*="text-area"]') ||
-                     await this.page.$('textarea.mat-mdc-form-field-textarea-control');
+    // Step 2: Find textarea (April 2026: .copied-text-input-textarea; fallbacks for legacy)
+    const textAreaSelectors = [
+      'mat-dialog-container textarea.copied-text-input-textarea',
+      'textarea.copied-text-input-textarea',
+      'mat-dialog-container textarea[jslog^="279298"]',
+      'textarea[jslog^="279298"]',
+      'textarea.text-area',
+      'textarea[class*="text-area"]',
+      'textarea.mat-mdc-form-field-textarea-control',
+    ];
+    let textarea = null;
+    for (const sel of textAreaSelectors) {
+      const el = await this.page.$(sel);
+      if (el && await el.isVisible().catch(() => false)) {
+        textarea = el;
+        log.dim(`    Text textarea found: ${sel}`);
+        break;
+      }
+    }
 
     if (textarea) {
       const isVisible = await textarea.isVisible().catch(() => false);
@@ -759,8 +873,12 @@ export class NotebookCreator {
   }
 
   /**
-   * Click a source type by text content (for the new dialog structure)
+   * Click a source type by text content (legacy helper).
+   *
+   * @deprecated April 2026: addUrlSource/addTextSource use jslog-based selectors
+   * directly. Kept for potential future use with additional source types.
    */
+  // @ts-expect-error - currently unused; kept for future use
   private async clickSourceTypeByText(textPatterns: string[]): Promise<void> {
     if (!this.page) throw new Error("Page not initialized");
 
@@ -826,37 +944,53 @@ export class NotebookCreator {
   private async clickInsertButton(): Promise<void> {
     if (!this.page) throw new Error("Page not initialized");
 
-    // Find and click the "Insert" button — prefer locale-independent selectors
+    // April 2026: both URL and Text dialogs have Insert/挿入 buttons with
+    // stable jslog IDs. 279307 = URL sub-dialog, 279297 = Text sub-dialog.
     const clicked = await this.page.evaluate(() => {
-      // Primary: type=submit (locale-independent)
+      // Primary: jslog (locale-independent)
       // @ts-expect-error - DOM types
-      const submitBtn = document.querySelector("button[type='submit']:not([disabled])") as any;
-      if (submitBtn && submitBtn.offsetParent !== null) {
-        submitBtn.click();
-        return true;
-      }
-      // Secondary: primary color class (locale-independent NotebookLM convention)
+      const byJslog = document.querySelector(
+        'mat-dialog-container button[jslog^="279297"]:not([disabled]), ' +
+        'mat-dialog-container button[jslog^="279307"]:not([disabled]), ' +
+        'button[jslog^="279297"]:not([disabled]), ' +
+        'button[jslog^="279307"]:not([disabled])'
+      ) as any;
+      if (byJslog) { byJslog.click(); return 'jslog'; }
+
+      // Secondary: type=submit
       // @ts-expect-error - DOM types
-      const primaryBtn = document.querySelector("button.button-color--primary:not([disabled])") as any;
-      if (primaryBtn && primaryBtn.offsetParent !== null) {
-        primaryBtn.click();
-        return true;
-      }
-      // Fallback: text match (English only)
+      const submitBtn = document.querySelector(
+        "mat-dialog-container button[type='submit']:not([disabled]), button[type='submit']:not([disabled])"
+      ) as any;
+      if (submitBtn && submitBtn.offsetParent !== null) { submitBtn.click(); return 'submit'; }
+
+      // Tertiary: NotebookLM primary color class (locale-independent convention)
       // @ts-expect-error - DOM types
-      const buttons = document.querySelectorAll("button");
+      const primaryBtn = document.querySelector(
+        "mat-dialog-container button.button-color--primary:not([disabled]), " +
+        "mat-dialog-container button.mdc-button--unelevated:not([disabled])"
+      ) as any;
+      if (primaryBtn && primaryBtn.offsetParent !== null) { primaryBtn.click(); return 'primary'; }
+
+      // Fallback: multi-locale text match
+      // @ts-expect-error - DOM types
+      const buttons = document.querySelectorAll("mat-dialog-container button, button");
       for (const btn of buttons) {
-        const text = (btn as any).textContent?.trim() || "";
-        if (text === "Insert" || text.toLowerCase() === "insert") {
+        if ((btn as any).disabled) continue;
+        const text = ((btn as any).textContent || "").trim();
+        const lower = text.toLowerCase();
+        if (text === "挿入" || lower === "insert" || lower === "submit" ||
+            lower === "add" || text === "追加" || text === "確認" ||
+            lower === "insérer" || lower === "ajouter") {
           (btn as any).click();
-          return true;
+          return 'text';
         }
       }
-      return false;
+      return '';
     });
 
     if (clicked) {
-      log.success("✅ Clicked 'Insert' button");
+      log.success(`✅ Clicked Insert button (via: ${clicked})`);
       return;
     }
 
