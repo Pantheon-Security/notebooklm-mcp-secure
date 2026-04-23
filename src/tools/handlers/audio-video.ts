@@ -26,6 +26,43 @@ import {
   type GenerateDataTableResult,
   type GetDataTableResult,
 } from "../../notebook-creation/data-table-manager.js";
+import {
+  SlidesManager,
+  type SlidesStatus,
+  type GenerateSlidesResult,
+} from "../../notebook-creation/slides-manager.js";
+import {
+  InfographicManager,
+  type InfographicStatus,
+  type GenerateInfographicResult,
+} from "../../notebook-creation/infographic-manager.js";
+
+/**
+ * Shared notebook URL resolution — matches the inline pattern used across this file
+ * (kept inline originally; extracted here for reuse by the new slides/infographic handlers).
+ */
+function resolveNotebookUrl(
+  ctx: HandlerContext,
+  args: { notebook_id?: string; notebook_url?: string },
+  logPrefix: string
+): string {
+  let notebookUrl = args.notebook_url;
+  if (!notebookUrl && args.notebook_id) {
+    const notebook = ctx.library.getNotebook(args.notebook_id);
+    if (!notebook) throw new Error(`Notebook not found in library: ${args.notebook_id}`);
+    notebookUrl = notebook.url;
+    log.info(`  [${logPrefix}] Resolved notebook: ${notebook.name}`);
+  } else if (!notebookUrl) {
+    const active = ctx.library.getActiveNotebook();
+    if (active) {
+      notebookUrl = active.url;
+      log.info(`  [${logPrefix}] Using active notebook: ${active.name}`);
+    } else {
+      throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
+    }
+  }
+  return validateNotebookUrl(notebookUrl);
+}
 
 export async function handleGenerateAudioOverview(
   ctx: HandlerContext,
@@ -448,5 +485,101 @@ export async function handleGetDataTable(
       success: false,
       error: errorMessage,
     };
+  }
+}
+
+// === Slides (スライド資料) ===
+
+export async function handleGenerateSlides(
+  ctx: HandlerContext,
+  args: { notebook_id?: string; notebook_url?: string }
+): Promise<ToolResult<GenerateSlidesResult>> {
+  log.info(`🔧 [TOOL] generate_slides called`);
+  try {
+    const safeUrl = resolveNotebookUrl(ctx, args, "generate_slides");
+    const contextManager = ctx.sessionManager.getContextManager();
+    const slidesManager = new SlidesManager(ctx.authManager, contextManager);
+    const result = await slidesManager.generateSlides(safeUrl);
+    if (result.success) {
+      log.success(`✅ [TOOL] generate_slides completed (status: ${result.status.status})`);
+    } else {
+      log.warning(`⚠️ [TOOL] generate_slides: ${result.error}`);
+    }
+    return {
+      success: result.success,
+      data: result,
+      ...(result.error && { error: result.error }),
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error(`❌ [TOOL] generate_slides failed: ${errorMessage}`);
+    return { success: false, error: errorMessage };
+  }
+}
+
+export async function handleGetSlidesStatus(
+  ctx: HandlerContext,
+  args: { notebook_id?: string; notebook_url?: string }
+): Promise<ToolResult<SlidesStatus>> {
+  log.info(`🔧 [TOOL] get_slides_status called`);
+  try {
+    const safeUrl = resolveNotebookUrl(ctx, args, "get_slides_status");
+    const contextManager = ctx.sessionManager.getContextManager();
+    const slidesManager = new SlidesManager(ctx.authManager, contextManager);
+    const status = await slidesManager.getSlidesStatus(safeUrl);
+    log.success(`✅ [TOOL] get_slides_status completed (status: ${status.status})`);
+    return { success: true, data: status };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error(`❌ [TOOL] get_slides_status failed: ${errorMessage}`);
+    return { success: false, error: errorMessage };
+  }
+}
+
+// === Infographic (インフォグラフィック) ===
+
+export async function handleGenerateInfographic(
+  ctx: HandlerContext,
+  args: { notebook_id?: string; notebook_url?: string }
+): Promise<ToolResult<GenerateInfographicResult>> {
+  log.info(`🔧 [TOOL] generate_infographic called`);
+  try {
+    const safeUrl = resolveNotebookUrl(ctx, args, "generate_infographic");
+    const contextManager = ctx.sessionManager.getContextManager();
+    const infoManager = new InfographicManager(ctx.authManager, contextManager);
+    const result = await infoManager.generateInfographic(safeUrl);
+    if (result.success) {
+      log.success(`✅ [TOOL] generate_infographic completed (status: ${result.status.status})`);
+    } else {
+      log.warning(`⚠️ [TOOL] generate_infographic: ${result.error}`);
+    }
+    return {
+      success: result.success,
+      data: result,
+      ...(result.error && { error: result.error }),
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error(`❌ [TOOL] generate_infographic failed: ${errorMessage}`);
+    return { success: false, error: errorMessage };
+  }
+}
+
+export async function handleGetInfographicStatus(
+  ctx: HandlerContext,
+  args: { notebook_id?: string; notebook_url?: string }
+): Promise<ToolResult<InfographicStatus>> {
+  log.info(`🔧 [TOOL] get_infographic_status called`);
+  try {
+    const safeUrl = resolveNotebookUrl(ctx, args, "get_infographic_status");
+    const contextManager = ctx.sessionManager.getContextManager();
+    const infoManager = new InfographicManager(ctx.authManager, contextManager);
+    const status = await infoManager.getInfographicStatus(safeUrl);
+    log.success(`✅ [TOOL] get_infographic_status completed (status: ${status.status})`);
+    return { success: true, data: status };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error(`❌ [TOOL] get_infographic_status failed: ${errorMessage}`);
+    return { success: false, error: errorMessage };
   }
 }
