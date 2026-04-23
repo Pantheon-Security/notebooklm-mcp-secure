@@ -68,6 +68,22 @@ export class SourceManager {
 
   /**
    * List all sources in a notebook
+   *
+   * Live DOM inspection April 2026:
+   *   section.source-panel
+   *   └── div.single-source-container            ← one source row
+   *       ├── button.source-stretched-button      (aria-label = source title)
+   *       ├── div.icon-and-menu-container
+   *       │   ├── mat-icon.source-item-more-menu-icon (text="more_vert" — NOT the title!)
+   *       │   └── button.source-item-more-button  (jslog=202051)
+   *       ├── div.source-title-column
+   *       │   └── div.source-title
+   *       │       └── span  (text = source title)
+   *       └── div.select-checkbox-container
+   *
+   * Old selectors matched the menu button children and returned icon names
+   * ("more_vert", "video_audio_call") as titles. Fixed by targeting
+   * `.single-source-container` as the row and `.source-title` for the title.
    */
   async listSources(notebookUrl: string): Promise<ListSourcesResult> {
     log.info(`📋 Listing sources for: ${notebookUrl}`);
@@ -82,62 +98,81 @@ export class SourceManager {
       const sources = await page.evaluate(() => {
         const results: any[] = [];
 
-        // Look for source items in the sidebar/sources panel
-        // Common patterns in NotebookLM:
-        // - mat-list-item elements
-        // - Elements with source-related classes
-        // - Elements within a sources container
-        const sourceSelectors = [
-          'mat-list-item',
-          '[class*="source-item"]',
-          '[class*="source-card"]',
-          '[role="listitem"]',
-          '.sources-list > *',
+        // Primary: April 2026 UI — each row is `.single-source-container`
+        // Fallback chain kept for legacy UI and UI transitions
+        const rowSelectors = [
+          '.single-source-container',                   // April 2026 (primary)
+          'source-row',                                  // Hypothetical custom element
+          '[class*="single-source"]',                    // Class variants
+          'mat-list-item',                               // Legacy
+          '[role="listitem"]',                           // Generic ARIA
         ];
 
-        for (const selector of sourceSelectors) {
+        let items: any[] = [];
+        let matchedSelector = '';
+        for (const sel of rowSelectors) {
           // @ts-expect-error - DOM types
-          const items = document.querySelectorAll(selector);
-
-          for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-            const text = (item as any).textContent?.trim() || "";
-
-            // Skip if it looks like a button or action item
-            if (text.length < 3 || text.toLowerCase().includes("add source")) continue;
-
-            // Try to determine type from icons or classes
-            const classes = (item as any).className || "";
-            const hasUrlIcon = classes.includes("link") || classes.includes("web") ||
-                              text.includes("http") || text.includes(".com");
-            const hasFileIcon = classes.includes("file") || classes.includes("pdf") ||
-                               classes.includes("doc");
-            const hasDriveIcon = classes.includes("drive") || classes.includes("google");
-
-            let type = "unknown";
-            if (hasUrlIcon) type = "url";
-            else if (hasFileIcon) type = "file";
-            else if (hasDriveIcon) type = "drive";
-            else type = "text";
-
-            // Check for status indicators
-            const hasError = classes.includes("error") || classes.includes("failed");
-            const hasProcessing = classes.includes("processing") || classes.includes("loading");
-
-            let status = "ready";
-            if (hasError) status = "failed";
-            else if (hasProcessing) status = "processing";
-
-            results.push({
-              id: `source-${i}`,
-              title: text.substring(0, 100),
-              type,
-              status,
-            });
+          const found = Array.from(document.querySelectorAll(sel));
+          if (found.length > 0) {
+            items = found;
+            matchedSelector = sel;
+            break;
           }
+        }
 
-          // If we found items with this selector, stop searching
-          if (results.length > 0) break;
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i] as any;
+
+          // Title extraction: try most reliable → least reliable
+          // 1. .source-title textContent (the actual title span)
+          // 2. .source-stretched-button aria-label
+          // 3. .source-title-column textContent (may include noise)
+          const titleEl = item.querySelector('.source-title');
+          const ariaTitleEl = item.querySelector('.source-stretched-button');
+          const colEl = item.querySelector('.source-title-column');
+          let title = (titleEl?.textContent || '').trim();
+          if (!title) title = (ariaTitleEl?.getAttribute('aria-label') || '').trim();
+          if (!title) title = (colEl?.textContent || '').trim();
+          if (!title) title = (item.textContent || '').trim();
+
+          // Filter out obvious icon-only matches (Material Icons names)
+          const ICON_NAMES = new Set([
+            'more_vert', 'more_horiz', 'description', 'video_audio_call',
+            'link', 'upload', 'drive', 'content_paste', 'picture_as_pdf',
+          ]);
+          if (ICON_NAMES.has(title) || title.length < 1) continue;
+          // Drop embedded icon words from start of title (e.g. "description Foo" → "Foo")
+          for (const ic of ICON_NAMES) {
+            if (title.startsWith(ic + ' ')) title = title.slice(ic.length + 1);
+          }
+          title = title.slice(0, 120);
+
+          // Type detection
+          const rowClasses = (item.className || '').toString().toLowerCase();
+          const icon = item.querySelector('.icon-and-menu-container mat-icon, mat-icon');
+          const iconText = (icon?.textContent || '').trim();
+          let type: string = 'unknown';
+          if (/(^|[\s_-])(link|public|language)($|[\s_-])/.test(iconText)) type = 'url';
+          else if (/(^|[\s_-])(drive|cloud)($|[\s_-])/.test(iconText)) type = 'drive';
+          else if (/(^|[\s_-])(picture_as_pdf|description|article|note|file)($|[\s_-])/.test(iconText)) type = 'file';
+          else if (/(^|[\s_-])(content_paste|edit_note|text_snippet)($|[\s_-])/.test(iconText)) type = 'text';
+          else if (rowClasses.includes('link') || rowClasses.includes('url')) type = 'url';
+          else if (rowClasses.includes('drive')) type = 'drive';
+          else if (rowClasses.includes('file') || rowClasses.includes('pdf')) type = 'file';
+          else type = 'text';
+
+          // Status detection
+          let status: string = 'ready';
+          if (rowClasses.includes('error') || rowClasses.includes('failed')) status = 'failed';
+          else if (rowClasses.includes('processing') || rowClasses.includes('loading')) status = 'processing';
+
+          results.push({
+            id: `source-${i}`,
+            title,
+            type,
+            status,
+            _matchedSelector: matchedSelector,
+          });
         }
 
         return results;
@@ -146,7 +181,7 @@ export class SourceManager {
       log.success(`  ✅ Found ${sources.length} sources`);
 
       return {
-        sources,
+        sources: sources.map(({ _matchedSelector, ...s }: any) => s),
         count: sources.length,
         notebookUrl,
       };
@@ -184,11 +219,28 @@ export class SourceManager {
       log.dim(`  Page state: width=${pageState.windowWidth}, addSourceBtn=${pageState.hasAddSourceBtn}`);
 
       // Check if source dialog is already open (new/empty notebooks may auto-open it)
+      // April 2026 signals: 4 source-type tiles with jslog 279295/299/304/308 inside
+      // a visible mat-dialog-container. Legacy selectors kept as fallback.
       const dialogAlreadyOpen = await page.evaluate(() => {
-        // Check for dropzone (file upload area) - most reliable indicator
+        // Primary (April 2026): any of the 4 source-type tiles visible
+        // @ts-expect-error - DOM types
+        const newDialogTile = document.querySelector(
+          'mat-dialog-container button[jslog^="279295"], ' +
+          'mat-dialog-container button[jslog^="279299"], ' +
+          'mat-dialog-container button[jslog^="279304"], ' +
+          'mat-dialog-container button[jslog^="279308"]'
+        );
+        if (newDialogTile && (newDialogTile as any).offsetParent !== null) return true;
+        // Secondary: any visible mat-dialog-container with non-empty content
+        // @ts-expect-error - DOM types
+        const dialogs = document.querySelectorAll('mat-dialog-container');
+        for (const d of dialogs) {
+          if ((d as any).offsetParent !== null && d.textContent?.trim()) return true;
+        }
+        // Legacy: dropzone button
         // @ts-expect-error - DOM types
         const dropzone = document.querySelector('.dropzone__file-dialog-button, span[xapscottyuploadertrigger]');
-        // Check for source type options in dialog
+        // Legacy: English aria-label
         // @ts-expect-error - DOM types
         const sourceOptions = document.querySelector('[aria-label="Upload sources from your computer"]');
         return !!(dropzone || sourceOptions);
@@ -234,8 +286,21 @@ export class SourceManager {
 
         await randomDelay(1500, 2000);
 
-        // Verify dialog opened
+        // Verify dialog opened (same logic as dialogAlreadyOpen check)
         const dialogOpened = await page.evaluate(() => {
+          // @ts-expect-error - DOM types
+          const newDialogTile = document.querySelector(
+            'mat-dialog-container button[jslog^="279295"], ' +
+            'mat-dialog-container button[jslog^="279299"], ' +
+            'mat-dialog-container button[jslog^="279304"], ' +
+            'mat-dialog-container button[jslog^="279308"]'
+          );
+          if (newDialogTile && (newDialogTile as any).offsetParent !== null) return true;
+          // @ts-expect-error - DOM types
+          const dialogs = document.querySelectorAll('mat-dialog-container');
+          for (const d of dialogs) {
+            if ((d as any).offsetParent !== null && d.textContent?.trim()) return true;
+          }
           // @ts-expect-error - DOM types
           const dropzone = document.querySelector('.dropzone__file-dialog-button, span[xapscottyuploadertrigger]');
           // @ts-expect-error - DOM types
@@ -303,10 +368,13 @@ export class SourceManager {
       const sourceIndex = parseInt(indexMatch[1], 10);
 
       // Find and click on the source to select it
+      // April 2026: source rows are `.single-source-container`; earlier UIs used `mat-list-item`
       const clicked = await page.evaluate((index: number) => {
         const sourceSelectors = [
+          '.single-source-container',
+          'source-row',
+          '[class*="single-source"]',
           'mat-list-item',
-          '[class*="source-item"]',
           '[role="listitem"]',
         ];
 
@@ -314,21 +382,25 @@ export class SourceManager {
           // @ts-expect-error - DOM types
           const items = document.querySelectorAll(selector);
           if (items.length > index) {
-            // Look for delete button within the item or select it
-            const item = items[index];
+            const item = items[index] as any;
 
-            // Try to find delete button
-            const deleteBtn = (item as any).querySelector(
-              '[aria-label*="delete" i], [aria-label*="remove" i], button[class*="delete"]'
+            // Open the ⋮ menu (jslog 202051 in April 2026 UI) first, then look for delete
+            const menuBtn = item.querySelector(
+              'button.source-item-more-button, button[jslog^="202051"], [aria-label*="menu" i], [aria-label*="more" i], [aria-label*="オプション"]'
             );
-
-            if (deleteBtn) {
-              deleteBtn.click();
-              return "deleted";
+            if (menuBtn) {
+              menuBtn.click();
+              return "menu-opened";
             }
 
-            // Otherwise click the item to select it
-            (item as any).click();
+            // Legacy: inline delete button
+            const deleteBtn = item.querySelector(
+              '[aria-label*="delete" i], [aria-label*="remove" i], [aria-label*="削除"], button[class*="delete"]'
+            );
+            if (deleteBtn) { deleteBtn.click(); return "deleted"; }
+
+            // Fallback: click the row to select it
+            item.click();
             return "selected";
           }
         }
@@ -339,28 +411,49 @@ export class SourceManager {
         throw new Error(`Source not found at index ${sourceIndex}`);
       }
 
-      if (clicked === "selected") {
-        // Look for delete button in toolbar or context menu
+      if (clicked === "selected" || clicked === "menu-opened") {
+        // Wait for menu to render, then find the delete menuitem
         await randomDelay(500, 800);
 
         const deleted = await page.evaluate(() => {
-          // Look for delete button that appeared after selection
+          // April 2026: the ⋮ menu surface appears as a mat-menu-panel overlay
+          // with multiple button[role="menuitem"] children. The delete one uses
+          // Material icon "delete" / "delete_forever" (locale-independent).
+          // @ts-expect-error - DOM types
+          const menuItems = document.querySelectorAll(
+            '[role="menuitem"], button.mat-mdc-menu-item, mat-menu-item'
+          );
+          for (const mi of Array.from(menuItems)) {
+            if (!(mi as any).offsetParent && (mi as any).getClientRects().length === 0) continue;
+            const icon = (mi as any).querySelector?.('mat-icon');
+            const iconText = icon?.textContent?.trim() || '';
+            if (iconText === 'delete' || iconText === 'delete_forever' || iconText === 'remove') {
+              (mi as any).click();
+              return 'menu-item';
+            }
+          }
+          // Fallback: text match
+          for (const mi of Array.from(menuItems)) {
+            const text = ((mi as any).textContent || '').toLowerCase();
+            if (text.includes('delete') || text.includes('remove') || text.includes('削除')) {
+              (mi as any).click();
+              return 'menu-text';
+            }
+          }
+          // Final fallback: any visible delete button anywhere
           const deleteSelectors = [
             'button[aria-label*="delete" i]',
             'button[aria-label*="remove" i]',
+            'button[aria-label*="削除"]',
             '[class*="delete"]',
             '[class*="trash"]',
           ];
-
           for (const selector of deleteSelectors) {
             // @ts-expect-error - DOM types
-            const btn = document.querySelector(selector);
-            if (btn && (btn as any).offsetParent !== null) {
-              (btn as any).click();
-              return true;
-            }
+            const btn = document.querySelector(selector) as any;
+            if (btn && btn.offsetParent !== null) { btn.click(); return 'button'; }
           }
-          return false;
+          return '';
         });
 
         if (!deleted) {
@@ -373,10 +466,12 @@ export class SourceManager {
       await page.evaluate(() => {
         // Look for confirm button in dialog
         // @ts-expect-error - DOM types
-        const buttons = document.querySelectorAll("button");
+        const buttons = document.querySelectorAll("mat-dialog-container button, button");
         for (const btn of buttons) {
+          if ((btn as any).disabled) continue;
           const text = (btn as any).textContent?.toLowerCase() || "";
-          if (text.includes("delete") || text.includes("remove") || text.includes("confirm")) {
+          if (text.includes("delete") || text.includes("remove") || text.includes("confirm") ||
+              text.includes("削除") || text.includes("確認") || text.includes("はい")) {
             (btn as any).click();
             return true;
           }
@@ -406,81 +501,194 @@ export class SourceManager {
 
   /**
    * Internal: Add URL source
+   *
+   * Live DOM inspection April 2026:
+   *   1. Add source dialog shows 4 outlined tiles (jslog 279304/308/299/295).
+   *      Website/URL tile: jslog starts with "279308".
+   *   2. Clicking it opens a sub-dialog with title "ウェブサイトと YouTube の URL".
+   *      Input is a <textarea> (not <input type="url">!):
+   *        - aria-label="URL を入力" (ja) / "Enter URL" (en)
+   *        - placeholder="リンクを貼り付ける" (ja) / "Paste link" (en)
+   *        - jslog="279306;track:impression,input_"
+   *   3. Submit button: text="挿入" (ja) / "Insert" (en), jslog^="279307".
+   *      Disabled until a valid URL is typed. Enter key also works.
    */
   private async addUrlSourceInternal(page: Page, url: string): Promise<void> {
-    // Click URL/Website source type option — prefer locale-independent signals
+    // Step 1: Click the Website/URL tile (jslog 279308) — locale-independent
     const urlOptionClicked = await page.evaluate(() => {
-      // Primary: data/value attribute (locale-independent)
+      // Primary: jslog ID (stable across locales, confirmed April 2026)
       // @ts-expect-error - DOM types
-      const byData = document.querySelector('[data-source-type="url"], [value="url"], mat-chip[value="url"]') as any;
-      if (byData) {
-        byData.click();
-        return true;
+      const byJslog = document.querySelector(
+        'mat-dialog-container button[jslog^="279308"], button[jslog^="279308"]'
+      ) as any;
+      if (byJslog) { byJslog.click(); return 'jslog'; }
+
+      // Secondary: mat-icon text — "link" icon is the URL tile (icon names never translate)
+      // @ts-expect-error - DOM types
+      const tiles = document.querySelectorAll(
+        'mat-dialog-container button.drop-zone-icon-button, button.drop-zone-icon-button'
+      );
+      for (const tile of tiles) {
+        const icon = (tile as any).querySelector?.('mat-icon');
+        const iconText = icon?.textContent?.trim() || '';
+        if (iconText === 'link' || iconText.startsWith('link ')) {
+          (tile as any).click();
+          return 'icon';
+        }
       }
-      // Fallback: text/aria match ("URL" is the same word in most languages)
+
+      // Tertiary: aria/text fallback (locale-dependent)
       // @ts-expect-error - DOM types
       const buttons = document.querySelectorAll("button, [role='button'], mat-chip");
       for (const btn of buttons) {
         const text = (btn as any).textContent?.toLowerCase() || "";
         const aria = (btn as any).getAttribute("aria-label")?.toLowerCase() || "";
-        if (text.includes("url") || aria.includes("url") ||
-            text.includes("website") || text.includes("link") || aria.includes("discover")) {
+        const combined = text + ' ' + aria;
+        if (combined.includes("url") || combined.includes("website") ||
+            combined.includes("ウェブサイト") || combined.includes("サイト") ||
+            combined.includes("link") || combined.includes("リンク")) {
+          // Skip buttons that look like "URL input" rather than type selector
+          if (combined.includes("input") || combined.includes("入力")) continue;
           (btn as any).click();
-          return true;
+          return 'text';
         }
       }
-      return false;
+      return '';
     });
 
     if (!urlOptionClicked) {
       throw new Error("Could not find URL/Website source option");
     }
+    log.dim(`    Selected URL source via: ${urlOptionClicked}`);
 
     await randomDelay(800, 1200);
 
-    // Find and fill URL input
-    const urlInput = await page.$('input[type="url"], input[type="text"][placeholder*="URL" i], input[placeholder*="http" i]');
-    if (!urlInput) {
-      throw new Error("Could not find URL input field");
+    // Step 2: Find and fill URL input (textarea in April 2026, fallback to input)
+    const urlInputSelectors = [
+      'mat-dialog-container textarea[jslog^="279306"]',
+      'textarea[jslog^="279306"]',
+      'mat-dialog-container textarea[aria-label*="URL" i]',
+      'mat-dialog-container textarea[placeholder*="リンク"]',
+      'mat-dialog-container textarea[placeholder*="link" i]',
+      'mat-dialog-container textarea',                          // Any textarea in the open dialog
+      'input[type="url"]',                                      // Legacy input
+      'input[type="text"][placeholder*="URL" i]',               // Legacy
+      'input[placeholder*="http" i]',                           // Legacy
+    ];
+
+    let urlInputSelector: string | null = null;
+    for (const sel of urlInputSelectors) {
+      const el = await page.$(sel);
+      if (el && (await el.isVisible())) {
+        urlInputSelector = sel;
+        break;
+      }
     }
 
-    await humanType(page, 'input[type="url"], input[type="text"]', url);
+    if (!urlInputSelector) {
+      throw new Error("Could not find URL input field");
+    }
+    log.dim(`    URL input found: ${urlInputSelector}`);
+
+    await humanType(page, urlInputSelector, url);
     await randomDelay(500, 800);
 
-    // Submit
-    await page.keyboard.press("Enter");
+    // Step 3: Submit via Insert button (jslog 279307) or Enter key
+    const insertClicked = await page.evaluate(() => {
+      // @ts-expect-error - DOM types
+      const btn = document.querySelector(
+        'mat-dialog-container button[jslog^="279307"]:not([disabled]), button[jslog^="279307"]:not([disabled])'
+      ) as any;
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+
+    if (!insertClicked) {
+      // Enter key as fallback — also works for the textarea in April 2026 UI
+      await page.keyboard.press("Enter");
+    }
   }
 
   /**
    * Internal: Add text source
    */
   private async addTextSourceInternal(page: Page, text: string, _title?: string): Promise<void> {
-    // Click text/paste option
+    // Step 1: Click the "Copied text" tile — locale-independent via jslog 279295
     const textOptionClicked = await page.evaluate(() => {
+      // Primary: jslog ID
+      // @ts-expect-error - DOM types
+      const byJslog = document.querySelector(
+        'mat-dialog-container button[jslog^="279295"], button[jslog^="279295"]'
+      ) as any;
+      if (byJslog) { byJslog.click(); return 'jslog'; }
+
+      // Secondary: mat-icon "content_paste" (icon names never translate)
+      // @ts-expect-error - DOM types
+      const tiles = document.querySelectorAll(
+        'mat-dialog-container button.drop-zone-icon-button, button.drop-zone-icon-button'
+      );
+      for (const tile of tiles) {
+        const icon = (tile as any).querySelector?.('mat-icon');
+        const iconText = icon?.textContent?.trim() || '';
+        if (iconText === 'content_paste' || iconText.startsWith('content_paste ')) {
+          (tile as any).click();
+          return 'icon';
+        }
+      }
+
+      // Tertiary: aria/text (locale-dependent)
       // @ts-expect-error - DOM types
       const buttons = document.querySelectorAll("button, [role='button'], mat-chip");
       for (const btn of buttons) {
         const btnText = (btn as any).textContent?.toLowerCase() || "";
         const aria = (btn as any).getAttribute("aria-label")?.toLowerCase() || "";
-        if (btnText.includes("copied text") || btnText.includes("paste") || btnText.includes("text") ||
-            aria.includes("copied") || aria.includes("paste")) {
+        const combined = btnText + ' ' + aria;
+        if (combined.includes("copied text") || combined.includes("paste") ||
+            combined.includes("コピーしたテキスト") || combined.includes("貼り付け") ||
+            combined.includes("texte copié")) {
           (btn as any).click();
-          return true;
+          return 'text';
         }
       }
-      return false;
+      return '';
     });
 
     if (!textOptionClicked) {
       throw new Error("Could not find text/paste source option");
     }
+    log.dim(`    Selected text source via: ${textOptionClicked}`);
 
     await randomDelay(800, 1200);
 
-    // Fill text area
-    const textArea = await page.$(NOTEBOOKLM_SELECTORS.textInput.primary);
-    if (!textArea) {
+    // Step 2: Find text area (new class: copied-text-input-textarea)
+    const textAreaSelectors = [
+      'mat-dialog-container textarea.copied-text-input-textarea',
+      'textarea.copied-text-input-textarea',
+      'mat-dialog-container textarea[jslog^="279298"]',
+      'textarea[jslog^="279298"]',
+      'mat-dialog-container textarea[aria-label*="貼り付け"]',
+      'mat-dialog-container textarea[aria-label*="paste" i]',
+      'mat-dialog-container textarea[aria-label*="text" i]',
+      NOTEBOOKLM_SELECTORS.textInput.primary,
+      ...NOTEBOOKLM_SELECTORS.textInput.fallbacks,
+    ];
+
+    let textAreaSelector: string | null = null;
+    for (const sel of textAreaSelectors) {
+      const el = await page.$(sel);
+      if (el && (await el.isVisible())) {
+        textAreaSelector = sel;
+        break;
+      }
+    }
+    if (!textAreaSelector) {
       throw new Error("Could not find text input area");
+    }
+    log.dim(`    Text input found: ${textAreaSelector}`);
+
+    const textArea = await page.$(textAreaSelector);
+    if (!textArea) {
+      throw new Error("Text input disappeared before fill");
     }
 
     // Use clipboard for large text
@@ -494,43 +702,53 @@ export class SourceManager {
       await page.keyboard.press("v");
       await page.keyboard.up("Control");
     } else {
-      await humanType(page, NOTEBOOKLM_SELECTORS.textInput.primary, text);
+      await humanType(page, textAreaSelector, text);
     }
 
     await randomDelay(500, 800);
 
-    // Click Insert button — prefer locale-independent selectors
+    // Step 3: Click Insert button — prefer locale-independent jslog 279297
     const insertClicked = await page.evaluate(() => {
-      // Primary: type=submit (locale-independent)
+      // Primary: jslog ID (April 2026, locale-independent)
       // @ts-expect-error - DOM types
-      const submitBtn = document.querySelector("button[type='submit']:not([disabled])") as any;
-      if (submitBtn && submitBtn.offsetParent !== null) {
-        submitBtn.click();
-        return true;
-      }
-      // Secondary: primary color class (locale-independent NotebookLM convention)
+      const byJslog = document.querySelector(
+        'mat-dialog-container button[jslog^="279297"]:not([disabled]), button[jslog^="279297"]:not([disabled])'
+      ) as any;
+      if (byJslog) { byJslog.click(); return 'jslog'; }
+
+      // Secondary: type=submit
       // @ts-expect-error - DOM types
-      const primaryBtn = document.querySelector("button.button-color--primary:not([disabled])") as any;
-      if (primaryBtn && primaryBtn.offsetParent !== null) {
-        primaryBtn.click();
-        return true;
-      }
-      // Fallback: text match (English only)
+      const submitBtn = document.querySelector(
+        "mat-dialog-container button[type='submit']:not([disabled]), button[type='submit']:not([disabled])"
+      ) as any;
+      if (submitBtn && submitBtn.offsetParent !== null) { submitBtn.click(); return 'submit'; }
+
+      // Tertiary: primary color class (NotebookLM convention, locale-independent)
       // @ts-expect-error - DOM types
-      const buttons = document.querySelectorAll("button");
+      const primaryBtn = document.querySelector(
+        "mat-dialog-container button.button-color--primary:not([disabled]), mat-dialog-container button.mdc-button--unelevated:not([disabled])"
+      ) as any;
+      if (primaryBtn && primaryBtn.offsetParent !== null) { primaryBtn.click(); return 'primary'; }
+
+      // Fallback: text match (locale-dependent)
+      // @ts-expect-error - DOM types
+      const buttons = document.querySelectorAll("mat-dialog-container button, button");
       for (const btn of buttons) {
+        if ((btn as any).disabled) continue;
         const text = (btn as any).textContent?.toLowerCase() || "";
-        if (text.includes("insert") || text.includes("add") || text.includes("submit")) {
+        if (text.includes("insert") || text.includes("add") || text.includes("submit") ||
+            text.includes("挿入") || text.includes("追加") || text.includes("insérer")) {
           (btn as any).click();
-          return true;
+          return 'text';
         }
       }
-      return false;
+      return '';
     });
 
     if (!insertClicked) {
       throw new Error("Could not find Insert button");
     }
+    log.dim(`    Submitted text via: ${insertClicked}`);
   }
 
   /**
