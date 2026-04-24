@@ -63,8 +63,11 @@ const PROFILES: Record<ProfileName, string[]> = {
     "get_data_table",
     "generate_slides",
     "get_slides_status",
+    "revise_slides",
+    "download_slides",
     "generate_infographic",
     "get_infographic_status",
+    "download_infographic",
     // Session & system
     "get_health",
     "setup_auth",
