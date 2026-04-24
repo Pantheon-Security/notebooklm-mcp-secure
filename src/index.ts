@@ -182,6 +182,8 @@ class NotebookLMMCPServer {
       ["research_sources", (a: any) => this.toolHandlers.handleResearchSources(a)],
       ["get_source_discovery_status", (a: any) => this.toolHandlers.handleGetSourceDiscoveryStatus(a)],
       ["import_research_results", (a: any) => this.toolHandlers.handleImportResearchResults(a)],
+      ["get_source_content", (a: any) => this.toolHandlers.handleGetSourceContent(a)],
+      ["download_source", (a: any) => this.toolHandlers.handleDownloadSource(a)],
       // Webhooks
       ["configure_webhook", (a: any) => this.toolHandlers.handleConfigureWebhook(a)],
       ["list_webhooks", () => this.toolHandlers.handleListWebhooks()],

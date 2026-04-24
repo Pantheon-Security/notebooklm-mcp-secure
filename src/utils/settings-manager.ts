@@ -71,6 +71,8 @@ const PROFILES: Record<ProfileName, string[]> = {
     "research_sources",
     "get_source_discovery_status",
     "import_research_results",
+    "get_source_content",
+    "download_source",
     // Session & system
     "get_health",
     "setup_auth",

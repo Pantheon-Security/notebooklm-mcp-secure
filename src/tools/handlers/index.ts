@@ -54,6 +54,10 @@ import {
   handleImportResearchResults,
 } from "./research.js";
 import {
+  handleGetSourceContent,
+  handleDownloadSource,
+} from "./source-content.js";
+import {
   handleGenerateAudioOverview,
   handleGetAudioStatus,
   handleDownloadAudio,
@@ -275,6 +279,12 @@ export class ToolHandlers {
   }
   handleImportResearchResults(args: Parameters<typeof handleImportResearchResults>[1]) {
     return handleImportResearchResults(this.ctx, args);
+  }
+  handleGetSourceContent(args: Parameters<typeof handleGetSourceContent>[1]) {
+    return handleGetSourceContent(this.ctx, args);
+  }
+  handleDownloadSource(args: Parameters<typeof handleDownloadSource>[1]) {
+    return handleDownloadSource(this.ctx, args);
   }
 
   // === Webhooks ===
