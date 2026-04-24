@@ -22,6 +22,8 @@ export interface WebhookConfig {
 
 export interface WebhookDelivery {
   id: string;
+  /** Monotonic sequence number for ordering/replay across restarts */
+  sequence: number;
   webhookId: string;
   eventType: EventType;
   timestamp: string;

@@ -160,6 +160,23 @@ describe("DataErasureManager", () => {
       expect(fs.existsSync(cpFile)).toBe(false);
     });
 
+    it("does not erase chrome_profile while SingletonLock indicates Chrome is running", async () => {
+      const cpFile = seedFile("chrome_profile/Default/Preferences", "{}");
+      seedFile("chrome_profile/SingletonLock", "lock");
+
+      const mgr = DataErasureManager.getInstance();
+      const req = await mgr.createRequest({
+        notebooks: false,
+        settings: false,
+        browser_data: true,
+      });
+      const result = await mgr.confirmAndExecute(req.request_id);
+
+      expect(result?.confirmed).toBe(true);
+      expect(fs.existsSync(cpFile)).toBe(true);
+      expect(JSON.stringify(result?.items_deleted)).toContain("SingletonLock");
+    });
+
     it("leaves audit logs intact when audit_logs scope=false (default)", async () => {
       const auditFile = seedFile("audit/audit-2026-01-01.jsonl", "{}\n");
       const mgr = DataErasureManager.getInstance();

@@ -19,20 +19,51 @@ import type { SIEMConfig, SIEMFormat, AlertSeverity } from "./types.js";
 /**
  * Get SIEM configuration from environment
  */
+function parseEnvInteger(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function parseEnvList(name: string): string[] {
+  return (process.env[name] || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseEnvChoice<T extends string>(
+  name: string,
+  allowed: readonly T[],
+  fallback: T
+): T {
+  const value = process.env[name] as T | undefined;
+  return value && allowed.includes(value) ? value : fallback;
+}
+
 function getSIEMConfig(): SIEMConfig {
   return {
     enabled: process.env.NLMCP_SIEM_ENABLED === "true",
-    format: (process.env.NLMCP_SIEM_FORMAT as SIEMFormat) || "cef",
+    format: parseEnvChoice<SIEMFormat>(
+      "NLMCP_SIEM_FORMAT",
+      ["cef", "leef", "syslog", "splunk_hec", "json"],
+      "cef"
+    ),
     endpoint: process.env.NLMCP_SIEM_ENDPOINT,
     syslog_host: process.env.NLMCP_SIEM_SYSLOG_HOST,
-    syslog_port: parseInt(process.env.NLMCP_SIEM_SYSLOG_PORT || "514", 10),
+    syslog_port: parseEnvInteger("NLMCP_SIEM_SYSLOG_PORT", 514),
     api_key: process.env.NLMCP_SIEM_API_KEY,
-    min_severity: (process.env.NLMCP_SIEM_MIN_SEVERITY as AlertSeverity) || "warning",
-    event_types: process.env.NLMCP_SIEM_EVENT_TYPES?.split(",") || [],
-    batch_size: parseInt(process.env.NLMCP_SIEM_BATCH_SIZE || "100", 10),
-    flush_interval_ms: parseInt(process.env.NLMCP_SIEM_FLUSH_INTERVAL_MS || "5000", 10),
-    retry_attempts: parseInt(process.env.NLMCP_SIEM_RETRY_ATTEMPTS || "3", 10),
-    queue_max_size: parseInt(process.env.NLMCP_SIEM_QUEUE_MAX_SIZE || "10000", 10),
+    min_severity: parseEnvChoice<AlertSeverity>(
+      "NLMCP_SIEM_MIN_SEVERITY",
+      ["info", "warning", "error", "critical"],
+      "warning"
+    ),
+    event_types: parseEnvList("NLMCP_SIEM_EVENT_TYPES"),
+    batch_size: parseEnvInteger("NLMCP_SIEM_BATCH_SIZE", 100),
+    flush_interval_ms: parseEnvInteger("NLMCP_SIEM_FLUSH_INTERVAL_MS", 5000),
+    retry_attempts: parseEnvInteger("NLMCP_SIEM_RETRY_ATTEMPTS", 3),
+    queue_max_size: parseEnvInteger("NLMCP_SIEM_QUEUE_MAX_SIZE", 10000),
   };
 }
 

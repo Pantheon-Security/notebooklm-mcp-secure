@@ -585,7 +585,14 @@ export async function handleAddFolder(
   const path = await import("path");
 
   // Validate and resolve first so the denylist runs before any filesystem read.
-  const folderPath = await resolveFolderPath(args.folder_path);
+  let folderPath: string;
+  try {
+    folderPath = await resolveFolderPath(args.folder_path);
+  } catch (error) {
+    const errorMessage = getSanitizedErrorMessage(error);
+    log.error(`❌ [TOOL] add_folder failed: ${errorMessage}`);
+    return { success: false, data: null, error: errorMessage };
+  }
   const recursive = args.recursive ?? false;
   const dryRun = args.dry_run ?? false;
   const fileTypes = (args.file_types ?? [".pdf", ".txt", ".md", ".docx"]).map((e) =>

@@ -52,6 +52,7 @@ describe("MCPAuthenticator", () => {
     tmpDir = mkTmpDir();
     tokenFile = path.join(tmpDir, "auth-token.hash");
     delete process.env.NLMCP_AUTH_TOKEN;
+    delete process.env.NLMCP_AUTH_READONLY_TOKEN;
     delete process.env.NLMCP_AUTH_DISABLED;
     delete process.env.NLMCP_AUTH_ENABLED;
   });
@@ -185,6 +186,29 @@ describe("MCPAuthenticator", () => {
       const auth = new MCPAuthenticator({ tokenFile, token: "exact-length-8" });
       await auth.initialize();
       expect(await auth.validateToken("same-length-8", "c1")).toBe(false);
+    });
+
+    it("accepts read-only token for read scope but rejects it for admin scope", async () => {
+      const auth = new MCPAuthenticator({
+        tokenFile,
+        token: "admin-token",
+        readOnlyToken: "read-token",
+      });
+      await auth.initialize();
+
+      await expect(auth.validateTokenScope("read-token", "reader", "read")).resolves.toMatchObject({
+        valid: true,
+        scope: "read",
+      });
+      await expect(auth.validateTokenScope("read-token", "reader", "admin")).resolves.toMatchObject({
+        valid: false,
+        scope: "read",
+        error: "insufficient_scope",
+      });
+      await expect(auth.validateTokenScope("admin-token", "admin", "admin")).resolves.toMatchObject({
+        valid: true,
+        scope: "admin",
+      });
     });
   });
 
@@ -400,6 +424,18 @@ describe("MCPAuthenticator", () => {
       // When enabled=false and forceValidation=true but we have no token
       // cached, validateToken falls through to recordFailedAttempt path.
       expect(await auth.validateToken(undefined, "c", true)).toBe(false);
+    });
+
+    it("forceAuth=true validates configured admin token even when auth is globally disabled", async () => {
+      const auth = new MCPAuthenticator({
+        enabled: false,
+        tokenFile,
+        token: "admin-token",
+      });
+      await expect(auth.validateTokenScope("admin-token", "admin-tool", "admin", true)).resolves.toMatchObject({
+        valid: true,
+        scope: "admin",
+      });
     });
   });
 

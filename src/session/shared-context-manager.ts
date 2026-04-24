@@ -23,6 +23,8 @@ import { mkdirSecure, PERMISSION_MODES } from "../utils/file-permissions.js";
 import { getSecureStorage } from "../utils/crypto.js";
 import { withLock, isLocked } from "../utils/file-lock.js";
 
+type ContextWithGuid = BrowserContext & { _guid?: string };
+
 /**
  * Shared Context Manager
  *
@@ -365,7 +367,7 @@ export class SharedContextManager {
         await this.waitForAuthComplete();
         log.info("  🧬 Cloning base Chrome profile into isolated instance (may take time)...");
         // Best-effort clone without locks
-        await (fs.promises as any).cp(baseProfile, dir, {
+        await fs.promises.cp(baseProfile, dir, {
           recursive: true,
           errorOnExist: false,
           force: true,
@@ -373,7 +375,7 @@ export class SharedContextManager {
             const bn = path.basename(src);
             return !/^Singleton/i.test(bn) && !bn.endsWith(".lock") && !bn.endsWith(".tmp");
           },
-        } as any);
+        });
         log.success("  ✅ Clone complete");
       } else {
         log.info("  🧪 Using fresh isolated Chrome profile (no clone)");
@@ -448,11 +450,11 @@ export class SharedContextManager {
     if (!path.resolve(dir).startsWith(path.resolve(CONFIG.chromeInstancesDir))) return;
     // Best-effort: try removing typical lock files first, then the directory
     try {
-      await fs.promises.rm(dir, { recursive: true, force: true } as any);
+      await fs.promises.rm(dir, { recursive: true, force: true });
     } catch (err) {
       // If rm is not available in older node, fallback to rmdir
       try {
-        await (fs.promises as any).rmdir(dir, { recursive: true });
+        await fs.promises.rmdir(dir, { recursive: true });
       } catch {}
     }
   }
@@ -536,7 +538,6 @@ export class SharedContextManager {
     if (!this.globalContext) {
       return "none";
     }
-    // Use object hash as ID
-    return `ctx-${(this.globalContext as any)._guid || "unknown"}`;
+    return `ctx-${(this.globalContext as ContextWithGuid)._guid || "unknown"}`;
   }
 }

@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "command",
+  "mutate": [
+    "src/utils/security.ts",
+    "src/utils/crypto.ts",
+    "src/utils/secrets-scanner.ts"
+  ],
+  "commandRunner": {
+    "command": "npx vitest run tests/security.test.ts tests/crypto.test.ts tests/secrets-scanner.test.ts tests/property-based.test.ts"
+  },
+  "reporters": [
+    "clear-text",
+    "progress"
+  ],
+  "coverageAnalysis": "off",
+  "allowEmpty": false,
+  "ignorePatterns": [
+    "coverage",
+    "dist",
+    "logs",
+    "medusa-env"
+  ]
+}

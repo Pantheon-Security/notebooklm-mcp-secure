@@ -16,6 +16,7 @@ import { eventEmitter } from "../events/event-emitter.js";
 import type { SystemEvent, EventType } from "../events/event-types.js";
 import { scanAndRedactSecrets } from "../utils/secrets-scanner.js";
 import { SecureCredential } from "../utils/secure-memory.js";
+import { getMetricsRegistry } from "../observability/metrics.js";
 import type {
   WebhookConfig,
   WebhookDelivery,
@@ -191,6 +192,7 @@ export class WebhookDispatcher {
   private readonly circuitBreakerThreshold = 5;
   private readonly circuitBreakerResetMs = 60_000;
   private circuitBreakers = new Map<string, CircuitBreakerState>();
+  private deliverySequence = 0;
   // In-memory SecureCredential store for webhook secrets (I321)
   private webhookSecrets = new Map<string, SecureCredential>();
   // Serialises saveStore() writes so concurrent addWebhook/removeWebhook don't interleave (I277)
@@ -512,6 +514,7 @@ export class WebhookDispatcher {
 
         const delivery: WebhookDelivery = {
           id: `${deliveryId}-${attempt}`,
+          sequence: this.nextDeliverySequence(),
           webhookId: webhook.id,
           eventType: event.type,
           timestamp: new Date().toISOString(),
@@ -537,6 +540,7 @@ export class WebhookDispatcher {
         const errorMessage = error instanceof Error ? error.message : String(error);
         const delivery: WebhookDelivery = {
           id: `${deliveryId}-${attempt}`,
+          sequence: this.nextDeliverySequence(),
           webhookId: webhook.id,
           eventType: event.type,
           timestamp: new Date().toISOString(),
@@ -776,7 +780,13 @@ export class WebhookDispatcher {
       const recent = lines.slice(-this.maxDeliveryHistory);
       for (const line of recent) {
         try {
-          if (line.trim()) this.deliveryHistory.push(JSON.parse(line) as WebhookDelivery);
+          if (line.trim()) {
+            const delivery = JSON.parse(line) as WebhookDelivery;
+            this.deliveryHistory.push(delivery);
+            if (typeof delivery.sequence === "number" && delivery.sequence > this.deliverySequence) {
+              this.deliverySequence = delivery.sequence;
+            }
+          }
         } catch {
           // skip malformed lines
         }
@@ -790,6 +800,10 @@ export class WebhookDispatcher {
    * Record delivery for history — persists to disk for cross-restart auditability (I279)
    */
   private recordDelivery(delivery: WebhookDelivery): void {
+    getMetricsRegistry().increment("webhook_deliveries_total", {
+      event_type: delivery.eventType,
+      success: delivery.success,
+    });
     this.deliveryHistory.push(delivery);
     if (this.deliveryHistory.length > this.maxDeliveryHistory) {
       this.deliveryHistory.shift();
@@ -800,6 +814,11 @@ export class WebhookDispatcher {
     } catch (err) {
       log.debug(`webhook-dispatcher: failed to persist delivery record: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+
+  private nextDeliverySequence(): number {
+    this.deliverySequence += 1;
+    return this.deliverySequence;
   }
 
   // === Public API ===

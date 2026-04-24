@@ -53,6 +53,8 @@ export interface CreatedNotebook {
   createdAt: string;
   /** Any sources that failed to add */
   failedSources?: FailedSource[];
+  /** True when notebook creation succeeded but one or more sources failed */
+  partial?: boolean;
 }
 
 /**
@@ -63,6 +65,8 @@ export interface FailedSource {
   source: NotebookSource;
   /** Error message */
   error: string;
+  /** Stack trace included only when DEBUG=true */
+  stack?: string;
 }
 
 /**

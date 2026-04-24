@@ -10,6 +10,7 @@ import { CONFIG } from "../config.js";
 import { withLock } from "../utils/file-lock.js";
 import fs from "fs";
 import path from "path";
+import { getMetricsRegistry } from "../observability/metrics.js";
 
 export type LicenseTier = "free" | "pro" | "ultra" | "unknown";
 
@@ -65,6 +66,7 @@ const TIER_LIMITS: Record<LicenseTier, QuotaLimits> = {
 };
 
 const MAX_REASONABLE_QUERIES = 10_000;
+const PAGE_EVALUATE_TIMEOUT_MS = 30_000;
 
 let notebookIncrementQueue: Promise<void> = Promise.resolve();
 
@@ -151,6 +153,27 @@ export class QuotaManager {
     return true;
   }
 
+  private async evaluateWithTimeout<T>(
+    page: Page,
+    fn: () => T,
+    timeoutMs = PAGE_EVALUATE_TIMEOUT_MS
+  ): Promise<T> {
+    let timeout: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([
+        page.evaluate(fn),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error(`page.evaluate timed out after ${timeoutMs}ms`)),
+            timeoutMs
+          );
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
   /**
    * Detect license tier from NotebookLM UI
    * Tiers: free, pro, ultra (Google AI Ultra $249.99/month)
@@ -158,7 +181,7 @@ export class QuotaManager {
   async detectTierFromPage(page: Page): Promise<LicenseTier> {
     log.info("🔍 Detecting license tier...");
 
-    const tierInfo = await page.evaluate(() => {
+    const tierInfo = await this.evaluateWithTimeout(page, () => {
       // @ts-expect-error - DOM types
       const accountSection = document.querySelector(
         [
@@ -184,10 +207,11 @@ export class QuotaManager {
         return new RegExp(`\\b${escapedTier}\\b\\s*PLAN\\b|\\bPLAN\\b\\s*${escapedTier}\\b`).test(text);
       };
 
-      const tierSignals = accountText || allText;
-
       // ── Signal 1: explicit tier badges / text ──────────────────────────────
-      if (hasTierLabel(tierSignals, "ULTRA")) return "ultra";
+      // Tier labels are only trusted inside account/subscription UI. Whole-page
+      // text can contain upgrade marketing like "Try Ultra", which is not a
+      // reliable signal for the current account tier.
+      if (hasTierLabel(accountText, "ULTRA")) return "ultra";
 
       // NotebookLM Pro was rebranded to "NotebookLM Plus" / "One AI Premium"
       if (
@@ -195,8 +219,8 @@ export class QuotaManager {
         accountText.includes("ONE AI PREMIUM") ||
         accountText.includes("GOOGLE ONE AI") ||
         accountText.includes("AI PREMIUM") ||
-        hasTierLabel(tierSignals, "PLUS") ||
-        hasTierLabel(tierSignals, "PRO")
+        hasTierLabel(accountText, "PLUS") ||
+        hasTierLabel(accountText, "PRO")
       ) {
         return "pro";
       }
@@ -237,7 +261,7 @@ export class QuotaManager {
    * Extract source limit from source dialog (e.g., "0/300")
    */
   async extractSourceLimitFromDialog(page: Page): Promise<number | null> {
-    const limitInfo = await page.evaluate(() => {
+    const limitInfo = await this.evaluateWithTimeout(page, () => {
       // Look for X/Y pattern
       // @ts-expect-error - DOM types
       const allText = document.body.innerText;
@@ -264,7 +288,7 @@ export class QuotaManager {
   async extractQueryUsageFromUI(page: Page): Promise<{ used: number; limit: number } | null> {
     log.info("🔍 Looking for query usage in UI...");
 
-    const usageInfo = await page.evaluate(() => {
+    const usageInfo = await this.evaluateWithTimeout(page, () => {
       // @ts-expect-error - DOM types
       const allText = document.body.innerText;
 
@@ -336,7 +360,7 @@ export class QuotaManager {
    * Check for rate limit error message on page
    */
   async checkForRateLimitError(page: Page): Promise<boolean> {
-    const isRateLimited = await page.evaluate(() => {
+    const isRateLimited = await this.evaluateWithTimeout(page, () => {
       // @ts-expect-error - DOM types
       const allText = document.body.innerText.toLowerCase();
       return (
@@ -359,7 +383,7 @@ export class QuotaManager {
    * Count notebooks from homepage
    */
   async countNotebooksFromPage(page: Page): Promise<number> {
-    const count = await page.evaluate(() => {
+    const count = await this.evaluateWithTimeout(page, () => {
       // Strategy 1: Grid view project-button cards
       // @ts-expect-error - DOM types
       const projectButtons = document.querySelectorAll("project-button");
@@ -555,6 +579,7 @@ export class QuotaManager {
 
     this.settings.usage.queriesUsedToday++;
     this.settings.usage.lastUpdated = new Date().toISOString();
+    this.updateQuotaMetrics();
     this.saveSettings();
   }
 
@@ -579,6 +604,7 @@ export class QuotaManager {
 
       this.settings.usage.queriesUsedToday++;
       this.settings.usage.lastUpdated = new Date().toISOString();
+      this.updateQuotaMetrics();
 
       // Save with lock held
       try {
@@ -664,6 +690,8 @@ export class QuotaManager {
     const { queriesPerDay: limit } = this.settings.limits;
 
     if (queriesUsedToday >= limit) {
+      getMetricsRegistry().increment("quota_query_denials_total", { tier: this.settings.tier });
+      this.updateQuotaMetrics(queriesUsedToday);
       return {
         allowed: false,
         reason: `Daily query limit reached (${queriesUsedToday}/${limit}). Try again tomorrow or upgrade your plan.`,
@@ -675,7 +703,17 @@ export class QuotaManager {
       log.warning(`⚠️ Approaching daily query limit: ${queriesUsedToday}/${limit}`);
     }
 
+    this.updateQuotaMetrics(queriesUsedToday);
+
     return { allowed: true };
+  }
+
+  private updateQuotaMetrics(queriesUsedToday = this.settings.usage.queriesUsedToday): void {
+    const { tier, limits } = this.settings;
+    const registry = getMetricsRegistry();
+    registry.setGauge("quota_queries_used", queriesUsedToday, { tier });
+    registry.setGauge("quota_queries_limit", limits.queriesPerDay, { tier });
+    registry.setGauge("quota_queries_percent", Math.round((queriesUsedToday / limits.queriesPerDay) * 100), { tier });
   }
 
   /**

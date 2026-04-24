@@ -43,6 +43,7 @@ export function zeroUint8Array(arr: Uint8Array): void {
 /**
  * Create a secure string that can be wiped
  * Note: JavaScript strings are immutable, so we use a Buffer internally
+ * Caveat: source string contents may remain in V8 heap until garbage collection.
  */
 export class SecureString {
   private buffer: Buffer;

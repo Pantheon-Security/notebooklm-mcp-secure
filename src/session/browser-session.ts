@@ -26,6 +26,24 @@ import { log } from "../utils/logger.js";
 import type { SessionInfo, ProgressCallback } from "../types.js";
 import { RateLimitError } from "../errors.js";
 
+interface RateLimitInspectElement {
+  innerText?: string;
+}
+
+type SessionStorageWritable = {
+  setItem(key: string, value: string): void;
+};
+
+type BrowserQueryRoot = {
+  querySelectorAll(selector: string): Iterable<RateLimitInspectElement>;
+  querySelector(selector: string): BrowserTextAreaElement | null;
+};
+
+type BrowserTextAreaElement = {
+  disabled?: boolean;
+  parentElement?: RateLimitInspectElement | null;
+};
+
 export class BrowserSession {
   public readonly sessionId: string;
   public readonly notebookUrl: string;
@@ -74,8 +92,8 @@ export class BrowserSession {
       // Create new page (tab) in the shared context (with auto-recovery)
       try {
         this.page = await this.context.newPage();
-      } catch (e: any) {
-        const msg = String(e?.message || e);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
         if (/has been closed|Target .* closed|Browser has been closed|Context .* closed/i.test(msg)) {
           log.warning("  ♻️  Context was closed. Recreating and retrying newPage...");
           this.context = await this.sharedContextManager.getOrCreateContext();
@@ -320,8 +338,8 @@ export class BrowserSession {
 
       try {
         await this.page.evaluate((data) => {
+          const sessionStorage = (globalThis as unknown as { sessionStorage: SessionStorageWritable }).sessionStorage;
           for (const [key, value] of Object.entries(data)) {
-            // @ts-expect-error - sessionStorage exists in browser context
             sessionStorage.setItem(key, value);
           }
         }, sessionData);
@@ -532,6 +550,7 @@ export class BrowserSession {
     try {
       // Single page.evaluate() call instead of 8+ IPC round-trips
       const result = await this.page.evaluate(() => {
+        const documentRoot = globalThis as unknown as { document: BrowserQueryRoot };
         const selectors = [
           ".error-message", ".error-container", "[role='alert']",
           ".rate-limit-message", "[data-error]", ".notification-error",
@@ -545,18 +564,16 @@ export class BrowserSession {
 
         // Check error containers
         for (const sel of selectors) {
-          // @ts-expect-error - DOM types in browser context
-          for (const el of document.querySelectorAll(sel)) {
-            const text = (el as any).innerText?.toLowerCase() || "";
+          for (const el of documentRoot.document.querySelectorAll(sel)) {
+            const text = (el as RateLimitInspectElement).innerText?.toLowerCase() || "";
             if (keywords.some((k: string) => text.includes(k))) {
-              return (el as any).innerText?.slice(0, 100) || "Rate limit detected";
+              return (el as RateLimitInspectElement).innerText?.slice(0, 100) || "Rate limit detected";
             }
           }
         }
 
         // Check disabled chat input with error message nearby
-        // @ts-expect-error - DOM types in browser context
-        const input = document.querySelector("textarea.query-box-input") as HTMLTextAreaElement | null;
+        const input = documentRoot.document.querySelector("textarea.query-box-input");
         if (input?.disabled) {
           const parentText = input.parentElement?.innerText?.toLowerCase() || "";
           if (keywords.some(k => parentText.includes(k))) {

@@ -22,6 +22,7 @@ import {
   writeFileSecure,
   PERMISSION_MODES,
 } from "../utils/file-permissions.js";
+import { getMetricsRegistry } from "../observability/metrics.js";
 
 /**
  * MCP Auth configuration
@@ -29,8 +30,10 @@ import {
 export interface MCPAuthConfig {
   /** Enable authentication (default: true — secure by default) */
   enabled: boolean;
-  /** Token from environment or file */
+  /** Admin token from environment or file */
   token?: string;
+  /** Optional read-only token for non-destructive tools */
+  readOnlyToken?: string;
   /** Path to token file */
   tokenFile: string;
   /** Max failed auth attempts before lockout */
@@ -38,6 +41,8 @@ export interface MCPAuthConfig {
   /** Lockout duration in milliseconds (initial — escalates with exponential backoff) */
   lockoutDurationMs: number;
 }
+
+export type MCPAuthScope = "read" | "admin";
 
 /** Maximum lockout duration: 4 hours */
 const MAX_LOCKOUT_MS = 4 * 60 * 60 * 1000;
@@ -78,6 +83,7 @@ function getAuthConfig(): MCPAuthConfig {
   return {
     enabled,
     token: process.env.NLMCP_AUTH_TOKEN,
+    readOnlyToken: process.env.NLMCP_AUTH_READONLY_TOKEN,
     tokenFile: process.env.NLMCP_AUTH_TOKEN_FILE ||
       path.join(CONFIG.configDir, "auth-token.hash"),
     maxFailedAttempts: parseInteger(process.env.NLMCP_AUTH_MAX_FAILED, 5),
@@ -93,6 +99,7 @@ function getAuthConfig(): MCPAuthConfig {
 export class MCPAuthenticator {
   private config: MCPAuthConfig;
   private tokenHash: string | null = null;
+  private readOnlyTokenHash: string | null = null;
   private failedAttempts: Map<string, FailedAttemptTracker> = new Map();
   private initialized: boolean = false;
   private hashSalt: string = '';
@@ -121,7 +128,7 @@ export class MCPAuthenticator {
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    if (!this.config.enabled) {
+    if (!this.config.enabled && !this.config.token && !this.config.readOnlyToken) {
       log.info("🔓 MCP authentication is disabled");
       this.initialized = true;
       return;
@@ -135,8 +142,21 @@ export class MCPAuthenticator {
       this.config.token = undefined;
       delete process.env.NLMCP_AUTH_TOKEN;
       log.success("  ✅ Using token from environment variable");
+      if (this.config.readOnlyToken) {
+        this.readOnlyTokenHash = this.hashToken(this.config.readOnlyToken);
+        this.config.readOnlyToken = undefined;
+        delete process.env.NLMCP_AUTH_READONLY_TOKEN;
+        log.success("  ✅ Using read-only token from environment variable");
+      }
       this.initialized = true;
       return;
+    }
+
+    if (this.config.readOnlyToken) {
+      this.readOnlyTokenHash = this.hashToken(this.config.readOnlyToken);
+      this.config.readOnlyToken = undefined;
+      delete process.env.NLMCP_AUTH_READONLY_TOKEN;
+      log.success("  ✅ Using read-only token from environment variable");
     }
 
     // Try to load token hash from file
@@ -294,6 +314,7 @@ export class MCPAuthenticator {
       );
       tracker.lockedUntil = now + backoffMs;
       log.warning(`🔒 Client ${clientId} locked out for ${Math.round(backoffMs / 1000)}s (lockout #${tracker.lockoutCount})`);
+      getMetricsRegistry().increment("mcp_auth_lockouts_total");
 
       audit.security("auth_lockout", "warning", {
         client_id: clientId,
@@ -323,9 +344,19 @@ export class MCPAuthenticator {
    * @returns true if valid, false if invalid
    */
   async validateToken(token: string | undefined, clientId: string = "unknown", forceValidation: boolean = false): Promise<boolean> {
+    const result = await this.validateTokenScope(token, clientId, "read", forceValidation);
+    return result.valid;
+  }
+
+  async validateTokenScope(
+    token: string | undefined,
+    clientId: string = "unknown",
+    requiredScope: MCPAuthScope = "read",
+    forceValidation: boolean = false
+  ): Promise<{ valid: boolean; scope?: MCPAuthScope; error?: string }> {
     // If auth is disabled and not forced, always return true
     if (!this.config.enabled && !forceValidation) {
-      return true;
+      return { valid: true, scope: "admin" };
     }
 
     // Ensure initialized
@@ -339,42 +370,71 @@ export class MCPAuthenticator {
       await audit.security("auth_attempt_during_lockout", "warning", {
         client_id: clientId,
       });
-      return false;
+      return { valid: false, error: "locked_out" };
     }
 
     // Validate token
     if (!token) {
       log.warning(`🔒 Auth failed: No token provided (client: ${clientId})`);
       this.recordFailedAttempt(clientId);
+      getMetricsRegistry().increment("mcp_auth_failures_total", { reason: "no_token" });
       await audit.auth("auth_failed", false, {
         client_id: clientId,
         reason: "no_token",
       });
-      return false;
+      return { valid: false, error: "no_token" };
     }
 
-    if (!this.tokenHash) {
+    if (!this.tokenHash && !this.readOnlyTokenHash) {
       log.warning(`🔒 Auth failed: No token configured (client: ${clientId})`);
-      return false;
+      getMetricsRegistry().increment("mcp_auth_failures_total", { reason: "no_token_configured" });
+      return { valid: false, error: "no_token_configured" };
     }
 
     const providedHash = this.hashToken(token);
-    const valid = secureCompare(providedHash, this.tokenHash);
+    const adminValid = this.tokenHash ? secureCompare(providedHash, this.tokenHash) : false;
 
-    if (valid) {
+    if (adminValid) {
       this.clearFailedAttempts(clientId);
       await audit.auth("auth_success", true, {
         client_id: clientId,
+        scope: "admin",
       });
-      return true;
+      return { valid: true, scope: "admin" };
+    }
+
+    const readOnlyValid = this.readOnlyTokenHash
+      ? secureCompare(providedHash, this.readOnlyTokenHash)
+      : false;
+
+    if (readOnlyValid) {
+      if (requiredScope === "admin") {
+        log.warning(`🔒 Auth failed: Read-only token cannot access admin tool (client: ${clientId})`);
+        getMetricsRegistry().increment("mcp_auth_failures_total", { reason: "insufficient_scope" });
+        await audit.auth("auth_failed", false, {
+          client_id: clientId,
+          reason: "insufficient_scope",
+          required_scope: requiredScope,
+          token_scope: "read",
+        });
+        return { valid: false, scope: "read", error: "insufficient_scope" };
+      }
+
+      this.clearFailedAttempts(clientId);
+      await audit.auth("auth_success", true, {
+        client_id: clientId,
+        scope: "read",
+      });
+      return { valid: true, scope: "read" };
     } else {
       log.warning(`🔒 Auth failed: Invalid token (client: ${clientId})`);
       this.recordFailedAttempt(clientId);
+      getMetricsRegistry().increment("mcp_auth_failures_total", { reason: "invalid_token" });
       await audit.auth("auth_failed", false, {
         client_id: clientId,
         reason: "invalid_token",
       });
-      return false;
+      return { valid: false, error: "invalid_token" };
     }
   }
 
@@ -384,11 +444,13 @@ export class MCPAuthenticator {
   getStatus(): {
     enabled: boolean;
     hasToken: boolean;
+    hasReadOnlyToken: boolean;
     lockedClients: number;
   } {
     return {
       enabled: this.config.enabled,
       hasToken: this.tokenHash !== null,
+      hasReadOnlyToken: this.readOnlyTokenHash !== null,
       lockedClients: Array.from(this.failedAttempts.values())
         .filter(t => t.lockedUntil > Date.now()).length,
     };
@@ -450,7 +512,8 @@ export function getMCPAuthenticator(): MCPAuthenticator {
 export async function authenticateMCPRequest(
   token: string | undefined,
   clientId?: string,
-  forceAuth?: boolean
+  forceAuth?: boolean,
+  requiredScope: MCPAuthScope = "read"
 ): Promise<{ authenticated: boolean; error?: string }> {
   const auth = getMCPAuthenticator();
 
@@ -469,12 +532,14 @@ export async function authenticateMCPRequest(
   }
 
   // Pass forceValidation=true so validateToken doesn't short-circuit when auth is disabled
-  const valid = await auth.validateToken(token, clientId, !!forceAuth);
+  const result = await auth.validateTokenScope(token, clientId, requiredScope, !!forceAuth);
 
-  if (!valid) {
+  if (!result.valid) {
     return {
       authenticated: false,
-      error: "Authentication required. Set NLMCP_AUTH_TOKEN environment variable.",
+      error: result.error === "insufficient_scope"
+        ? "Admin authentication required for this tool."
+        : "Authentication required. Set NLMCP_AUTH_TOKEN environment variable.",
     };
   }
 

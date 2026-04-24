@@ -13,6 +13,7 @@ import { log } from "../utils/logger.js";
 import { randomDelay, humanType } from "../utils/stealth-utils.js";
 import { NOTEBOOKLM_SELECTORS, findElement, getSelectors } from "./selectors.js";
 import type { NotebookSource } from "./types.js";
+import { clickCopiedTextSourceOption } from "./dom-scripts.js";
 
 export interface SourceInfo {
   id: string;
@@ -38,6 +39,9 @@ export interface RemoveSourceResult {
   removedId?: string;
   error?: string;
 }
+
+const STANDARD_SOURCE_PROCESSING_TIMEOUT_MS = 30_000;
+const LENIENT_SOURCE_PROCESSING_TIMEOUT_MS = 60_000;
 
 export class SourceManager {
   private page: Page | null = null;
@@ -648,7 +652,10 @@ export class SourceManager {
   /**
    * Wait for source processing to complete
    */
-  private async waitForSourceProcessing(page: Page, timeoutMs: number = 30000): Promise<void> {
+  private async waitForSourceProcessing(
+    page: Page,
+    timeoutMs: number = STANDARD_SOURCE_PROCESSING_TIMEOUT_MS
+  ): Promise<void> {
     const startTime = Date.now();
 
     while (Date.now() - startTime < timeoutMs) {
@@ -891,7 +898,10 @@ export class NotebookCreationSourceManager {
 
       if (clicked.clicked) {
         await randomDelay(800, 1500);
-        log.success(`✅ Clicked 'Add source' button (JS fallback) - aria: ${clicked.aria}, text: ${clicked.text}`);
+        if (process.env.DEBUG === "true") {
+          log.debug(`source-manager: clicked add-source JS fallback (aria/text lengths: ${String(clicked.aria ?? "").length}/${String(clicked.text ?? "").length})`);
+        }
+        log.success("✅ Clicked 'Add source' button (JS fallback)");
         return;
       }
     } catch (err) {
@@ -940,7 +950,7 @@ export class NotebookCreationSourceManager {
           await humanType(page, selector, url, { withTypos: false });
           await randomDelay(500, 1000);
           await this.clickSubmitButton();
-          await this.waitForSourceProcessing();
+          await this.waitForSourceProcessing({ mode: "strict" });
           return;
         }
       } catch (err) {
@@ -955,47 +965,7 @@ export class NotebookCreationSourceManager {
     const page = this.requirePage();
     log.info(`📝 Adding text source${title ? `: ${title}` : ""}`);
 
-    const textOptionClicked = await page.evaluate(() => {
-      // @ts-expect-error - DOM types
-      const byData = document.querySelector('[data-source-type="text"], [data-type="text"], mat-chip[value="text"]') as any;
-      if (byData) {
-        byData.click();
-        return { clicked: true };
-      }
-
-      // @ts-expect-error - DOM types
-      const chips = document.querySelectorAll('mat-chip, mat-chip-option, [mat-chip-option]');
-      for (const chip of chips) {
-        const chipText = (chip as any).textContent?.trim() || "";
-        if (chipText.includes("Copied text")) {
-          (chip as any).click();
-          return { clicked: true };
-        }
-      }
-
-      // @ts-expect-error - DOM types
-      const spans = document.querySelectorAll('span');
-      for (const span of spans) {
-        const spanText = (span as any).textContent?.trim() || "";
-        if (spanText === "Copied text") {
-          let target = span as any;
-          for (let i = 0; i < 5; i++) {
-            if (target.parentElement) {
-              target = target.parentElement;
-              const tagName = target.tagName?.toLowerCase();
-              if (tagName === "mat-chip" || tagName === "mat-chip-option" || tagName === "button") {
-                target.click();
-                return { clicked: true };
-              }
-            }
-          }
-          (span as any).click();
-          return { clicked: true };
-        }
-      }
-
-      return { clicked: false };
-    });
+    const textOptionClicked = await page.evaluate(clickCopiedTextSourceOption);
 
     if (!textOptionClicked.clicked) {
       log.warning("⚠️ Could not click 'Copied text' option");
@@ -1031,7 +1001,7 @@ export class NotebookCreationSourceManager {
 
     await randomDelay(500, 1000);
     await this.clickInsertButton();
-    await this.waitForSourceProcessingLenient();
+    await this.waitForSourceProcessing({ mode: "lenient" });
   }
 
   private async addFileSource(filePath: string): Promise<void> {
@@ -1053,7 +1023,7 @@ export class NotebookCreationSourceManager {
         await page.locator('input[type="file"]').first().setInputFiles(absolutePath);
         log.success("  ✅ File uploaded via Playwright click + setInputFiles");
         await randomDelay(1000, 2000);
-        await this.waitForSourceProcessingLenient();
+        await this.waitForSourceProcessing({ mode: "lenient" });
         return;
       }
 
@@ -1065,7 +1035,7 @@ export class NotebookCreationSourceManager {
         await page.locator('input[type="file"]').first().setInputFiles(absolutePath);
         log.success("  ✅ File uploaded via xapscotty click + setInputFiles");
         await randomDelay(1000, 2000);
-        await this.waitForSourceProcessingLenient();
+        await this.waitForSourceProcessing({ mode: "lenient" });
         return;
       }
 
@@ -1079,7 +1049,7 @@ export class NotebookCreationSourceManager {
         await page.locator('input[type="file"]').first().setInputFiles(absolutePath);
         log.success("  ✅ File uploaded via upload button click + setInputFiles");
         await randomDelay(1000, 2000);
-        await this.waitForSourceProcessingLenient();
+        await this.waitForSourceProcessing({ mode: "lenient" });
         return;
       }
     } catch (e) {
@@ -1096,7 +1066,7 @@ export class NotebookCreationSourceManager {
       await fileChooser.setFiles(absolutePath);
       log.success("  ✅ File uploaded via filechooser event");
       await randomDelay(1000, 2000);
-      await this.waitForSourceProcessingLenient();
+      await this.waitForSourceProcessing({ mode: "lenient" });
       return;
     } catch (e) {
       log.info(`  Filechooser approach: ${e}`);
@@ -1108,7 +1078,7 @@ export class NotebookCreationSourceManager {
         await fileInputLocator.first().setInputFiles(absolutePath);
         log.success("  ✅ File uploaded via existing locator");
         await randomDelay(1000, 2000);
-        await this.waitForSourceProcessingLenient();
+        await this.waitForSourceProcessing({ mode: "lenient" });
         return;
       }
     } catch (e) {
@@ -1204,11 +1174,28 @@ export class NotebookCreationSourceManager {
     await this.clickSubmitButton();
   }
 
-  private async waitForSourceProcessing(): Promise<void> {
+  private async waitForSourceProcessing(
+    options: { mode: "strict" | "lenient" } = { mode: "strict" }
+  ): Promise<void> {
     const page = this.requirePage();
     log.info("⏳ Waiting for source processing...");
 
-    const timeout = 60000;
+    if (options.mode === "lenient") {
+      await randomDelay(3000, 4000);
+      const dialogStillOpen = await this.isSourceDialogOpen();
+
+      if (!dialogStillOpen) {
+        log.success("✅ Source dialog closed - assuming success");
+        return;
+      }
+
+      await this.throwIfSourceErrorAlert(page);
+      await randomDelay(2000, 3000);
+      log.success("✅ Source processing appears complete");
+      return;
+    }
+
+    const timeout = LENIENT_SOURCE_PROCESSING_TIMEOUT_MS;
     const startTime = Date.now();
 
     while (Date.now() - startTime < timeout) {
@@ -1237,18 +1224,7 @@ export class NotebookCreationSourceManager {
     log.warning("⚠️ Source processing timeout - continuing anyway");
   }
 
-  private async waitForSourceProcessingLenient(): Promise<void> {
-    const page = this.requirePage();
-    log.info("⏳ Waiting for source processing...");
-
-    await randomDelay(3000, 4000);
-    const dialogStillOpen = await this.isSourceDialogOpen();
-
-    if (!dialogStillOpen) {
-      log.success("✅ Source dialog closed - assuming success");
-      return;
-    }
-
+  private async throwIfSourceErrorAlert(page: Page): Promise<void> {
     const hasError = await page.evaluate(() => {
       // @ts-expect-error - DOM types
       const alerts = document.querySelectorAll('[role="alert"]');
@@ -1264,8 +1240,5 @@ export class NotebookCreationSourceManager {
     if (hasError) {
       throw new Error(`Source processing failed: ${hasError}`);
     }
-
-    await randomDelay(2000, 3000);
-    log.success("✅ Source processing appears complete");
   }
 }

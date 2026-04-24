@@ -13,6 +13,8 @@
 import { audit } from "../utils/audit-logger.js";
 import { log } from "../utils/logger.js";
 
+const SESSION_TIMEOUT_CHECK_INTERVAL_MS = 5_000;
+
 /**
  * Session timeout configuration
  */
@@ -259,10 +261,11 @@ export class SessionTimeoutManager {
    * Start periodic timeout check
    */
   private startPeriodicCheck(): void {
-    // Check every 30 seconds
+    // Check frequently so expired sessions are not allowed to run long past
+    // their configured timeout when no tool invocation reuses them.
     this.checkInterval = setInterval(() => {
       this.checkAllSessions();
-    }, 30000);
+    }, SESSION_TIMEOUT_CHECK_INTERVAL_MS);
 
     // Don't prevent process exit
     this.checkInterval.unref();

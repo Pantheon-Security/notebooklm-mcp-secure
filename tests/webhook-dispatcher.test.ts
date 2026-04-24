@@ -336,6 +336,33 @@ describe("WebhookDispatcher", () => {
       ).toHaveLength(3);
     });
 
+    it("persists monotonic delivery sequence numbers", async () => {
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(new Response("", { status: 500 }))
+        .mockResolvedValueOnce(new Response("", { status: 200 }));
+
+      const wh = await dispatcher.addWebhook({
+        name: "sequenced",
+        url: "https://example.com/hook",
+        events: ["*"],
+      });
+      const stored = dispatcher.getWebhook(wh.id);
+      expect(stored).not.toBeNull();
+      if (!stored) throw new Error("Expected webhook to exist after addWebhook");
+      stored.retryCount = 2;
+      stored.retryDelayMs = 0;
+
+      const before = fs.existsSync(path.join(TMP_ROOT, "webhook-deliveries.jsonl"))
+        ? fs.readFileSync(path.join(TMP_ROOT, "webhook-deliveries.jsonl"), "utf-8").trim().split("\n").filter(Boolean).length
+        : 0;
+      await dispatcher.testWebhook(wh.id);
+
+      const lines = fs.readFileSync(path.join(TMP_ROOT, "webhook-deliveries.jsonl"), "utf-8").trim().split("\n").filter(Boolean);
+      const records = lines.slice(before).map((line) => JSON.parse(line) as { sequence: number });
+      expect(records).toHaveLength(2);
+      expect(records[1].sequence).toBe(records[0].sequence + 1);
+    });
+
     it("opens the circuit after repeated permanent failures and skips later sends", async () => {
       vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("connection refused"));
 

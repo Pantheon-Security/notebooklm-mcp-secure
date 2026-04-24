@@ -195,6 +195,9 @@ export class GeminiClient {
       const response = await (this.client.interactions as any).create({
         input: options.query,
         agent: "deep-research-pro-preview-12-2025",
+        ...(options.thinkingLevel && {
+          generationConfig: { thinkingLevel: options.thinkingLevel },
+        }),
         background: options.background !== false,
         store: true,
       });

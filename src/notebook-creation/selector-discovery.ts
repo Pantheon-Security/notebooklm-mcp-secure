@@ -402,11 +402,11 @@ export class SelectorDiscovery {
     // Priority: ID > unique class > aria-label > data attribute > tag + position
 
     if (el.id) {
-      return `#${CSS.escape(el.id)}`;
+      return `#${cssEscape(el.id)}`;
     }
 
     if (el.ariaLabel) {
-      return `[aria-label="${CSS.escape(el.ariaLabel)}"]`;
+      return `[aria-label="${cssEscape(el.ariaLabel)}"]`;
     }
 
     // Try to use a unique class
@@ -414,14 +414,14 @@ export class SelectorDiscovery {
     for (const cls of classes) {
       // Skip generic classes
       if (cls.length > 3 && !["button", "btn", "input", "text"].includes(cls.toLowerCase())) {
-        return `.${CSS.escape(cls)}`;
+        return `.${cssEscape(cls)}`;
       }
     }
 
     // Use data attribute if available
     for (const [attr, value] of Object.entries(el.dataAttrs)) {
       if (value) {
-        return `[${attr}="${CSS.escape(value)}"]`;
+        return `[${attr}="${cssEscape(value)}"]`;
       }
     }
 
@@ -532,14 +532,9 @@ export class SelectorDiscovery {
   }
 }
 
-/**
- * CSS.escape polyfill for Node.js
- */
-const CSS = {
-  escape: (value: string): string => {
-    return value.replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1");
-  },
-};
+function cssEscape(value: string): string {
+  return value.replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1");
+}
 
 /**
  * Run selector discovery and return results

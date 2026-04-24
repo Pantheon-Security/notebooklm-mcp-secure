@@ -3,7 +3,10 @@
  * Similar to Python's rich.console
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 type LogLevel = "info" | "success" | "warning" | "error" | "debug" | "dim";
+type LogContext = Record<string, string | number | boolean | undefined>;
 
 interface LogStyle {
   prefix: string;
@@ -26,6 +29,7 @@ const RESET = "\x1b[0m";
  */
 export class Logger {
   private enabled: boolean;
+  private context = new AsyncLocalStorage<LogContext>();
 
   constructor(enabled: boolean = true) {
     this.enabled = enabled;
@@ -36,6 +40,17 @@ export class Logger {
    */
   log(message: string, level: LogLevel = "info"): void {
     if (!this.enabled) return;
+
+    const activeContext = this.context.getStore() ?? {};
+    if (process.env.NLMCP_LOG_FORMAT === "json") {
+      console.error(JSON.stringify({
+        ts: new Date().toISOString(),
+        level,
+        message,
+        ...activeContext,
+      }));
+      return;
+    }
 
     const style = STYLES[level];
     const timestamp = new Date().toISOString().split("T")[1].slice(0, 8);
@@ -93,6 +108,10 @@ export class Logger {
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
   }
+
+  withContext<T>(context: LogContext, fn: () => T): T {
+    return this.context.run({ ...(this.context.getStore() ?? {}), ...context }, fn);
+  }
 }
 
 /**
@@ -110,4 +129,5 @@ export const log = {
   error: (msg: string) => logger.error(msg),
   debug: (msg: string) => logger.debug(msg),
   dim: (msg: string) => logger.dim(msg),
+  withContext: <T>(context: LogContext, fn: () => T): T => logger.withContext(context, fn),
 };

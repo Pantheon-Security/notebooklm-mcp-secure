@@ -4,42 +4,9 @@ export const notebookManagementTools: Tool[] = [
   {
     name: "add_notebook",
     description:
-      `PERMISSION REQUIRED — Only when user explicitly asks to add a notebook.
-
-## Conversation Workflow (Mandatory)
-When the user says: "I have a NotebookLM with X"
-
-1) Ask URL: "What is the NotebookLM URL?"
-2) Ask content: "What knowledge is inside?" (1–2 sentences)
-3) Ask topics: "Which topics does it cover?" (3–5)
-4) Ask use cases: "When should we consult it?"
-5) Propose metadata and confirm:
-   - Name: [suggested]
-   - Description: [from user]
-   - Topics: [list]
-   - Use cases: [list]
-   "Add it to your library now?"
-6) Only after explicit "Yes" → call this tool
-
-## Rules
-- Do not add without user permission
-- Do not guess metadata — ask concisely
-- Confirm summary before calling the tool
-
-## Example
-User: "I have a notebook with n8n docs"
-You: Ask URL → content → topics → use cases; propose summary
-User: "Yes"
-You: Call add_notebook
-
-## How to Get a NotebookLM Share Link
-
-Visit https://notebooklm.google/ → Login (free: 100 notebooks, 50 sources each, 500k words, 50 daily queries)
-1) Click "+ New" (top right) → Upload sources (docs, knowledge)
-2) Click "Share" (top right) → Select "Anyone with the link"
-3) Click "Copy link" (bottom left) → Give this link to Claude
-
-(Upgraded: Google AI Pro/Ultra gives 5x higher limits)`,
+      "Add a NotebookLM notebook to the local library after explicit user confirmation. " +
+      "Provide the NotebookLM URL plus concise metadata: name, description, topics, and optional use cases/tags. " +
+      "Do not infer missing metadata; ask the user first.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -453,24 +420,9 @@ With auto-fix to remove stale entries:
   },
   {
     name: "list_sources",
-    description: `List all sources in a NotebookLM notebook.
-
-## Returns
-Array of sources with:
-- id: Source identifier (for use with remove_source)
-- title: Source name/title
-- type: url, text, file, drive, or unknown
-- status: ready, processing, or failed
-
-## Example
-\`\`\`json
-{ "notebook_id": "my-notebook" }
-\`\`\`
-
-Or with direct URL:
-\`\`\`json
-{ "notebook_url": "https://notebooklm.google.com/notebook/xxx" }
-\`\`\``,
+    description:
+      "List sources in a notebook. Provide notebook_id or notebook_url; if neither is provided, " +
+      "the active notebook from the local library is used. Returns source id, title, type, and status.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

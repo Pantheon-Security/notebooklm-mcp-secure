@@ -44,6 +44,15 @@ const CRITICAL_COOKIE_NAMES = [
   "__Secure-3PSID", // Secure variants
 ];
 
+type SessionStorageLike = {
+  length: number;
+  key(index: number): string | null;
+  getItem(key: string): string | null;
+};
+
+type BrowserStorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
+type StorageStateCookies = BrowserStorageState["cookies"];
+
 export class AuthManager {
   private stateFilePath: string;
   private sessionFilePath: string;
@@ -83,12 +92,10 @@ export class AuthManager {
             const sessionStorageData: string = await page.evaluate((): string => {
               // Properly extract sessionStorage as a plain object
               const storage: Record<string, string> = {};
-              // @ts-expect-error - sessionStorage exists in browser context
+              const sessionStorage = (globalThis as unknown as { sessionStorage: SessionStorageLike }).sessionStorage;
               for (let i = 0; i < sessionStorage.length; i++) {
-                // @ts-expect-error - sessionStorage exists in browser context
                 const key = sessionStorage.key(i);
                 if (key) {
-                  // @ts-expect-error - sessionStorage exists in browser context
                   storage[key] = sessionStorage.getItem(key) || '';
                 }
               }
@@ -397,8 +404,7 @@ export class AuthManager {
       const cookies = state.cookies;
       if (!cookies?.length) return false;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await context.addCookies(cookies as any);
+      await context.addCookies(cookies as StorageStateCookies);
       log.info(`  🔄 Reloaded ${cookies.length} cookies from state file into context`);
       return true;
     } catch (error) {

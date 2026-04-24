@@ -65,6 +65,8 @@ export interface GeminiGenerationConfig {
 export interface DeepResearchOptions {
   /** The research query */
   query: string;
+  /** Thinking level: minimal, low, medium, high */
+  thinkingLevel?: "minimal" | "low" | "medium" | "high";
   /** Run in background (default: true) */
   background?: boolean;
   /** Wait for completion (default: true) */

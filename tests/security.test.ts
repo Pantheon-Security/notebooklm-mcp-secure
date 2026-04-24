@@ -76,6 +76,25 @@ describe("Security Utilities", () => {
     it("should reject malformed URLs", () => {
       expect(() => validateNotebookUrl("not-a-url")).toThrow("Invalid URL format");
     });
+
+    it("I301 accepts and normalizes generated allowed NotebookLM URLs", () => {
+      const domains = [
+        "notebooklm.google.com",
+        "notebooklm.google.co.uk",
+        "notebooklm.google.de",
+        "notebooklm.google.fr",
+      ];
+
+      for (let i = 0; i < 40; i++) {
+        const domain = domains[i % domains.length];
+        const notebookId = `case-${i.toString(36)}_${"a".repeat((i % 5) + 1)}`;
+        const input = `  https://${domain}/notebook/${notebookId}?q=${i}#section  `;
+        const normalized = validateNotebookUrl(input);
+
+        expect(normalized.startsWith(`https://${domain}/notebook/${notebookId}`)).toBe(true);
+        expect(normalized).not.toContain("  ");
+      }
+    });
   });
 
   describe("validateQuestion", () => {
@@ -119,6 +138,26 @@ describe("Security Utilities", () => {
 
     it("should mask the local part of an email address", () => {
       expect(maskEmail("alice@example.com")).toBe("a****@e***.com");
+    });
+
+    it("I301 keeps sanitizeForLogging idempotent across varied inputs", () => {
+      const samples = Array.from({ length: 50 }, (_, i) =>
+        [
+          `user${i}@example.com`,
+          `password=secret-${i}`,
+          `token: token-${i}`,
+          `https://alice${i}:pw${i}@example.com/path/${i}`,
+          `plain-text-${i}`,
+        ].join(" | ")
+      );
+
+      for (const sample of samples) {
+        const once = sanitizeForLogging(sample);
+        const twice = sanitizeForLogging(once);
+        expect(twice).toBe(once);
+        expect(once).not.toContain(`secret-`);
+        expect(once).not.toContain(`pw`);
+      }
     });
   });
 

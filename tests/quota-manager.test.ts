@@ -249,4 +249,32 @@ describe("QuotaManager", () => {
       expect(qm2.getUsage().notebooks).toBe(2);
     });
   });
+
+  describe("detectTierFromPage", () => {
+    it("does not infer Ultra from whole-page upgrade marketing", async () => {
+      const qm = new QuotaManager();
+      const fakePage = {
+        evaluate: async (fn: () => string) => {
+          const previousDocument = globalThis.document;
+          const accountSection = { textContent: "" };
+          globalThis.document = {
+            querySelector: vi.fn((selector: string) => {
+              if (selector === ".pro-badge, [data-tier='pro']") return null;
+              return accountSection;
+            }),
+            body: {
+              innerText: "Try the Ultra plan today. Sources 0 / 50",
+            },
+          } as unknown as Document;
+          try {
+            return fn();
+          } finally {
+            globalThis.document = previousDocument;
+          }
+        },
+      };
+
+      await expect(qm.detectTierFromPage(fakePage as never)).resolves.toBe("free");
+    });
+  });
 });

@@ -60,7 +60,7 @@ Pantheon Security acts as the data processor. The user is the data controller fo
 - Rectification: Correct inaccurate data
 
 ## 7. Security Measures
-- Post-quantum encryption
+- Hybrid post-quantum encryption for local at-rest secrets
 - Memory scrubbing
 - Tamper-evident logging
     `,
@@ -193,9 +193,9 @@ This policy is reviewed annually or upon regulatory change.
 - PQ encryption keys (double encrypted)
 
 ## 5. Post-Quantum Readiness
-Hybrid encryption provides protection against:
+Hybrid local encryption provides protection against:
 - Current classical attacks
-- Future quantum computer attacks
+- Offline decryption attempts against locally stored secrets if quantum-capable attacks become practical
     `,
     regulations: ["SOC2", "GDPR"],
     data_types: ["credentials", "session_data", "notebook_metadata"],

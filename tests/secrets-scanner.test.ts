@@ -235,6 +235,30 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAAB
   });
 
   describe("Configuration", () => {
+    it("does not flag known local crypto and CSRF fields as generic high-entropy strings", () => {
+      const localScanner = new SecretsScanner({
+        enabled: true,
+        autoRedact: true,
+        ignoredPatterns: [
+          "Google API Key",
+          "Google OAuth Client Secret",
+          "OpenAI API Key",
+          "Anthropic API Key",
+          "JSON Web Token",
+          "Bearer Token",
+          "Basic Auth Header",
+        ],
+      });
+      const text = JSON.stringify({
+        encapsulatedKey: "dGhpcy1pcy1hLWJlbmlnbi1tbC1rZW0tY2lwaGVydGV4dC12YWx1ZQ==",
+        csrfToken: "hT7x8QpL2vN9rS4mK6zB1cD3fG5jL8wX",
+      });
+
+      const matches = localScanner.scan(text);
+
+      expect(matches.filter((m) => m.type === "High Entropy String")).toHaveLength(0);
+    });
+
     it("should respect minSeverity setting", () => {
       const highOnlyScanner = new SecretsScanner({ minSeverity: "high" });
       const text = "Some base64: YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY3ODkw";

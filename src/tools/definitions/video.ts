@@ -19,6 +19,7 @@ const generateVideoOverviewTool: Tool = {
 - Supports multiple visual styles and formats
 - Generation takes 3-10 minutes typically
 - Returns immediately with status (check with get_video_status)
+- NotebookLM does not currently expose a supported video download path through this MCP server; use the NotebookLM UI to download ready videos.
 
 ## Visual Styles
 - **auto-select** — Let NotebookLM choose the best style (default)

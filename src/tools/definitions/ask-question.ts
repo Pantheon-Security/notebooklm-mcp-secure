@@ -6,108 +6,24 @@ import { NotebookLibrary } from "../../library/notebook-library.js";
  */
 export function buildAskQuestionDescription(library: NotebookLibrary): string {
   const active = library.getActiveNotebook();
-  const bt = "`"; // Backtick helper to avoid template literal issues
 
   if (active) {
-    const useCases = active.use_cases.map((uc) => `  - ${uc}`).join("\n");
+    return `NotebookLM notebook Q&A via browser automation.
 
-    return `# NotebookLM Research (Browser-Based • NO API KEY REQUIRED)
-
-**Active Notebook:** [set — use get_notebook to see details]
-
-> **IMPORTANT:** This tool uses browser automation - NO GEMINI_API_KEY needed! Just requires browser authentication via setup_auth.
-
-## What This Tool Is
-- Query your NotebookLM notebooks via browser automation
-- NO API key required - works with just browser authentication
-- Source-cited responses grounded in YOUR uploaded documents
-- Session-based: each follow-up uses prior context for deeper answers
-
-## When To Use
-- **PREFER THIS TOOL** for questions about your NotebookLM notebooks
-- Use this instead of gemini_query when you have relevant notebooks
-${useCases}
-
-## Rules (Important)
-- Always prefer continuing an existing session for the same task
-- If you start a new thread, create a new session and keep its session_id
-- Ask clarifying questions before implementing; do not guess missing details
-- If multiple notebooks could apply, propose the top 1–2 and ask which to use
-- If task context changes, ask to reset the session or switch notebooks
-- If authentication fails, use the prompts 'notebooklm.auth-repair' (or 'notebooklm.auth-setup') and verify with 'get_health'
-- After every NotebookLM answer: pause, compare with the user's goal, and only respond if you are 100% sure the information is complete. Otherwise, plan the next NotebookLM question in the same session.
-
-## Session Flow (Recommended)
-${bt}${bt}${bt}javascript
-// 1) Start broad (no session_id → creates one)
-ask_question({ question: "Give me an overview of [topic]" })
-// ← Save: result.session_id
-
-// 2) Go specific (same session)
-ask_question({ question: "Key APIs/methods?", session_id })
-
-// 3) Cover pitfalls (same session)
-ask_question({ question: "Common edge cases + gotchas?", session_id })
-
-// 4) Ask for production example (same session)
-ask_question({ question: "Show a production-ready example", session_id })
-${bt}${bt}${bt}
-
-## Automatic Multi-Pass Strategy (Host-driven)
-- Simple prompts return once-and-done answers.
-- For complex prompts, the host should issue follow-up calls:
-  1. Implementation plan (APIs, dependencies, configuration, authentication).
-  2. Pitfalls, gaps, validation steps, missing prerequisites.
-- Keep the same session_id for all follow-ups, review NotebookLM's answer, and ask more questions until the problem is fully resolved.
-- Before replying to the user, double-check: do you truly have everything? If not, queue another ask_question immediately.
-
-## 🔥 REAL EXAMPLE
-
-Task: "Implement error handling in n8n workflow"
-
-Bad (shallow):
-${bt}${bt}${bt}
-Q: "How do I handle errors in n8n?"
-A: [basic answer]
-→ Implement → Probably missing edge cases!
-${bt}${bt}${bt}
-
-Good (deep):
-${bt}${bt}${bt}
-Q1: "What are n8n's error handling mechanisms?" (session created)
-A1: [Overview of error handling]
-
-Q2: "What's the recommended pattern for API errors?" (same session)
-A2: [Specific patterns, uses context from Q1]
-
-Q3: "How do I handle retry logic and timeouts?" (same session)
-A3: [Detailed approach, builds on Q1+Q2]
-
-Q4: "Show me a production example with all these patterns" (same session)
-A4: [Complete example with full context]
-
-→ NOW implement with confidence!
-${bt}${bt}${bt}
-    
-## Notebook Selection
-- Default: active notebook (use get_notebook to see ID)
-- Or set notebook_id to use a library notebook
-- Or set notebook_url for ad-hoc notebooks (not in library)
-- If ambiguous which notebook fits, ASK the user which to use`;
+Active notebook is set; use get_notebook for details.
+No Gemini API key is required, but browser authentication must be valid.
+Prefer this tool for questions grounded in the user's NotebookLM sources.
+Use the returned session_id for follow-up questions on the same task.
+Use notebook_id or notebook_url only when overriding the active notebook.
+If the right notebook is ambiguous, ask the user which one to use.
+If authentication fails, use notebooklm.auth-repair or notebooklm.auth-setup.`;
   } else {
-    return `# NotebookLM Research (Browser-Based • NO API KEY REQUIRED)
+    return `NotebookLM notebook Q&A via browser automation.
 
-> **IMPORTANT:** This tool uses browser automation - NO GEMINI_API_KEY needed!
-
-## No Active Notebook
-- Visit https://notebooklm.google to create a notebook and get a share link
-- Use **add_notebook** to add it to your library (explains how to get the link)
-- Use **list_notebooks** to show available sources
-- Use **select_notebook** to set one active
-
-> Auth tip: If login is required, use the prompt 'notebooklm.auth-setup' and then verify with the 'get_health' tool.
-
-Tip: Tell the user you can manage NotebookLM library and ask which notebook to use for the current task.`;
+No active notebook is selected.
+Use list_notebooks and select_notebook to choose one, or pass notebook_url.
+No Gemini API key is required, but browser authentication must be valid.
+If login is required, use notebooklm.auth-setup and verify with get_health.`;
   }
 }
 

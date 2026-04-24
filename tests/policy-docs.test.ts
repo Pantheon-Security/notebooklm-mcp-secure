@@ -142,6 +142,15 @@ describe("PolicyDocManager", () => {
     expect(text).toMatch(/privacy/i);
   });
 
+  it("describes post-quantum protection as local at-rest encryption", async () => {
+    const privacy = await getPolicy("policy_privacy");
+    const encryption = await getPolicy("policy_encryption");
+
+    expect(privacy?.full_text).toMatch(/local at-rest secrets/i);
+    expect(encryption?.full_text).toMatch(/offline decryption attempts against locally stored secrets/i);
+    expect(encryption?.full_text).not.toMatch(/Future quantum computer attacks/);
+  });
+
   it("unknown policy name returns null (does not throw)", async () => {
     const result = await getPolicy("policy_does_not_exist_xyz");
     expect(result).toBeNull();

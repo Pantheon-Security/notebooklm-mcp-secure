@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
+import crypto from "node:crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -52,6 +53,18 @@ describe("Crypto Utilities", () => {
       const key2 = deriveKey("same-passphrase", salt2, 1000);
 
       expect(key1.equals(key2)).toBe(false);
+    });
+
+    it("I301 stays deterministic across generated passphrase and salt pairs", () => {
+      for (let i = 0; i < 24; i++) {
+        const salt = crypto.createHash("sha256").update(`salt-${i}`).digest().subarray(0, 32);
+        const passphrase = `passphrase-${i}-${"x".repeat((i % 7) + 1)}`;
+
+        const key1 = deriveKey(passphrase, salt, 1000);
+        const key2 = deriveKey(passphrase, salt, 1000);
+
+        expect(key1.equals(key2)).toBe(true);
+      }
     });
   });
 
@@ -148,6 +161,16 @@ describe("Crypto Utilities", () => {
       const decrypted = decryptPQ(encrypted, keyPair.secretKey);
 
       expect(decrypted.toString("utf-8")).toBe(plaintext);
+    });
+
+    it("I301 round-trips generated binary payloads", () => {
+      for (let i = 0; i < 20; i++) {
+        const plaintext = crypto.createHash("sha512").update(`payload-${i}`).digest();
+        const encrypted = encryptPQ(plaintext, keyPair.publicKey);
+        const decrypted = decryptPQ(encrypted, keyPair.secretKey);
+
+        expect(decrypted.equals(plaintext)).toBe(true);
+      }
     });
   });
 

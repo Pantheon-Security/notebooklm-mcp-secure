@@ -12,30 +12,27 @@
 
 import type { Page } from "patchright";
 import { log } from "./logger.js";
+import { RESPONSE_SELECTORS } from "../notebook-creation/selectors.js";
 
-// ============================================================================
-// Constants
-// ============================================================================
+type BrowserVisibleElement = {
+  isConnected?: boolean;
+  textContent?: string | null;
+  innerText?: string;
+  getBoundingClientRect(): { width: number; height: number };
+};
 
-/**
- * CSS selectors to find assistant response elements
- * Ordered by priority (most specific first)
- */
-const RESPONSE_SELECTORS = [
-  ".to-user-container .message-text-content",
-  "[data-message-author='bot']",
-  "[data-message-author='assistant']",
-  "[data-message-role='assistant']",
-  "[data-author='assistant']",
-  "[data-renderer*='assistant']",
-  "[data-automation-id='response-text']",
-  "[data-automation-id='assistant-response']",
-  "[data-automation-id='chat-response']",
-  "[data-testid*='assistant']",
-  "[data-testid*='response']",
-  "[aria-live='polite']",
-  "[role='listitem'][data-message-author]",
-];
+type BrowserDocumentContext = {
+  document: {
+    querySelectorAll(selector: string): Iterable<BrowserVisibleElement>;
+  };
+  window: {
+    getComputedStyle(element: BrowserVisibleElement): {
+      visibility?: string;
+      display?: string;
+      opacity?: string;
+    };
+  };
+};
 
 
 // ============================================================================
@@ -410,16 +407,13 @@ async function extractLatestText(
   // Final fallback: JavaScript evaluation
   try {
     const fallbackText = await page.evaluate((): string | null => {
-      // @ts-expect-error - DOM types available in browser context
-      const unique = new Set<Element>();
-      // @ts-expect-error - DOM types available in browser context
-      const isVisible = (el: Element): boolean => {
-        // @ts-expect-error - DOM types available in browser context
-        if (!el || !(el as HTMLElement).isConnected) return false;
+      const browser = globalThis as unknown as BrowserDocumentContext;
+      const unique = new Set<BrowserVisibleElement>();
+      const isVisible = (el: BrowserVisibleElement): boolean => {
+        if (!el || !el.isConnected) return false;
         const rect = el.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) return false;
-        // @ts-expect-error - window available in browser context
-        const style = window.getComputedStyle(el as HTMLElement);
+        const style = browser.window.getComputedStyle(el);
         if (
           style.visibility === "hidden" ||
           style.display === "none" ||
@@ -441,14 +435,12 @@ async function extractLatestText(
 
       const candidates: string[] = [];
       for (const selector of selectors) {
-        // @ts-expect-error - document available in browser context
-        for (const el of document.querySelectorAll(selector)) {
+        for (const el of browser.document.querySelectorAll(selector)) {
           if (!isVisible(el)) continue;
           if (unique.has(el)) continue;
           unique.add(el);
 
-          // @ts-expect-error - DOM types available in browser context
-          const text = (el as HTMLElement).innerText || (el as HTMLElement).textContent || "";
+          const text = el.innerText || el.textContent || "";
           if (!text.trim()) continue;
 
           candidates.push(text.trim());

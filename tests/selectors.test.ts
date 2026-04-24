@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { waitForElement } from "../src/notebook-creation/selectors.js";
+import { NOTEBOOKLM_SELECTORS, RESPONSE_SELECTORS, waitForElement } from "../src/notebook-creation/selectors.js";
 
 describe("waitForElement", () => {
   it("uses the full deadline instead of splitting timeout once across selectors", async () => {
@@ -23,5 +23,22 @@ describe("waitForElement", () => {
     expect(element).toEqual({ selector: 'button[aria-label="Create new notebook"]' });
     expect(page.waitForSelector).toHaveBeenCalled();
     expect(page.waitForSelector.mock.calls.length).toBeGreaterThan(3);
+  });
+});
+
+describe("RESPONSE_SELECTORS", () => {
+  it("keeps assistant response selectors centralized in notebook selectors", () => {
+    expect(RESPONSE_SELECTORS).toContain(".to-user-container .message-text-content");
+    expect(RESPONSE_SELECTORS.length).toBeGreaterThan(5);
+  });
+});
+
+describe("NOTEBOOKLM_SELECTORS", () => {
+  it("does not use non-standard text selector syntax in chooseFileButton fallbacks", () => {
+    expect(NOTEBOOKLM_SELECTORS.chooseFileButton.fallbacks).not.toContain('a:text("choose file")');
+  });
+
+  it("does not use a generic textarea aria-label fallback for chat input", () => {
+    expect(NOTEBOOKLM_SELECTORS.chatInput.fallbacks).not.toContain("textarea[aria-label]");
   });
 });

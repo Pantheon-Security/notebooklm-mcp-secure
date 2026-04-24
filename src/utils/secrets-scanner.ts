@@ -46,6 +46,8 @@ interface SecretPattern {
   redactFn?: (match: string) => string;
   /** Only flag matches whose Shannon entropy exceeds this threshold */
   minEntropy?: number;
+  /** Skip known benign high-entropy fields for generic detectors */
+  ignoreContext?: (input: string, match: RegExpExecArray) => boolean;
 }
 
 /**
@@ -270,8 +272,13 @@ const SECRET_PATTERNS: SecretPattern[] = [
     pattern: /\b[A-Za-z0-9+/]{32,}={0,2}\b/g,
     severity: "low",
     description: "High entropy string (possible encoded secret)",
-    // Entropy gate avoids flagging JWT payloads, PNG data-URIs, GCS object names
+    // Entropy gate + context allowlist avoids flagging JWT payloads, PNG
+    // data-URIs, GCS object names, CSRF tokens, and local ML-KEM ciphertext.
     minEntropy: 4.0,
+    ignoreContext: (input, match) => {
+      const before = input.slice(Math.max(0, match.index - 64), match.index).toLowerCase();
+      return /\b(encapsulatedkey|ciphertext|csrf(?:token|_token|-token)?|nonce|iv)\b/.test(before);
+    },
   },
 
   // SSH keys
@@ -389,6 +396,10 @@ export class SecretsScanner {
 
         // Skip if entropy below pattern threshold (I184)
         if (pattern.minEntropy !== undefined && shannonEntropy(matchedText) < pattern.minEntropy) {
+          continue;
+        }
+
+        if (pattern.ignoreContext?.(input, match)) {
           continue;
         }
 

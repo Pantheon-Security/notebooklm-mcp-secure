@@ -86,12 +86,20 @@ describe("SIEMExporter", () => {
     vi.clearAllMocks();
     // Clean up env vars before each test
     delete process.env.NLMCP_SIEM_ENABLED;
+    delete process.env.NLMCP_SIEM_FORMAT;
+    delete process.env.NLMCP_SIEM_MIN_SEVERITY;
+    delete process.env.NLMCP_SIEM_EVENT_TYPES;
+    delete process.env.NLMCP_SIEM_BATCH_SIZE;
     resetSIEMExporter();
   });
 
   afterEach(() => {
     getSIEMExporter().stop();
     delete process.env.NLMCP_SIEM_ENABLED;
+    delete process.env.NLMCP_SIEM_FORMAT;
+    delete process.env.NLMCP_SIEM_MIN_SEVERITY;
+    delete process.env.NLMCP_SIEM_EVENT_TYPES;
+    delete process.env.NLMCP_SIEM_BATCH_SIZE;
     resetSIEMExporter();
   });
 
@@ -131,6 +139,24 @@ describe("SIEMExporter", () => {
     const queued = await exporter.queueEvent(makeEvent());
     expect(queued).toBe(false);
     expect(exporter.getStats().queue_size).toBe(0);
+  });
+
+  it("normalizes SIEM env overrides for choices, lists, and integers", async () => {
+    process.env.NLMCP_SIEM_ENABLED = "true";
+    process.env.NLMCP_SIEM_FORMAT = "invalid-format";
+    process.env.NLMCP_SIEM_MIN_SEVERITY = "critical";
+    process.env.NLMCP_SIEM_EVENT_TYPES = "security_alert, auth_failure ,";
+    process.env.NLMCP_SIEM_BATCH_SIZE = "not-a-number";
+    resetSIEMExporter();
+
+    const exporter = getSIEMExporter();
+
+    expect(exporter.getStats().enabled).toBe(true);
+    expect(await exporter.queueEvent(makeEvent({ severity: "warning" }))).toBe(false);
+    expect(await exporter.queueEvent(makeEvent({ severity: "critical", event_type: "ignored" }))).toBe(false);
+    expect(await exporter.queueEvent(makeEvent({ severity: "critical", event_type: "security_alert" }))).toBe(true);
+    expect(exporter.getStats().queue_size).toBe(1);
+    exporter.stop();
   });
 
   it("saveFailedEvent (via flush) writes a .jsonl file to the failed dir", async () => {

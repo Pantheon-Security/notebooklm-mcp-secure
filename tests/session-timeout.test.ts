@@ -110,6 +110,29 @@ describe("SessionTimeoutManager", () => {
     }
   });
 
+  it("periodic check expires sessions within the tightened polling interval", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+
+    const manager = new SessionTimeoutManager({
+      maxLifetimeMs: 60_000,
+      inactivityTimeoutMs: 1_000,
+      warningBeforeMs: 100,
+    });
+    const onTimeout = vi.fn().mockResolvedValue(undefined);
+    manager.setTimeoutCallback(onTimeout);
+
+    try {
+      manager.startSession("session-periodic");
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(onTimeout).toHaveBeenCalledWith("session-periodic", "inactivity");
+    } finally {
+      manager.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it("removeSession stops tracking the session", () => {
     const manager = new SessionTimeoutManager({
       maxLifetimeMs: 60_000,

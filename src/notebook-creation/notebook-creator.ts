@@ -90,13 +90,20 @@ export class NotebookCreator {
         await sendProgress?.(`Adding source: ${sourceDesc}...`, currentStep, totalSteps);
 
         try {
+          await this.navigation.validateCurrentAuth();
           await this.sourceManager.addSource(source);
           successCount++;
           log.success(`✅ Added source: ${sourceDesc}`);
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
           log.error(`❌ Failed to add source: ${sourceDesc} - ${errorMsg}`);
-          failedSources.push({ source, error: errorMsg });
+          failedSources.push({
+            source,
+            error: errorMsg,
+            ...(process.env.DEBUG === "true" && error instanceof Error && error.stack
+              ? { stack: error.stack }
+              : {}),
+          });
         }
 
         await randomDelay(1000, 2000);
@@ -113,11 +120,10 @@ export class NotebookCreator {
         name,
         sourceCount: successCount,
         createdAt: new Date().toISOString(),
+        partial: failedSources.length > 0,
         failedSources: failedSources.length > 0 ? failedSources : undefined,
       };
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      log.error(`❌ Notebook creation failed: ${errorMsg}`);
       throw error;
     } finally {
       await this.navigation.cleanup();

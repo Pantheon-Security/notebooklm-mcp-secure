@@ -47,9 +47,9 @@ const DEFAULT_SCOPE: ErasureScope = {
  * GDPR compliance requires full-disk encryption at rest.
  */
 function secureOverwrite(filePath: string): void {
-  const stats = fs.statSync(filePath);
-  const size = stats.size;
   const fd = fs.openSync(filePath, "r+");
+  const stats = fs.fstatSync(fd);
+  const size = stats.size;
 
   try {
     const zeros = Buffer.alloc(Math.min(size, 1024 * 1024), 0);
@@ -67,6 +67,41 @@ function secureOverwrite(filePath: string): void {
   }
 
   fs.unlinkSync(filePath);
+}
+
+function pathAbsent(filePath: string): boolean {
+  try {
+    fs.lstatSync(filePath);
+    return false;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ENOENT";
+  }
+}
+
+function eraseFile(
+  filePath: string,
+  method: "overwrite" | "delete" | "crypto_shred"
+): { deleted: boolean; size: number; verified: boolean } {
+  try {
+    if (method === "delete") {
+      const fd = fs.openSync(filePath, "r");
+      const stats = fs.fstatSync(fd);
+      fs.closeSync(fd);
+      fs.unlinkSync(filePath);
+      return { deleted: true, size: stats.size, verified: pathAbsent(filePath) };
+    }
+
+    const fd = fs.openSync(filePath, "r");
+    const stats = fs.fstatSync(fd);
+    fs.closeSync(fd);
+    secureOverwrite(filePath);
+    return { deleted: true, size: stats.size, verified: pathAbsent(filePath) };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { deleted: false, size: 0, verified: true };
+    }
+    throw err;
+  }
 }
 
 /**
@@ -122,6 +157,15 @@ function secureDeleteDirectory(
 }
 
 async function clearChromeProfile(chromeProfileDir: string): Promise<{ files: number; bytes: number; errors: string[] }> {
+  const singletonLock = path.join(chromeProfileDir, "SingletonLock");
+  if (fs.existsSync(singletonLock)) {
+    return {
+      files: 0,
+      bytes: 0,
+      errors: ["Chrome profile appears to be in use (SingletonLock exists); close browser context before erasure."],
+    };
+  }
+
   const authManager = new AuthManager();
   if (await authManager.hasSavedState()) {
     log.warning("Chrome may still be running; profile deletion may be incomplete.");
@@ -339,16 +383,10 @@ export class DataErasureManager {
     };
 
     try {
-      if (fs.existsSync(libraryPath)) {
-        const stats = fs.statSync(libraryPath);
-        result.size_bytes = stats.size;
-        result.items_deleted = 1;
-
-        secureOverwrite(libraryPath);
-        result.verified = !fs.existsSync(libraryPath);
-      } else {
-        result.verified = true;
-      }
+      const erased = eraseFile(libraryPath, "overwrite");
+      result.size_bytes = erased.size;
+      result.items_deleted = erased.deleted ? 1 : 0;
+      result.verified = erased.verified;
     } catch (err) {
       result.verified = false;
       result.error = err instanceof Error ? err.message : String(err);
@@ -372,16 +410,10 @@ export class DataErasureManager {
     };
 
     try {
-      if (fs.existsSync(settingsPath)) {
-        const stats = fs.statSync(settingsPath);
-        result.size_bytes = stats.size;
-        result.items_deleted = 1;
-
-        fs.unlinkSync(settingsPath);
-        result.verified = !fs.existsSync(settingsPath);
-      } else {
-        result.verified = true;
-      }
+      const erased = eraseFile(settingsPath, "delete");
+      result.size_bytes = erased.size;
+      result.items_deleted = erased.deleted ? 1 : 0;
+      result.verified = erased.verified;
     } catch (err) {
       result.verified = false;
       result.error = err instanceof Error ? err.message : String(err);
@@ -434,9 +466,9 @@ export class DataErasureManager {
         errors.push(...sessionResult.errors);
       }
 
-      result.verified = !fs.existsSync(browserStateDir) &&
-                        !fs.existsSync(chromeProfileDir) &&
-                        !fs.existsSync(sessionsDir);
+        result.verified = pathAbsent(browserStateDir) &&
+                        pathAbsent(chromeProfileDir) &&
+                        pathAbsent(sessionsDir);
 
       if (errors.length > 0) {
         result.error = errors.join("; ");
@@ -468,7 +500,7 @@ export class DataErasureManager {
       const auditResult = secureDeleteDirectory(auditDir, true);
       result.items_deleted = auditResult.files;
       result.size_bytes = auditResult.bytes;
-      result.verified = !fs.existsSync(auditDir);
+      result.verified = pathAbsent(auditDir);
       if (auditResult.errors.length > 0) {
         result.error = auditResult.errors.join("; ");
       }
@@ -495,16 +527,10 @@ export class DataErasureManager {
     };
 
     try {
-      if (fs.existsSync(keysPath)) {
-        const stats = fs.statSync(keysPath);
-        result.size_bytes = stats.size;
-        result.items_deleted = 1;
-
-        secureOverwrite(keysPath);
-        result.verified = !fs.existsSync(keysPath);
-      } else {
-        result.verified = true;
-      }
+      const erased = eraseFile(keysPath, "crypto_shred");
+      result.size_bytes = erased.size;
+      result.items_deleted = erased.deleted ? 1 : 0;
+      result.verified = erased.verified;
     } catch (err) {
       result.verified = false;
       result.error = err instanceof Error ? err.message : String(err);

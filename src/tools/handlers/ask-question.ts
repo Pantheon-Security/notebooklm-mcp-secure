@@ -2,6 +2,7 @@
  * Handler for the ask_question tool
  */
 
+import crypto from "node:crypto";
 import type { HandlerContext } from "./types.js";
 import { CONFIG } from "../../config.js";
 import type { BrowserOptions } from "../../notebook-creation/browser-options.js";
@@ -50,6 +51,19 @@ function validateBrowserOptionRanges(browserOptions?: BrowserOptions): string | 
   }
 
   return null;
+}
+
+function getRateLimitKey(
+  sessionId?: string,
+  notebookId?: string,
+  notebookUrl?: string
+): string {
+  if (sessionId) return `session:${sessionId}`;
+  if (notebookId) return `notebook:${notebookId}`;
+  if (notebookUrl) {
+    return `notebook_url:${crypto.createHash("sha256").update(notebookUrl).digest("hex").slice(0, 16)}`;
+  }
+  return "anonymous";
 }
 
 /**
@@ -102,7 +116,7 @@ export async function handleAskQuestion(
     }
 
     // Rate limiting check
-    const rateLimitKey = safeSessionId || 'global';
+    const rateLimitKey = getRateLimitKey(safeSessionId, safeNotebookId, safeNotebookUrl);
     if (!ctx.rateLimiter.isAllowed(rateLimitKey)) {
       log.warning(`🚫 Rate limit exceeded for ${rateLimitKey}`);
       await audit.security("rate_limit_exceeded", "warning", {
@@ -222,10 +236,10 @@ export async function handleAskQuestion(
 
     // Get or create session (with headless override to handle mode changes)
     const session = await ctx.sessionManager.getOrCreateSession(
-        safeSessionId,
-        resolvedNotebookUrl,
-        overrideHeadless
-      );
+      safeSessionId,
+      resolvedNotebookUrl,
+      overrideHeadless
+    );
 
     // Progress: Asking question
     await sendProgress?.("Asking question to NotebookLM...", 2, 5);

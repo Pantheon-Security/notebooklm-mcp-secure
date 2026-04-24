@@ -19,6 +19,20 @@ export class NotebookNavigation {
     return this.page;
   }
 
+  async validateCurrentAuth(): Promise<void> {
+    if (!this.page) {
+      throw new NotebookCreationError("Page not initialized", {
+        code: NotebookCreationErrorCode.PAGE_NOT_INITIALIZED,
+      });
+    }
+
+    const context = this.page.context();
+    const isAuthenticated = await this.authManager.validateWithRetry(context);
+    if (!isAuthenticated) {
+      throw new Error("NotebookLM authentication expired during notebook creation. Please run setup_auth first.");
+    }
+  }
+
   async initialize(headless?: boolean): Promise<void> {
     log.info("🌐 Initializing browser for notebook creation...");
 
@@ -39,6 +53,12 @@ export class NotebookNavigation {
 
     await randomDelay(2000, 3000);
     await this.waitForNotebookReady(this.page);
+    const anchor = await waitForElement(this.page, "newNotebookButton", {
+      timeout: 10000,
+    });
+    if (!anchor) {
+      log.warning("NotebookLM shell loaded but create-notebook anchor was not found before timeout; continuing with selector fallbacks.");
+    }
 
     log.success("✅ Browser initialized and navigated to NotebookLM");
   }
@@ -67,6 +87,7 @@ export class NotebookNavigation {
         code: NotebookCreationErrorCode.PAGE_NOT_INITIALIZED,
       });
     }
+    await this.validateCurrentAuth();
 
     log.info("📝 Clicking 'New notebook' button...");
 
@@ -127,6 +148,7 @@ export class NotebookNavigation {
 
   async setNotebookName(name: string): Promise<void> {
     if (!this.page) throw new Error("Page not initialized");
+    await this.validateCurrentAuth();
 
     log.info(`📝 Setting notebook name: ${name}`);
 
@@ -157,6 +179,7 @@ export class NotebookNavigation {
 
   async finalizeAndGetUrl(): Promise<string> {
     if (!this.page) throw new Error("Page not initialized");
+    await this.validateCurrentAuth();
 
     log.info("🔗 Getting notebook URL...");
     await randomDelay(1000, 2000);

@@ -1,5 +1,47 @@
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 
+function buildAuthTool(
+  name: "setup_auth" | "re_auth",
+  description: string
+): Tool {
+  return {
+    name,
+    description,
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        show_browser: {
+          type: "boolean",
+          description:
+            `Show browser window (simple version). Default: true for ${name === "setup_auth" ? "setup" : "re-auth"}. ` +
+            "For advanced control, use browser_options instead.",
+        },
+        browser_options: {
+          type: "object",
+          description:
+            "Optional browser settings. Control visibility, timeouts, and stealth behavior.",
+          additionalProperties: false,
+          properties: {
+            show: {
+              type: "boolean",
+              description: `Show browser window (default: true for ${name === "setup_auth" ? "setup" : "re-auth"})`,
+            },
+            headless: {
+              type: "boolean",
+              description: `Run browser in headless mode (default: false for ${name === "setup_auth" ? "setup" : "re-auth"})`,
+            },
+            timeout_ms: {
+              type: "number",
+              description: "Browser operation timeout in milliseconds (default: 30000)",
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
 export const systemTools: Tool[] = [
   {
     name: "get_health",
@@ -27,9 +69,8 @@ export const systemTools: Tool[] = [
       },
     },
   },
-  {
-    name: "setup_auth",
-    description:
+  buildAuthTool(
+    "setup_auth",
       "Google authentication for NotebookLM access - opens a browser window for manual login to your Google account. " +
       "Returns immediately after opening the browser. You have up to 10 minutes to complete the login. " +
       "Use 'get_health' tool afterwards to verify authentication was saved successfully. " +
@@ -40,42 +81,10 @@ export const systemTools: Tool[] = [
       "1. Ask user to close ALL Chrome/Chromium instances\n" +
       "2. Run cleanup_data(confirm=true, preserve_library=true) to clean old data\n" +
       "3. Run setup_auth again for fresh start\n" +
-      "This helps resolve conflicts from old browser sessions and installation data.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        show_browser: {
-          type: "boolean",
-          description:
-            "Show browser window (simple version). Default: true for setup. " +
-            "For advanced control, use browser_options instead.",
-        },
-        browser_options: {
-          type: "object",
-          description:
-            "Optional browser settings. Control visibility, timeouts, and stealth behavior.",
-          properties: {
-            show: {
-              type: "boolean",
-              description: "Show browser window (default: true for setup)",
-            },
-            headless: {
-              type: "boolean",
-              description: "Run browser in headless mode (default: false for setup)",
-            },
-            timeout_ms: {
-              type: "number",
-              description: "Browser operation timeout in milliseconds (default: 30000)",
-            },
-          },
-        },
-      },
-    },
-  },
-  {
-    name: "re_auth",
-    description:
+      "This helps resolve conflicts from old browser sessions and installation data."
+  ),
+  buildAuthTool(
+    "re_auth",
       "Switch to a different Google account or re-authenticate. " +
       "Use this when:\n" +
       "- NotebookLM rate limit is reached (50 queries/day for free accounts)\n" +
@@ -92,61 +101,15 @@ export const systemTools: Tool[] = [
       "2. Run cleanup_data(confirm=false, preserve_library=true) to preview old files\n" +
       "3. Run cleanup_data(confirm=true, preserve_library=true) to clean everything except library\n" +
       "4. Run re_auth again for completely fresh start\n" +
-      "This removes old installation data and browser sessions that can cause conflicts.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        show_browser: {
-          type: "boolean",
-          description:
-            "Show browser window (simple version). Default: true for re-auth. " +
-            "For advanced control, use browser_options instead.",
-        },
-        browser_options: {
-          type: "object",
-          description:
-            "Optional browser settings. Control visibility, timeouts, and stealth behavior.",
-          properties: {
-            show: {
-              type: "boolean",
-              description: "Show browser window (default: true for re-auth)",
-            },
-            headless: {
-              type: "boolean",
-              description: "Run browser in headless mode (default: false for re-auth)",
-            },
-            timeout_ms: {
-              type: "number",
-              description: "Browser operation timeout in milliseconds (default: 30000)",
-            },
-          },
-        },
-      },
-    },
-  },
+      "This removes old installation data and browser sessions that can cause conflicts."
+  ),
   {
     name: "cleanup_data",
     description:
-      "ULTRATHINK Deep Cleanup - Scans entire system for ALL NotebookLM MCP data files across 8 categories. Always runs in deep mode, shows categorized preview before deletion.\n\n" +
-      "⚠️ CRITICAL: Close ALL Chrome/Chromium instances BEFORE running this tool! Open browsers can prevent cleanup and cause issues.\n\n" +
-      "Categories scanned:\n" +
-      "1. Legacy Installation (notebooklm-mcp-nodejs) - Old paths with -nodejs suffix\n" +
-      "2. Current Installation (notebooklm-mcp) - Active data, browser profiles, library\n" +
-      "3. NPM/NPX Cache - Cached installations from npx\n" +
-      "4. Claude CLI MCP Logs - MCP server logs from Claude CLI\n" +
-      "5. Temporary Backups - Backup directories in system temp\n" +
-      "6. Claude Projects Cache - Project-specific cache (optional)\n" +
-      "7. Editor Logs (Cursor/VSCode) - MCP logs from code editors (optional)\n" +
-      "8. Trash Files - Deleted notebooklm files in system trash (optional)\n\n" +
-      "Works cross-platform (Linux, Windows, macOS). Safe by design: shows detailed preview before deletion, requires explicit confirmation.\n\n" +
-      "LIBRARY PRESERVATION: Set preserve_library=true to keep your notebook library.json file while cleaning everything else.\n\n" +
-      "RECOMMENDED WORKFLOW for fresh start:\n" +
-      "1. Ask user to close ALL Chrome/Chromium instances\n" +
-      "2. Run cleanup_data(confirm=false, preserve_library=true) to preview\n" +
-      "3. Run cleanup_data(confirm=true, preserve_library=true) to execute\n" +
-      "4. Run setup_auth or re_auth for fresh browser session\n\n" +
-      "Use cases: Clean reinstall, troubleshooting auth issues, removing all traces before uninstall, cleaning old browser sessions and installation data.",
+      "Preview or delete NotebookLM MCP data across known install, browser, cache, log, backup, and trash locations. " +
+      "Run first with confirm=false, then rerun with confirm=true after review. " +
+      "Close all Chrome/Chromium instances before deleting browser data. " +
+      "Set preserve_library=true to keep the local notebook library.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

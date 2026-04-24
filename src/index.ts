@@ -39,6 +39,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { createRequire } from "module";
+import crypto from "node:crypto";
+import { pathToFileURL } from "node:url";
 import { AuthManager } from "./auth/auth-manager.js";
 import { SessionManager } from "./session/session-manager.js";
 
@@ -63,7 +65,9 @@ import {
 import { getPrivacyNoticeManager, getPrivacyNoticeCLIText } from "./compliance/privacy-notice.js";
 import { runRetentionPolicies } from "./compliance/retention-engine.js";
 import { getBreachDetector } from "./compliance/breach-detection.js";
+import { exportToSIEM } from "./compliance/siem-exporter.js";
 import type { ToolResult } from "./types.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 type ProgressReporter = (message: string, progress?: number, total?: number) => Promise<void>;
 type ToolArgs = Record<string, unknown>;
@@ -194,7 +198,7 @@ const ADVANCED_TOOLS = new Set<ToolName>([
 /**
  * Main MCP Server Class
  */
-class NotebookLMMCPServer {
+export class NotebookLMMCPServer {
   private server: Server;
   private authManager: AuthManager;
   private sessionManager: SessionManager;
@@ -209,7 +213,7 @@ class NotebookLMMCPServer {
   private retentionTimer?: NodeJS.Timeout;
   private readonly advancedToolsEnabled: boolean;
 
-  constructor() {
+  constructor(private readonly options: { registerShutdownHandlers?: boolean } = {}) {
     // Initialize MCP Server
     this.server = new Server(
       {
@@ -221,7 +225,7 @@ class NotebookLMMCPServer {
           tools: {},
           resources: {},
           prompts: {},
-          completions: {}, // Required for completion/complete handler
+          completions: {},
         },
       }
     );
@@ -252,7 +256,9 @@ class NotebookLMMCPServer {
 
     // Setup handlers
     this.setupHandlers();
-    this.setupShutdownHandlers();
+    if (this.options.registerShutdownHandlers !== false) {
+      this.setupShutdownHandlers();
+    }
 
     const activeSettings = this.settingsManager.getEffectiveSettings();
     log.info("🚀 NotebookLM MCP Server initialized");
@@ -369,7 +375,10 @@ class NotebookLMMCPServer {
     });
 
     // Handle tool calls
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.server.setRequestHandler(CallToolRequestSchema, async (request) => log.withContext({
+      correlation_id: crypto.randomUUID(),
+      tool: request.params.name,
+    }, async () => {
       const { name, arguments: args } = request.params;
       // Per MCP spec, _meta lives on request.params, not inside arguments
       const meta = (request.params as { _meta?: { progressToken?: string | number; authToken?: string } })._meta;
@@ -388,8 +397,8 @@ class NotebookLMMCPServer {
       const requiresAuth = isToolName(name) && TOOLS_REQUIRING_AUTH.has(name);
 
       const authResult = requiresAuth
-        ? await authenticateMCPRequest(authToken, name, true)
-        : await authenticateMCPRequest(authToken, name);
+        ? await authenticateMCPRequest(authToken, name, true, "admin")
+        : await authenticateMCPRequest(authToken, name, false, "read");
       if (!authResult.authenticated) {
         log.warning(`🔒 [MCP] Authentication failed for tool: ${name}`);
         return {
@@ -492,7 +501,7 @@ class NotebookLMMCPServer {
           structuredContent: errorBody,
         };
       }
-    });
+    }));
   }
 
   /**
@@ -637,12 +646,34 @@ class NotebookLMMCPServer {
     } catch (err) {
       log.warning(`⚠️ Breach detector bootstrap failed: ${err instanceof Error ? err.message : String(err)}`);
     }
+
+    // Pipe audit events to SIEM when enabled (I247). exportToSIEM is a no-op
+    // when NLMCP_SIEM_ENABLED is not true.
+    try {
+      getAuditLogger().onEvent(async (event) => {
+        const severity = event.eventType === "security" && typeof event.details.severity === "string"
+          ? event.details.severity as "info" | "warning" | "error" | "critical"
+          : event.success ? "info" : "error";
+
+        await exportToSIEM(
+          event.eventType,
+          event.eventName,
+          severity,
+          `${event.eventType}:${event.eventName}`,
+          "audit-logger",
+          event.details,
+        );
+      });
+      log.info("📡 SIEM audit export bridge registered");
+    } catch (err) {
+      log.warning(`⚠️ SIEM bootstrap failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /**
    * Start the MCP server
    */
-  async start(): Promise<void> {
+  async start(transport: Transport = new StdioServerTransport()): Promise<void> {
     log.info("🎯 Starting NotebookLM MCP Server (Security Hardened)...");
     log.info("");
 
@@ -704,9 +735,6 @@ class NotebookLMMCPServer {
     log.info(`  MCP Authentication: ${authStatus.enabled ? 'enabled' : 'disabled'}`);
     log.info("");
 
-    // Create stdio transport
-    const transport = new StdioServerTransport();
-
     // Connect server to transport
     await this.server.connect(transport);
 
@@ -722,12 +750,21 @@ class NotebookLMMCPServer {
     log.info("📖 For documentation, see: README.md");
     log.info("");
   }
+
+  async stop(): Promise<void> {
+    if (this.retentionTimer) {
+      clearInterval(this.retentionTimer);
+      this.retentionTimer = undefined;
+    }
+    await this.toolHandlers.cleanup();
+    await this.server.close();
+  }
 }
 
 /**
  * Main entry point
  */
-async function main() {
+export async function main() {
   // Handle CLI commands
   const args = process.argv.slice(2);
   if (args.length > 0 && args[0] === "config") {
@@ -764,5 +801,10 @@ async function main() {
   }
 }
 
-// Run the server
-main();
+const isDirectRun = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
+
+if (isDirectRun) {
+  void main();
+}

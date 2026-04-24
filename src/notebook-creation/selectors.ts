@@ -12,6 +12,27 @@
 
 import { log } from "../utils/logger.js";
 
+/**
+ * CSS selectors to find assistant response elements.
+ * Keep NotebookLM selector knowledge in this module so UI drift is audited in
+ * one place.
+ */
+export const RESPONSE_SELECTORS = [
+  ".to-user-container .message-text-content",
+  "[data-message-author='bot']",
+  "[data-message-author='assistant']",
+  "[data-message-role='assistant']",
+  "[data-author='assistant']",
+  "[data-renderer*='assistant']",
+  "[data-automation-id='response-text']",
+  "[data-automation-id='assistant-response']",
+  "[data-automation-id='chat-response']",
+  "[data-testid*='assistant']",
+  "[data-testid*='response']",
+  "[aria-live='polite']",
+  "[role='listitem'][data-message-author]",
+] as const;
+
 export const NOTEBOOKLM_SELECTORS = {
   /** New notebook / Create button on homepage
    * Discovered: "addCreate new" with aria="Create new notebook" */
@@ -132,7 +153,8 @@ export const NOTEBOOKLM_SELECTORS = {
       '[class*="file-dialog-button"]',          // Class rename resilience
       'button[class*="upload"][class*="trigger"]', // Generic upload trigger pattern
       'span[class*="file-dialog"]',             // Partial class match
-      'a:text("choose file")',                  // Text-based (English, last resort)
+      'a[aria-label*="choose file" i]',         // Standard selector, English fallback
+      'a[href][class*="file"]',                 // Generic link fallback
     ],
     confirmed: true, // December 2025
   },
@@ -203,7 +225,8 @@ export const NOTEBOOKLM_SELECTORS = {
   chatInput: {
     primary: 'textarea.query-box-input',
     fallbacks: [
-      'textarea[aria-label]',           // Any textarea with aria-label (locale-agnostic)
+      'textarea[aria-label][class*="query"]', // Aria + query class scope
+      '.chat-input textarea[aria-label]', // Container-scoped aria fallback
       'textarea[class*="query"]',       // Class partial match
       '.chat-input textarea',           // Container-based
       'textarea[aria-label="Query box"]', // English-only, last resort

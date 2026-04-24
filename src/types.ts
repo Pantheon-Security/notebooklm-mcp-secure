@@ -2,6 +2,9 @@
  * Global type definitions for NotebookLM MCP Server
  */
 
+import type { AuthManager } from "./auth/auth-manager.js";
+import type { SessionManager } from "./session/session-manager.js";
+
 /**
  * Session information returned by the API
  */
@@ -89,7 +92,7 @@ export type ProgressCallback = (
  * Global state for the server
  */
 export interface ServerState {
-  playwright: any;
-  sessionManager: any;
-  authManager: any;
+  playwright?: typeof import("patchright");
+  sessionManager: SessionManager;
+  authManager: AuthManager;
 }

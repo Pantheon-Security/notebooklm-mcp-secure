@@ -13,7 +13,11 @@
     "watch": "tsc --watch",
     "dev": "tsx watch src/index.ts",
     "prepare": "npm run build",
+    "ci:install": "npm ci --ignore-scripts",
     "test": "npx vitest run",
+    "test:integration": "npx vitest run tests/mcp-server.integration.test.ts",
+    "test:property": "npx vitest run tests/property-based.test.ts",
+    "test:mutation": "npx stryker run --dryRunOnly",
     "test:watch": "npx vitest",
     "test:coverage": "npx vitest run --coverage",
     "security-check": "npm audit",
@@ -56,21 +60,22 @@
     "docs"
   ],
   "dependencies": {
-    "@google/genai": "^1.41.0",
-    "@modelcontextprotocol/sdk": "^1.25.3",
-    "@noble/post-quantum": "^0.5.4",
-    "dotenv": "^17.2.3",
-    "env-paths": "^4.0.0",
-    "globby": "^16.1.0",
-    "patchright": "^1.57.0",
-    "pdf-lib": "^1.17.1",
-    "zod": "^4.3.6"
+    "@google/genai": "1.41.0",
+    "@modelcontextprotocol/sdk": "1.25.3",
+    "@noble/post-quantum": "0.5.4",
+    "dotenv": "17.2.3",
+    "env-paths": "4.0.0",
+    "globby": "16.1.0",
+    "patchright": "1.57.0",
+    "pdf-lib": "1.17.1"
   },
   "devDependencies": {
-    "@types/node": "^20.19.30",
-    "@vitest/coverage-v8": "^4.1.4",
-    "tsx": "^4.21.0",
-    "typescript": "^5.3.3"
+    "@stryker-mutator/core": "9.6.1",
+    "@types/node": "20.19.30",
+    "@vitest/coverage-v8": "4.1.4",
+    "fast-check": "4.7.0",
+    "tsx": "4.21.0",
+    "typescript": "5.3.3"
   },
   "engines": {
     "node": ">=18.0.0"

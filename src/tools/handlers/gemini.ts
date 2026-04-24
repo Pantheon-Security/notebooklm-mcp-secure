@@ -50,6 +50,7 @@ export async function handleDeepResearch(
     query: string;
     wait_for_completion?: boolean;
     max_wait_seconds?: number;
+    thinking_level?: "minimal" | "low" | "medium" | "high";
   },
   sendProgress?: ProgressCallback
 ): Promise<ToolResult<DeepResearchResult>> {
@@ -88,6 +89,7 @@ export async function handleDeepResearch(
     // Start the research
     const interaction = await geminiClient.deepResearch({
       query: args.query,
+      thinkingLevel: args.thinking_level,
       background: true,
       waitForCompletion: args.wait_for_completion !== false,
       maxWaitMs,
