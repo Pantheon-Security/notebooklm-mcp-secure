@@ -48,7 +48,11 @@ import {
   handleSetQuotaTier,
   handleCleanupData,
 } from "./system.js";
-import { handleResearchSources } from "./research.js";
+import {
+  handleResearchSources,
+  handleGetSourceDiscoveryStatus,
+  handleImportResearchResults,
+} from "./research.js";
 import {
   handleGenerateAudioOverview,
   handleGetAudioStatus,
@@ -265,6 +269,12 @@ export class ToolHandlers {
   }
   handleResearchSources(args: Parameters<typeof handleResearchSources>[1]) {
     return handleResearchSources(this.ctx, args);
+  }
+  handleGetSourceDiscoveryStatus(args: Parameters<typeof handleGetSourceDiscoveryStatus>[1]) {
+    return handleGetSourceDiscoveryStatus(this.ctx, args);
+  }
+  handleImportResearchResults(args: Parameters<typeof handleImportResearchResults>[1]) {
+    return handleImportResearchResults(this.ctx, args);
   }
 
   // === Webhooks ===
