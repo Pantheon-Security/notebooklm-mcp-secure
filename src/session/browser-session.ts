@@ -367,7 +367,12 @@ export class BrowserSession {
   /**
    * Ask a question to NotebookLM
    */
-  async ask(question: string, sendProgress?: ProgressCallback): Promise<string> {
+  async ask(
+    question: string,
+    sendProgress?: ProgressCallback,
+    options?: { sourceTitles?: string[] }
+  ): Promise<string> {
+    const sourceTitles = options?.sourceTitles;
     const askOnce = async (): Promise<string> => {
       if (!this.initialized || !this.page || this.isPageClosedSafe()) {
         log.warning(`  ℹ️  Session not initialized or page missing → re-initializing...`);
@@ -385,6 +390,17 @@ export class BrowserSession {
         const reAuthSuccess = await this.ensureAuthenticated();
         if (!reAuthSuccess) {
           throw new Error("Failed to re-authenticate session");
+        }
+      }
+
+      // Apply source-title filter (optional). Throws SourceSelectionError on
+      // unresolvable title; caller surfaces the error back to the MCP client.
+      if (sourceTitles && sourceTitles.length > 0) {
+        await sendProgress?.("Applying source filter...", 2, 5);
+        const { applySourceFilter } = await import("../notebook-creation/source-selection.js");
+        const applied = await applySourceFilter(page, sourceTitles);
+        if (applied) {
+          log.info(`  🎯 Scoped to ${applied.appliedTitles.length}/${applied.totalSources} sources`);
         }
       }
 

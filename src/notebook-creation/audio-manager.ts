@@ -26,6 +26,7 @@ import { AuthManager } from "../auth/auth-manager.js";
 import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
 import { randomDelay } from "../utils/stealth-utils.js";
+import { applySourceFilter, SourceSelectionError } from "./source-selection.js";
 import fs from "fs";
 import path from "path";
 
@@ -184,12 +185,27 @@ export class AudioManager {
   /**
    * Generate an audio overview for a notebook
    */
-  async generateAudioOverview(notebookUrl: string): Promise<GenerateAudioResult> {
+  async generateAudioOverview(
+    notebookUrl: string,
+    options?: { sourceTitles?: string[] }
+  ): Promise<GenerateAudioResult> {
     log.info(`🎙️ Generating audio overview for: ${notebookUrl}`);
 
     const page = await this.navigateToNotebook(notebookUrl);
 
     try {
+      // Apply source filter (optional) — check only matched sources
+      if (options?.sourceTitles?.length) {
+        try {
+          await applySourceFilter(page, options.sourceTitles);
+        } catch (e) {
+          if (e instanceof SourceSelectionError) {
+            return { success: false, status: { status: "unknown" }, error: e.message };
+          }
+          throw e;
+        }
+      }
+
       // If an artifact already exists, return its state
       const currentStatus = await this.checkAudioStatusInternal(page);
       if (currentStatus.status === "generating") {

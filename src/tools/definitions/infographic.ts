@@ -82,6 +82,11 @@ If no options are supplied, a fast direct-tile click runs.
         type: "string",
         description: "Free-form customization instructions (style, color, emphasis points).",
       },
+      source_titles: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional. Case-insensitive substring patterns — each must match exactly one source title. When provided, only those sources are used as input. Omit to use all sources.",
+      },
     },
   },
 };

@@ -20,6 +20,7 @@ import { AuthManager } from "../auth/auth-manager.js";
 import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
 import { randomDelay } from "../utils/stealth-utils.js";
+import { applySourceFilter, SourceSelectionError } from "./source-selection.js";
 
 /**
  * Visual styles for video overviews (matches actual NotebookLM UI)
@@ -345,7 +346,8 @@ export class VideoManager {
   async generateVideoOverview(
     notebookUrl: string,
     style: VideoStyle = "auto-select",
-    format: VideoFormat = "explainer"
+    format: VideoFormat = "explainer",
+    options?: { sourceTitles?: string[] }
   ): Promise<GenerateVideoResult> {
     log.info(`Generating video overview for: ${notebookUrl}`);
     log.info(`  Style: ${style}, Format: ${format}`);
@@ -353,6 +355,18 @@ export class VideoManager {
     const page = await this.navigateToNotebook(notebookUrl);
 
     try {
+      // Apply source filter (optional)
+      if (options?.sourceTitles?.length) {
+        try {
+          await applySourceFilter(page, options.sourceTitles);
+        } catch (e) {
+          if (e instanceof SourceSelectionError) {
+            return { success: false, status: { status: "unknown" }, error: e.message };
+          }
+          throw e;
+        }
+      }
+
       // Ensure Studio panel is visible
       const panelOpen = await this.ensureStudioPanelOpen(page);
       if (!panelOpen) {
