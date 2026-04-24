@@ -39,6 +39,11 @@ const generateDataTableTool: Tool = {
         type: "string",
         description: "Or direct notebook URL (overrides notebook_id)",
       },
+      source_titles: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional. Case-insensitive substring patterns — each must match exactly one source title. When provided, only those sources are used as input. Omit to use all sources.",
+      },
     },
   },
 };

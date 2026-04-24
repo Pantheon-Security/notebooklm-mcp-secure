@@ -756,9 +756,14 @@ Summary with:
 - Notebook must have at least one source
 - Audio generation may not be available on all notebooks
 
+## Source filtering
+Pass \`source_titles\` to restrict the audio's input to specific sources.
+Each string is a case-insensitive substring that must match exactly one
+source title (use list_sources to find them). Omit to use all sources.
+
 ## Example
 \`\`\`json
-{ "notebook_id": "my-research" }
+{ "notebook_id": "my-research", "source_titles": ["MCP", "スライド"] }
 \`\`\``,
     inputSchema: {
       type: "object",
@@ -770,6 +775,11 @@ Summary with:
         notebook_url: {
           type: "string",
           description: "Or direct notebook URL (overrides notebook_id)",
+        },
+        source_titles: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional. Case-insensitive substring patterns — each must match exactly one source title. When provided, only those sources are used as input. Omit to use all sources.",
         },
       },
     },

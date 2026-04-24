@@ -79,6 +79,7 @@ export async function handleGenerateAudioOverview(
   args: {
     notebook_id?: string;
     notebook_url?: string;
+    source_titles?: string[];
   }
 ): Promise<ToolResult<GenerateAudioResult>> {
   log.info(`🔧 [TOOL] generate_audio_overview called`);
@@ -112,7 +113,9 @@ export async function handleGenerateAudioOverview(
 
     // Generate audio
     const audioManager = new AudioManager(ctx.authManager, contextManager);
-    const result = await audioManager.generateAudioOverview(safeUrl);
+    const result = await audioManager.generateAudioOverview(safeUrl, {
+      sourceTitles: args.source_titles,
+    });
 
     if (result.success) {
       log.success(`✅ [TOOL] generate_audio_overview completed (status: ${result.status.status})`);
@@ -260,6 +263,7 @@ export async function handleGenerateVideoOverview(
     notebook_url?: string;
     style?: VideoStyle;
     format?: VideoFormat;
+    source_titles?: string[];
   }
 ): Promise<ToolResult<GenerateVideoResult>> {
   log.info(`🔧 [TOOL] generate_video_overview called`);
@@ -296,7 +300,8 @@ export async function handleGenerateVideoOverview(
     const result = await videoManager.generateVideoOverview(
       safeUrl,
       args.style || "auto-select",
-      args.format || "explainer"
+      args.format || "explainer",
+      { sourceTitles: args.source_titles }
     );
 
     if (result.success) {
@@ -381,6 +386,7 @@ export async function handleGenerateDataTable(
   args: {
     notebook_id?: string;
     notebook_url?: string;
+    source_titles?: string[];
   }
 ): Promise<ToolResult<GenerateDataTableResult>> {
   log.info(`🔧 [TOOL] generate_data_table called`);
@@ -414,7 +420,9 @@ export async function handleGenerateDataTable(
 
     // Generate data table
     const dataTableManager = new DataTableManager(ctx.authManager, contextManager);
-    const result = await dataTableManager.generateDataTable(safeUrl);
+    const result = await dataTableManager.generateDataTable(safeUrl, {
+      sourceTitles: args.source_titles,
+    });
 
     if (result.success) {
       log.success(`✅ [TOOL] generate_data_table completed (status: ${result.status.status})`);
@@ -509,6 +517,7 @@ export async function handleGenerateSlides(
     length?: SlidesLength;
     language?: string;
     description?: string;
+    source_titles?: string[];
   }
 ): Promise<ToolResult<GenerateSlidesResult>> {
   log.info(`🔧 [TOOL] generate_slides called`);
@@ -521,6 +530,7 @@ export async function handleGenerateSlides(
       ...(args.length && { length: args.length }),
       ...(args.language && { language: args.language }),
       ...(args.description && { description: args.description }),
+      ...(args.source_titles?.length && { sourceTitles: args.source_titles }),
     };
     const result = await slidesManager.generateSlides(safeUrl, Object.keys(options).length ? options : undefined);
     if (result.success) {
@@ -542,7 +552,7 @@ export async function handleGenerateSlides(
 
 export async function handleReviseSlides(
   ctx: HandlerContext,
-  args: { notebook_id?: string; notebook_url?: string; instructions: string }
+  args: { notebook_id?: string; notebook_url?: string; instructions: string; source_titles?: string[] }
 ): Promise<ToolResult<ReviseSlidesResult>> {
   log.info(`🔧 [TOOL] revise_slides called`);
   try {
@@ -552,7 +562,9 @@ export async function handleReviseSlides(
     }
     const contextManager = ctx.sessionManager.getContextManager();
     const slidesManager = new SlidesManager(ctx.authManager, contextManager);
-    const result = await slidesManager.reviseSlides(safeUrl, args.instructions);
+    const result = await slidesManager.reviseSlides(safeUrl, args.instructions, {
+      sourceTitles: args.source_titles,
+    });
     if (result.success) {
       log.success(`✅ [TOOL] revise_slides completed (status: ${result.status.status})`);
     } else {
@@ -632,6 +644,7 @@ export async function handleGenerateInfographic(
     orientation?: InfographicOrientation;
     language?: string;
     description?: string;
+    source_titles?: string[];
   }
 ): Promise<ToolResult<GenerateInfographicResult>> {
   log.info(`🔧 [TOOL] generate_infographic called`);
@@ -644,6 +657,7 @@ export async function handleGenerateInfographic(
       ...(args.orientation && { orientation: args.orientation }),
       ...(args.language && { language: args.language }),
       ...(args.description && { description: args.description }),
+      ...(args.source_titles?.length && { sourceTitles: args.source_titles }),
     };
     const result = await infoManager.generateInfographic(safeUrl, Object.keys(options).length ? options : undefined);
     if (result.success) {

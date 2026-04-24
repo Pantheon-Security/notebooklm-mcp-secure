@@ -141,6 +141,14 @@ export const askQuestionTool: Tool = {
         description:
           "Optional notebook URL (overrides notebook_id). Use this for ad-hoc queries to notebooks not in your library.",
       },
+      source_titles: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Optional. Case-insensitive substring patterns — each must match exactly one source title. " +
+          "When provided, only the matched sources are checked in the source panel before asking, " +
+          "so the answer is scoped to them. Example: [\"MCP\", \"スライド自動生成\"]. Omit to use all sources.",
+      },
       show_browser: {
         type: "boolean",
         description:

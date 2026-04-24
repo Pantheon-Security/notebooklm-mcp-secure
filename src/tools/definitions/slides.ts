@@ -69,6 +69,11 @@ If no options are supplied, a fast direct-tile click runs (same as before).
         type: "string",
         description: "Free-form customization instructions (audience, style, emphasis points).",
       },
+      source_titles: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional. Case-insensitive substring patterns — each must match exactly one source title. When provided, only those sources are used as input. Omit to use all sources.",
+      },
     },
   },
 };
@@ -125,6 +130,11 @@ const reviseSlidesTool: Tool = {
       instructions: {
         type: "string",
         description: "Revision instructions — what to change about the existing deck.",
+      },
+      source_titles: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional. Case-insensitive substring patterns — each must match exactly one source title. When provided, only those sources are used as input for the revision. Omit to use all sources.",
       },
     },
     required: ["instructions"],

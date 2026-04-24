@@ -43,6 +43,7 @@ import { AuthManager } from "../auth/auth-manager.js";
 import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
 import { randomDelay } from "../utils/stealth-utils.js";
+import { applySourceFilter, SourceSelectionError } from "./source-selection.js";
 import fs from "fs";
 import path from "path";
 
@@ -96,6 +97,9 @@ export interface GenerateInfographicOptions {
   language?: string;
   /** Custom free-form instructions (style, color, emphasis points). */
   description?: string;
+  /** Optional source-title patterns (case-insensitive substrings). Each must match
+   *  exactly one source. When provided, only those sources are checked before generation. */
+  sourceTitles?: string[];
 }
 
 export interface GenerateInfographicResult {
@@ -340,6 +344,18 @@ export class InfographicManager {
     const page = await this.navigateToNotebook(notebookUrl);
 
     try {
+      // Apply source filter (optional)
+      if (options?.sourceTitles?.length) {
+        try {
+          await applySourceFilter(page, options.sourceTitles);
+        } catch (e) {
+          if (e instanceof SourceSelectionError) {
+            return { success: false, status: { status: "unknown" }, error: e.message };
+          }
+          throw e;
+        }
+      }
+
       const panelOpen = await this.ensureStudioPanelOpen(page);
       if (!panelOpen) {
         return { success: false, status: { status: "unknown" }, error: "Could not find Studio panel toggle button." };

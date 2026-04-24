@@ -20,6 +20,7 @@ import { AuthManager } from "../auth/auth-manager.js";
 import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
 import { randomDelay } from "../utils/stealth-utils.js";
+import { applySourceFilter, SourceSelectionError } from "./source-selection.js";
 
 export interface DataTable {
   headers: string[];
@@ -221,12 +222,27 @@ export class DataTableManager {
   /**
    * Generate a data table for a notebook
    */
-  async generateDataTable(notebookUrl: string): Promise<GenerateDataTableResult> {
+  async generateDataTable(
+    notebookUrl: string,
+    options?: { sourceTitles?: string[] }
+  ): Promise<GenerateDataTableResult> {
     log.info(`Generating data table for: ${notebookUrl}`);
 
     const page = await this.navigateToNotebook(notebookUrl);
 
     try {
+      // Apply source filter (optional)
+      if (options?.sourceTitles?.length) {
+        try {
+          await applySourceFilter(page, options.sourceTitles);
+        } catch (e) {
+          if (e instanceof SourceSelectionError) {
+            return { success: false, status: { status: "unknown" }, error: e.message };
+          }
+          throw e;
+        }
+      }
+
       // Ensure Studio panel is visible
       const panelOpen = await this.ensureStudioPanelOpen(page);
       if (!panelOpen) {

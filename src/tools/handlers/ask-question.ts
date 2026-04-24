@@ -164,7 +164,9 @@ export async function handleAskQuestion(
     await sendProgress?.("Asking question to NotebookLM...", 2, 5);
 
     // Ask the question (pass progress callback) - using validated question
-    const rawAnswer = await session.ask(safeQuestion, sendProgress);
+    const rawAnswer = await session.ask(safeQuestion, sendProgress, {
+      sourceTitles: Array.isArray((args as any).source_titles) ? (args as any).source_titles : undefined,
+    });
 
     // === SECURITY: Validate response for prompt injection & malicious content ===
     await sendProgress?.("Validating response security...", 4, 5);
