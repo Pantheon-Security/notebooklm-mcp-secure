@@ -48,6 +48,7 @@ import {
   handleSetQuotaTier,
   handleCleanupData,
 } from "./system.js";
+import { handleResearchSources } from "./research.js";
 import {
   handleGenerateAudioOverview,
   handleGetAudioStatus,
@@ -261,6 +262,9 @@ export class ToolHandlers {
   }
   handleDownloadInfographic(args: Parameters<typeof handleDownloadInfographic>[1]) {
     return handleDownloadInfographic(this.ctx, args);
+  }
+  handleResearchSources(args: Parameters<typeof handleResearchSources>[1]) {
+    return handleResearchSources(this.ctx, args);
   }
 
   // === Webhooks ===
