@@ -7,12 +7,43 @@
 import type { Page } from "patchright";
 import * as fs from "fs";
 import * as path from "path";
+import TurndownService from "turndown";
 import { AuthManager } from "../auth/auth-manager.js";
 import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
 import { randomDelay, humanType } from "../utils/stealth-utils.js";
 import { NOTEBOOKLM_SELECTORS } from "./selectors.js";
 import type { NotebookSource } from "./types.js";
+
+export type SourceContentFormat = "markdown" | "html" | "text";
+
+export interface SourceGuide {
+  /** AI-generated summary shown inside .source-guide-container */
+  summary: string;
+  /** Topic chips labelled with keywords ("植込み型心臓デバイス" etc.) */
+  topics: string[];
+}
+
+export interface SourceContentResult {
+  success: boolean;
+  sourceId: string;
+  sourceTitle: string;
+  format: SourceContentFormat;
+  content: string;
+  contentLength: number;
+  sourceGuide?: SourceGuide;
+  error?: string;
+}
+
+export interface DownloadSourceResult {
+  success: boolean;
+  sourceId: string;
+  sourceTitle: string;
+  format: SourceContentFormat;
+  filePath?: string;
+  size?: number;
+  error?: string;
+}
 
 export interface SourceInfo {
   id: string;
@@ -899,6 +930,301 @@ export class SourceManager {
         // Ignore close errors
       }
       this.page = null;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Source content extraction (get_source_content / download_source)
+  // ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * Open the source-detail view for the Nth source row.
+   *
+   * April 2026 UI:
+   *   .source-panel toggles to .source-panel-view when a source is opened.
+   *   The content renders inside <source-viewer> → <labs-tailwind-doc-viewer>.
+   *
+   * Returns { opened: true, title } on success.
+   */
+  private async openSourceView(page: Page, sourceIndex: number): Promise<{ opened: boolean; title: string }> {
+    // Ensure source list is visible, not the source-view mode (close it if open)
+    const alreadyInView = await page.evaluate(() => {
+      // @ts-expect-error - DOM types
+      const panel = document.querySelector('section.source-panel');
+      return panel ? (panel.className || '').includes('source-panel-view') : false;
+    });
+    if (alreadyInView) {
+      await this.closeSourceView(page);
+      await randomDelay(500, 800);
+    }
+
+    // Wait for the rows
+    try {
+      await page.waitForSelector('.single-source-container', { timeout: 10000 });
+    } catch {
+      return { opened: false, title: "" };
+    }
+
+    const opened = await page.evaluate((index: number) => {
+      // @ts-expect-error - DOM types
+      const rows = document.querySelectorAll('.single-source-container');
+      if (rows.length <= index) return { ok: false, title: "" };
+      const row = rows[index] as any;
+      const title = (row.querySelector('.source-title')?.textContent || '').trim();
+      const btn = row.querySelector('button.source-stretched-button') || row.querySelector('button');
+      if (!btn) return { ok: false, title };
+      btn.click();
+      return { ok: true, title };
+    }, sourceIndex);
+
+    if (!opened.ok) return { opened: false, title: opened.title || "" };
+
+    // Wait for the doc viewer to mount and populate
+    try {
+      await page.waitForSelector('labs-tailwind-doc-viewer', { timeout: 15000 });
+    } catch {
+      return { opened: false, title: opened.title };
+    }
+    await randomDelay(500, 900);
+    return { opened: true, title: opened.title };
+  }
+
+  /**
+   * Return to the source list.
+   */
+  private async closeSourceView(page: Page): Promise<void> {
+    await page.evaluate(() => {
+      // @ts-expect-error - DOM types
+      const btn = document.querySelector('section.source-panel .panel-header button[jslog^="243453"]') as any;
+      if (btn) btn.click();
+    });
+  }
+
+  /**
+   * Pull the HTML content of the open source-viewer and the source-guide
+   * (AI summary + topic chips). Must be called while the source-viewer is mounted.
+   */
+  private async extractRawSourceView(page: Page): Promise<{
+    title: string;
+    contentHtml: string;
+    guideSummary: string;
+    guideTopics: string[];
+  }> {
+    return await page.evaluate(() => {
+      // @ts-expect-error - DOM types
+      const panel = document.querySelector('section.source-panel');
+      const titleEl = panel?.querySelector('.source-title-container [class*="title"], .source-title-container');
+      const title = (titleEl?.textContent || '').trim();
+
+      // @ts-expect-error - DOM types
+      const docViewer = document.querySelector('labs-tailwind-doc-viewer');
+      const contentHtml = (docViewer?.innerHTML || '').trim();
+
+      // Source guide summary (AI-generated paragraph). Chips are shown in the same
+      // container as labeled keyword buttons.
+      // @ts-expect-error - DOM types
+      const guide = document.querySelector('.source-guide-container');
+      let guideSummary = '';
+      const topics: string[] = [];
+      if (guide) {
+        // Clone and strip chip text to get the narrative paragraph cleanly
+        // First collect topic chips
+        guide.querySelectorAll('button[class*="chip"], mat-chip, [class*="topic-chip"]').forEach((c: any) => {
+          const t = (c.textContent || '').trim().slice(0, 80);
+          if (t) topics.push(t);
+        });
+        // Narrative: take textContent of the guide, then remove chip text
+        let full = (guide.textContent || '').trim();
+        for (const t of topics) {
+          full = full.split(t).join(' ');
+        }
+        guideSummary = full.replace(/\s+/g, ' ').trim();
+      }
+
+      return { title, contentHtml, guideSummary, guideTopics: topics };
+    });
+  }
+
+  /**
+   * Convert the extracted HTML into the requested format.
+   */
+  private formatSourceContent(html: string, format: SourceContentFormat): string {
+    if (format === "html") return html;
+    if (format === "text") {
+      // Simple text extraction: strip tags, decode common entities
+      const stripped = html
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/(p|li|h[1-6]|tr|div)>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\n{3,}/g, '\n\n');
+      return stripped.trim();
+    }
+    // format === "markdown"
+    const td = new TurndownService({
+      headingStyle: "atx",
+      bulletListMarker: "-",
+      codeBlockStyle: "fenced",
+      emDelimiter: "_",
+    });
+    // GitHub-flavored table support (turndown ships a basic handler; add a rule for
+    // NotebookLM's nested tables which often have no <thead>)
+    td.addRule("tableCompat", {
+      filter: (node: any) => node.nodeName === "TABLE",
+      replacement: (_content: any, node: any) => {
+        const rows = Array.from((node as any).querySelectorAll("tr"));
+        if (rows.length === 0) return "";
+        const lines: string[] = [];
+        rows.forEach((tr: any, idx: number) => {
+          const cells = Array.from(tr.querySelectorAll("th, td"))
+            .map((c: any) => (c.textContent || "").trim().replace(/\|/g, "\\|").replace(/\n/g, " "));
+          lines.push("| " + cells.join(" | ") + " |");
+          if (idx === 0) {
+            lines.push("| " + cells.map(() => "---").join(" | ") + " |");
+          }
+        });
+        return "\n\n" + lines.join("\n") + "\n\n";
+      },
+    });
+    return td.turndown(html).trim();
+  }
+
+  /**
+   * Parse a source ID like "source-0" into its integer index. Returns -1 on invalid.
+   */
+  private parseSourceId(sourceId: string): number {
+    const m = /^source-(\d+)$/.exec(sourceId);
+    if (!m) return -1;
+    const n = parseInt(m[1], 10);
+    return Number.isInteger(n) && n >= 0 ? n : -1;
+  }
+
+  /**
+   * Public: Get the content of a source, optionally with its source guide.
+   *
+   * @param notebookUrl NotebookLM URL
+   * @param sourceId    e.g. "source-0" from list_sources
+   * @param format      markdown (default) / html / text
+   */
+  async getSourceContent(
+    notebookUrl: string,
+    sourceId: string,
+    format: SourceContentFormat = "markdown"
+  ): Promise<SourceContentResult> {
+    log.info(`📄 get_source_content: ${sourceId} (${format})`);
+
+    const idx = this.parseSourceId(sourceId);
+    if (idx < 0) {
+      return {
+        success: false, sourceId, sourceTitle: "", format,
+        content: "", contentLength: 0,
+        error: `Invalid source_id "${sourceId}" (expected format "source-N" from list_sources).`,
+      };
+    }
+
+    const page = await this.navigateToNotebook(notebookUrl);
+
+    try {
+      const { opened, title } = await this.openSourceView(page, idx);
+      if (!opened) {
+        return {
+          success: false, sourceId, sourceTitle: title, format,
+          content: "", contentLength: 0,
+          error: `Could not open source at index ${idx}. Use list_sources to see valid IDs.`,
+        };
+      }
+
+      const extracted = await this.extractRawSourceView(page);
+      const formatted = this.formatSourceContent(extracted.contentHtml, format);
+
+      // Try to restore the source list view for a clean browser state
+      await this.closeSourceView(page).catch(() => {});
+
+      log.success(`  ✅ extracted ${formatted.length} chars (title: ${extracted.title.slice(0,40)}...)`);
+
+      return {
+        success: true,
+        sourceId,
+        sourceTitle: extracted.title || title,
+        format,
+        content: formatted,
+        contentLength: formatted.length,
+        ...(extracted.guideSummary || extracted.guideTopics.length ? {
+          sourceGuide: {
+            summary: extracted.guideSummary,
+            topics: extracted.guideTopics,
+          },
+        } : {}),
+      };
+    } finally {
+      await this.closePage();
+    }
+  }
+
+  /**
+   * Public: Download a source's content to disk in the requested format.
+   */
+  async downloadSource(
+    notebookUrl: string,
+    sourceId: string,
+    format: SourceContentFormat = "markdown",
+    outputPath?: string
+  ): Promise<DownloadSourceResult> {
+    log.info(`📥 download_source: ${sourceId} (${format}) → ${outputPath || "<auto>"}`);
+
+    const content = await this.getSourceContent(notebookUrl, sourceId, format);
+    if (!content.success) {
+      return {
+        success: false,
+        sourceId,
+        sourceTitle: content.sourceTitle,
+        format,
+        error: content.error,
+      };
+    }
+
+    // Decide final path
+    const ext = format === "html" ? "html" : format === "text" ? "txt" : "md";
+    let finalPath: string;
+    if (outputPath) {
+      finalPath = outputPath;
+    } else {
+      const slug = (content.sourceTitle || sourceId)
+        .replace(/[\\/:*?"<>|]/g, "_")
+        .replace(/\s+/g, "_")
+        .slice(0, 80);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      finalPath = path.join(process.env.HOME || "/tmp", `notebooklm-source-${slug}-${timestamp}.${ext}`);
+    }
+
+    try {
+      const dir = path.dirname(finalPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(finalPath, content.content, "utf8");
+      const stat = fs.statSync(finalPath);
+      log.success(`  ✅ Saved source (${stat.size} bytes) to: ${finalPath}`);
+      return {
+        success: true,
+        sourceId,
+        sourceTitle: content.sourceTitle,
+        format,
+        filePath: finalPath,
+        size: stat.size,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        success: false,
+        sourceId,
+        sourceTitle: content.sourceTitle,
+        format,
+        error: `Failed to write file: ${msg}`,
+      };
     }
   }
 }

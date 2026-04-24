@@ -58,11 +58,13 @@
     "@google/genai": "^1.41.0",
     "@modelcontextprotocol/sdk": "^1.25.3",
     "@noble/post-quantum": "^0.5.4",
+    "@types/turndown": "^5.0.6",
     "dotenv": "^17.2.3",
     "env-paths": "^4.0.0",
     "globby": "^16.1.0",
     "patchright": "^1.57.0",
     "pdf-lib": "^1.17.1",
+    "turndown": "^7.2.4",
     "zod": "^4.3.6"
   },
   "devDependencies": {
