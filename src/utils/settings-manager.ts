@@ -68,6 +68,7 @@ const PROFILES: Record<ProfileName, string[]> = {
     "generate_infographic",
     "get_infographic_status",
     "download_infographic",
+    "research_sources",
     // Session & system
     "get_health",
     "setup_auth",

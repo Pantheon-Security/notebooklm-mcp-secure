@@ -21,6 +21,7 @@ import { videoTools } from "./definitions/video.js";
 import { dataTableTools } from "./definitions/data-tables.js";
 import { slidesTools } from "./definitions/slides.js";
 import { infographicTools } from "./definitions/infographic.js";
+import { researchTools } from "./definitions/research.js";
 import { queryHistoryTools } from "./definitions/query-history.js";
 import { chatHistoryTools } from "./definitions/chat-history.js";
 import { getToolIcons } from "./icons.js";
@@ -68,6 +69,7 @@ export function buildToolDefinitions(library: NotebookLibrary): Tool[] {
     ...dataTableTools,
     ...slidesTools,
     ...infographicTools,
+    ...researchTools,
     ...queryHistoryTools,
     ...chatHistoryTools,
   ];

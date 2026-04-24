@@ -179,6 +179,7 @@ class NotebookLMMCPServer {
       ["generate_infographic", (a: any) => this.toolHandlers.handleGenerateInfographic(a)],
       ["get_infographic_status", (a: any) => this.toolHandlers.handleGetInfographicStatus(a)],
       ["download_infographic", (a: any) => this.toolHandlers.handleDownloadInfographic(a)],
+      ["research_sources", (a: any) => this.toolHandlers.handleResearchSources(a)],
       // Webhooks
       ["configure_webhook", (a: any) => this.toolHandlers.handleConfigureWebhook(a)],
       ["list_webhooks", () => this.toolHandlers.handleListWebhooks()],
