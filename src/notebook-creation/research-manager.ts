@@ -253,6 +253,7 @@ export class ResearchManager {
       await randomDelay(600, 900);
 
       const sourcesBefore = await this.countSources(page);
+      const titlesBefore = await this.listSourceTitles(page);
 
       // 2. Set mode (Fast/Deep). Only switch if not already the selected mode.
       if (mode !== "fast") {
@@ -335,8 +336,14 @@ export class ResearchManager {
             await page.waitForTimeout(500);
           }
           if (imported) {
+            // Give NotebookLM a moment to finish titling the newly-imported
+            // sources (raw URL → page-title extraction takes a few seconds).
+            await page.waitForTimeout(3000);
+            const beforeSet = new Set(titlesBefore);
             const allTitles = await this.listSourceTitles(page);
-            addedTitles = allTitles.slice(0, allTitles.length - startCount);
+            // Set-diff is robust to reordering (NotebookLM reorders sources
+            // by title after ingestion) and to URL→title rewrites.
+            addedTitles = allTitles.filter(t => !beforeSet.has(t));
           }
         }
       }
