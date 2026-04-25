@@ -11,7 +11,30 @@ import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
 import type { Page } from "patchright";
 
+type BrowserAttribute = {
+  name: string;
+  value?: string;
+};
 
+type BrowserElement = {
+  tagName: string;
+  textContent?: string | null;
+  className?: string;
+  id?: string;
+  type?: string;
+  placeholder?: string;
+  value?: string;
+  offsetParent?: unknown;
+  attributes?: Iterable<BrowserAttribute>;
+  getAttribute(name: string): string | null;
+  click(): void;
+};
+
+type BrowserDocumentContext = {
+  document: {
+    querySelectorAll(selector: string): Iterable<BrowserElement>;
+  };
+};
 
 interface ElementInfo {
   tag: string;
@@ -29,28 +52,28 @@ async function dumpElements(page: Page, description: string): Promise<ElementInf
   log.info(`\n📋 ${description}:`);
 
   const elements = await page.evaluate(() => {
-    const results: any[] = [];
-    // @ts-expect-error - DOM types
-    const els = document.querySelectorAll('button, input, textarea, [role="button"], [role="menuitem"], [role="option"], [role="tab"], a, [contenteditable="true"]');
+    const browser = globalThis as unknown as BrowserDocumentContext;
+    const results: ElementInfo[] = [];
+    const els = browser.document.querySelectorAll('button, input, textarea, [role="button"], [role="menuitem"], [role="option"], [role="tab"], a, [contenteditable="true"]');
 
     for (const el of els) {
-      const text = (el as any).textContent?.trim().substring(0, 50) || "";
+      const text = el.textContent?.trim().substring(0, 50) || "";
       // Skip empty or icon-only elements
-      if (!text && !(el as any).getAttribute("aria-label")) continue;
+      if (!text && !el.getAttribute("aria-label")) continue;
 
       results.push({
         tag: el.tagName,
         text: text,
-        classes: (el as any).className?.substring?.(0, 100) || "",
-        id: (el as any).id || "",
-        ariaLabel: (el as any).getAttribute("aria-label") || "",
-        role: (el as any).getAttribute("role") || "",
-        type: (el as any).getAttribute("type") || "",
-        placeholder: (el as any).getAttribute("placeholder") || "",
+        classes: el.className?.substring?.(0, 100) || "",
+        id: el.id || "",
+        ariaLabel: el.getAttribute("aria-label") || "",
+        role: el.getAttribute("role") || "",
+        type: el.getAttribute("type") || "",
+        placeholder: el.getAttribute("placeholder") || "",
         dataAttrs: Object.fromEntries(
-          Array.from((el as any).attributes || [])
-            .filter((a: any) => a.name.startsWith("data-"))
-            .map((a: any) => [a.name, a.value?.substring(0, 50)])
+          Array.from(el.attributes || [])
+            .filter((a) => a.name.startsWith("data-"))
+            .map((a) => [a.name, a.value?.substring(0, 50) || ""])
         ),
       });
     }
@@ -80,13 +103,13 @@ async function findAndClick(page: Page, textPatterns: string[], description: str
 
   for (const pattern of textPatterns) {
     const clicked = await page.evaluate((p) => {
-      // @ts-expect-error - DOM types
-      const els = document.querySelectorAll('button, [role="button"], [role="menuitem"], [role="tab"], a');
+      const browser = globalThis as unknown as BrowserDocumentContext;
+      const els = browser.document.querySelectorAll('button, [role="button"], [role="menuitem"], [role="tab"], a');
       for (const el of els) {
-        const text = (el as any).textContent?.toLowerCase() || "";
-        const aria = (el as any).getAttribute("aria-label")?.toLowerCase() || "";
+        const text = el.textContent?.toLowerCase() || "";
+        const aria = el.getAttribute("aria-label")?.toLowerCase() || "";
         if (text.includes(p.toLowerCase()) || aria.includes(p.toLowerCase())) {
-          (el as any).click();
+          el.click();
           return true;
         }
       }
@@ -146,9 +169,9 @@ async function main() {
     // Step 3: Look for name input or skip if auto-created
     log.info("\n📍 Step 3: Look for notebook name input");
     const inputs = await page.evaluate(() => {
-      // @ts-expect-error - DOM types
-      const els = document.querySelectorAll('input, textarea, [contenteditable="true"]');
-      return Array.from(els).map((el: any) => ({
+      const browser = globalThis as unknown as BrowserDocumentContext;
+      const els = browser.document.querySelectorAll('input, textarea, [contenteditable="true"]');
+      return Array.from(els).map((el) => ({
         tag: el.tagName,
         type: el.type,
         placeholder: el.placeholder,
@@ -183,9 +206,9 @@ async function main() {
 
       // Specifically look for input fields
       const urlInputs = await page.evaluate(() => {
-        // @ts-expect-error - DOM types
-        const els = document.querySelectorAll('input[type="url"], input[type="text"], input:not([type]), textarea');
-        return Array.from(els).map((el: any) => ({
+        const browser = globalThis as unknown as BrowserDocumentContext;
+        const els = browser.document.querySelectorAll('input[type="url"], input[type="text"], input:not([type]), textarea');
+        return Array.from(els).map((el) => ({
           tag: el.tagName,
           type: el.type,
           placeholder: el.placeholder,

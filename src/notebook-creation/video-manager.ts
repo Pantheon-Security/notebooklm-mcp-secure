@@ -53,6 +53,25 @@ export interface GenerateVideoResult {
   error?: string;
 }
 
+type BrowserDomElement = unknown;
+
+interface BrowserClickableElement {
+  textContent?: string | null;
+  click(): void;
+  querySelector(selector: string): BrowserDomElement | null;
+  querySelectorAll(selector: string): Iterable<BrowserDomElement>;
+  getAttribute?(name: string): string | null;
+  classList?: { contains(token: string): boolean };
+  disabled?: boolean;
+}
+
+interface BrowserDocumentContext {
+  document: {
+    querySelector(selector: string): BrowserDomElement | null;
+    querySelectorAll(selector: string): Iterable<BrowserDomElement>;
+  };
+}
+
 export class VideoManager {
   private page: Page | null = null;
 
@@ -106,9 +125,10 @@ export class VideoManager {
     }
 
     return await page.evaluate(() => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
+
       // 1. Tiles present — panel is open, nothing to do
-      // @ts-expect-error - DOM types
-      if (document.querySelector(".create-artifact-button-container, [class*='create-artifact'][role='button']")) return true;
+      if (browser.document.querySelector(".create-artifact-button-container, [class*='create-artifact'][role='button']")) return true;
 
       // 2. Tiles absent — panel is collapsed. Find toggle and click to open.
       // No aria-label text matching: labels are locale-dependent (e.g. "Réduire" in French).
@@ -119,8 +139,7 @@ export class VideoManager {
       ];
 
       for (const selector of candidateSelectors) {
-        // @ts-expect-error - DOM types
-        const toggleBtn = document.querySelector(selector) as any;
+        const toggleBtn = browser.document.querySelector(selector) as BrowserClickableElement | null;
         if (!toggleBtn) continue;
         toggleBtn.click();
         return true;
@@ -140,12 +159,12 @@ export class VideoManager {
    */
   private async checkVideoStatusInternal(page: Page): Promise<VideoStatus> {
     return await page.evaluate(() => {
-      // @ts-expect-error - DOM types
-      const artifactItems = document.querySelectorAll(".artifact-item-button");
+      const browser = globalThis as unknown as BrowserDocumentContext;
+      const artifactItems = Array.from(browser.document.querySelectorAll(".artifact-item-button")) as BrowserClickableElement[];
       for (const item of artifactItems) {
-        const icon = (item as any).querySelector(".artifact-icon");
+        const icon = item.querySelector(".artifact-icon") as { textContent?: string | null } | null;
         const iconText = icon?.textContent?.trim() || "";
-        const title = (item as any).querySelector(".artifact-title");
+        const title = item.querySelector(".artifact-title") as { textContent?: string | null } | null;
         const titleText = title?.textContent?.trim().toLowerCase() || "";
 
         // Detect video artifacts using locale-independent signals first:
@@ -154,8 +173,8 @@ export class VideoManager {
         // - English title fallback: won't match French "résumé vidéo" but kept for extra confidence
         const isVideoByIcon = iconText === "subscriptions";
         const isVideoGenerating = iconText === "sync" && (
-          (item as any).classList.contains("shimmer-green") ||
-          (item as any).classList.contains("shimmer-blue")
+          item.classList?.contains("shimmer-green") ||
+          item.classList?.contains("shimmer-blue")
         );
         const isVideoByTitle = titleText.includes("video overview"); // English fallback only
 
@@ -165,8 +184,8 @@ export class VideoManager {
         if (
           isVideoGenerating ||
           iconText === "sync" ||
-          (item as any).classList.contains("shimmer-blue") ||
-          (item as any).classList.contains("shimmer-green")
+          item.classList?.contains("shimmer-blue") ||
+          item.classList?.contains("shimmer-green")
         ) {
           return { status: "generating" as const, progress: 0 };
         }
@@ -185,36 +204,36 @@ export class VideoManager {
    */
   private async clickVideoTile(page: Page): Promise<boolean> {
     return await page.evaluate(() => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
+
       // Primary: green CSS class (locale-independent — video tile always uses "green" accent)
       // Confirmed via live DOM inspection Feb 2026
-      // @ts-expect-error - DOM types
-      const tileByClass = document.querySelector('.create-artifact-button-container.green[role="button"]') as any;
+      const tileByClass = browser.document.querySelector('.create-artifact-button-container.green[role="button"]') as BrowserClickableElement | null;
       if (tileByClass) {
         tileByClass.click();
         return true;
       }
       // Secondary: mat-icon text scan — find tile whose icon is NOT "table_view" (data table)
       // Locale-independent: Material icon names are never translated
-      // @ts-expect-error - DOM types
-      const tiles = document.querySelectorAll('.create-artifact-button-container[role="button"]');
+      const tiles = Array.from(
+        browser.document.querySelectorAll('.create-artifact-button-container[role="button"]')
+      ) as BrowserClickableElement[];
       for (const tile of tiles) {
-        const icon = (tile as any).querySelector("mat-icon");
+        const icon = tile.querySelector("mat-icon") as { textContent?: string | null } | null;
         const iconText = icon?.textContent?.trim();
         if (iconText && iconText !== "table_view") {
-          (tile as any).click();
+          tile.click();
           return true;
         }
       }
       // Tertiary: jslog numeric ID (locale-independent, confirmed stable Feb 2026)
-      // @ts-expect-error - DOM types
-      const tileByJslog = document.querySelector('[jslog^="261214"][role="button"]') as any;
+      const tileByJslog = browser.document.querySelector('[jslog^="261214"][role="button"]') as BrowserClickableElement | null;
       if (tileByJslog) {
         tileByJslog.click();
         return true;
       }
       // Fallback: English aria-label
-      // @ts-expect-error - DOM types
-      const tileByAria = document.querySelector('[aria-label="Video Overview"][role="button"]') as any;
+      const tileByAria = browser.document.querySelector('[aria-label="Video Overview"][role="button"]') as BrowserClickableElement | null;
       if (tileByAria) {
         tileByAria.click();
         return true;
@@ -242,13 +261,13 @@ export class VideoManager {
    */
   private async selectFormat(page: Page, format: VideoFormat): Promise<boolean> {
     return await page.evaluate((fmt: string) => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
       // Format is in mat-radio-group.tile-group
-      // @ts-expect-error - DOM types
-      const radioGroup = document.querySelector("mat-radio-group.tile-group");
+      const radioGroup = browser.document.querySelector("mat-radio-group.tile-group") as BrowserClickableElement | null;
       if (!radioGroup) return false;
 
       // Primary: value attribute (locale-independent if Angular Material uses stable values)
-      const byValue = radioGroup.querySelector(`[value="${fmt}"]`) as any;
+      const byValue = radioGroup.querySelector(`[value="${fmt}"]`) as BrowserClickableElement | null;
       if (byValue) {
         byValue.click();
         return true;
@@ -256,11 +275,11 @@ export class VideoManager {
 
       // Fallback: text match (English only — may not work in non-English locales,
       // but selectFormat is best-effort; generation will use default format if this fails)
-      const labels = radioGroup.querySelectorAll("mat-radio-button, label, [role='radio']");
+      const labels = Array.from(radioGroup.querySelectorAll("mat-radio-button, label, [role='radio']")) as BrowserClickableElement[];
       for (const label of labels) {
         const text = label.textContent?.toLowerCase() || "";
         if (text.includes(fmt.toLowerCase())) {
-          (label as any).click();
+          label.click();
           return true;
         }
       }
@@ -273,13 +292,13 @@ export class VideoManager {
    */
   private async selectStyle(page: Page, style: VideoStyle): Promise<boolean> {
     return await page.evaluate((styleName: string) => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
       // Style is in mat-radio-group.carousel-group
-      // @ts-expect-error - DOM types
-      const radioGroup = document.querySelector("mat-radio-group.carousel-group");
+      const radioGroup = browser.document.querySelector("mat-radio-group.carousel-group") as BrowserClickableElement | null;
       if (!radioGroup) return false;
 
       // Primary: value attribute (locale-independent)
-      const byValue = radioGroup.querySelector(`[value="${styleName}"]`) as any;
+      const byValue = radioGroup.querySelector(`[value="${styleName}"]`) as BrowserClickableElement | null;
       if (byValue) {
         byValue.click();
         return true;
@@ -290,11 +309,11 @@ export class VideoManager {
       // Normalize: "retro-print" → "retro print"
       const normalized = styleName.replace(/-/g, " ").toLowerCase();
 
-      const labels = radioGroup.querySelectorAll("mat-radio-button, label, [role='radio']");
+      const labels = Array.from(radioGroup.querySelectorAll("mat-radio-button, label, [role='radio']")) as BrowserClickableElement[];
       for (const label of labels) {
         const text = label.textContent?.toLowerCase() || "";
         if (text.includes(normalized)) {
-          (label as any).click();
+          label.click();
           return true;
         }
       }
@@ -307,32 +326,31 @@ export class VideoManager {
    */
   private async clickDialogGenerate(page: Page): Promise<boolean> {
     return await page.evaluate(() => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
       // Primary: button in mat-dialog-actions
-      // @ts-expect-error - DOM types
-      const dialogActions = document.querySelector("mat-dialog-actions");
+      const dialogActions = browser.document.querySelector("mat-dialog-actions") as BrowserClickableElement | null;
       if (dialogActions) {
-        const btn = dialogActions.querySelector("button") as any;
+        const btn = dialogActions.querySelector("button") as BrowserClickableElement | null;
         if (btn) {
           btn.click();
           return true;
         }
       }
       // Fallback: button with primary color in any dialog
-      // @ts-expect-error - DOM types
-      const primaryBtn = document.querySelector('.dialog-actions button, button.button-color--primary') as any;
+      const primaryBtn = browser.document.querySelector('.dialog-actions button, button.button-color--primary') as BrowserClickableElement | null;
       if (primaryBtn) {
         primaryBtn.click();
         return true;
       }
       // Last resort: click the last enabled button in the dialog (locale-independent —
       // Material Design places the primary action button last in the DOM)
-      // @ts-expect-error - DOM types
-      const dialog = document.querySelector("mat-dialog-container");
+      const dialog = browser.document.querySelector("mat-dialog-container") as BrowserClickableElement | null;
       if (dialog) {
-        const buttons = Array.from(dialog.querySelectorAll("button")) as any[];
+        const buttons = Array.from(dialog.querySelectorAll("button")) as BrowserClickableElement[];
         for (let i = buttons.length - 1; i >= 0; i--) {
-          if (!buttons[i].disabled) {
-            buttons[i].click();
+          const button = buttons[i];
+          if (!button.disabled) {
+            button.click();
             return true;
           }
         }

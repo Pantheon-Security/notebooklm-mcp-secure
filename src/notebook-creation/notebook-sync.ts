@@ -13,6 +13,37 @@ import { AuthManager } from "../auth/auth-manager.js";
 import { SharedContextManager } from "../session/shared-context-manager.js";
 import type { NotebookLibrary } from "../library/notebook-library.js";
 
+type BrowserDomElement = unknown;
+
+type BrowserTextElement = {
+  textContent?: string | null;
+};
+
+type BrowserElementWithId = {
+  id?: string;
+};
+
+type BrowserElementWithQuery = {
+  querySelector(selector: string): BrowserDomElement | null;
+  querySelectorAll(selector: string): Iterable<BrowserDomElement>;
+};
+
+type BrowserClickableElement = BrowserTextElement &
+  BrowserElementWithQuery & {
+    click(): void;
+    getAttribute(name: string): string | null;
+  };
+
+type BrowserLinkElement = {
+  href?: string;
+};
+
+type BrowserDocumentContext = {
+  document: {
+    querySelectorAll(selector: string): Iterable<BrowserDomElement>;
+  };
+};
+
 
 
 export interface ActualNotebook {
@@ -116,11 +147,11 @@ export class NotebookSync {
     // Try to click on "My notebooks" tab if it exists
     try {
       const clicked = await this.page.evaluate(() => {
-        // @ts-expect-error - DOM types
-        const tabs = document.querySelectorAll('button, [role="tab"]');
+        const browser = globalThis as unknown as BrowserDocumentContext;
+        const tabs = Array.from(browser.document.querySelectorAll('button, [role="tab"]')) as BrowserClickableElement[];
         for (const tab of tabs) {
-          if ((tab as any).textContent?.includes("My notebooks")) {
-            (tab as any).click();
+          if (tab.textContent?.includes("My notebooks")) {
+            tab.click();
             return true;
           }
         }
@@ -149,10 +180,9 @@ export class NotebookSync {
     const diagnostic: string[] = [];
 
     const viewMode = await this.page.evaluate(() => {
-      // @ts-expect-error - DOM types
-      const pb = document.querySelectorAll('project-button').length;
-      // @ts-expect-error - DOM types
-      const tr = document.querySelectorAll('tr[role="row"]').length;
+      const browser = globalThis as unknown as BrowserDocumentContext;
+      const pb = Array.from(browser.document.querySelectorAll('project-button')).length;
+      const tr = Array.from(browser.document.querySelectorAll('tr[role="row"]')).length;
       return { projectButtons: pb, tableRows: tr };
     });
     diagnostic.push(`view-detect: project-button=${viewMode.projectButtons}, table-rows=${viewMode.tableRows}`);
@@ -211,8 +241,8 @@ export class NotebookSync {
     try {
       // Check if already in grid view
       const alreadyGrid = await this.page.evaluate(() => {
-        // @ts-expect-error - DOM types
-        return document.querySelectorAll('project-button').length > 0;
+        const browser = globalThis as unknown as BrowserDocumentContext;
+        return Array.from(browser.document.querySelectorAll('project-button')).length > 0;
       });
       if (alreadyGrid) {
         log.info("  📊 Already in grid view");
@@ -220,26 +250,25 @@ export class NotebookSync {
       }
 
       const switched = await this.page.evaluate(() => {
+        const browser = globalThis as unknown as BrowserDocumentContext;
         // Strategy 1: Find mat-button-toggle containing grid_view icon
-        // @ts-expect-error - DOM types
-        const toggles = document.querySelectorAll('mat-button-toggle');
+        const toggles = Array.from(browser.document.querySelectorAll('mat-button-toggle')) as BrowserClickableElement[];
         for (const toggle of toggles) {
-          const text = (toggle as any).textContent?.trim() || "";
+          const text = toggle.textContent?.trim() || "";
           if (text.includes('grid_view')) {
             // Click the inner button, not the toggle wrapper
-            const innerBtn = (toggle as any).querySelector('button') || toggle;
-            (innerBtn as any).click();
+            const innerBtn = (toggle.querySelector('button') as BrowserClickableElement | null) || toggle;
+            innerBtn.click();
             return "toggle";
           }
         }
 
         // Strategy 2: Find by aria-label
-        // @ts-expect-error - DOM types
-        const buttons = document.querySelectorAll('[role="radio"], button');
+        const buttons = Array.from(browser.document.querySelectorAll('[role="radio"], button')) as BrowserClickableElement[];
         for (const btn of buttons) {
-          const label = (btn as any).getAttribute('aria-label') || "";
+          const label = btn.getAttribute('aria-label') || "";
           if (label.toLowerCase().includes('grid view') || label.toLowerCase().includes('grid_view')) {
-            (btn as any).click();
+            btn.click();
             return "aria";
           }
         }
@@ -266,6 +295,7 @@ export class NotebookSync {
     if (!this.page) return [];
 
     return await this.page.evaluate(() => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
       const results: Array<{
         title: string;
         url: string;
@@ -273,13 +303,12 @@ export class NotebookSync {
         createdDate: string;
       }> = [];
 
-      // @ts-expect-error - DOM types
-      const projectButtons = document.querySelectorAll('project-button');
+      const projectButtons = Array.from(browser.document.querySelectorAll('project-button')) as BrowserClickableElement[];
 
       for (const btn of projectButtons) {
         try {
           // Extract title from .project-button-title
-          const titleEl = (btn as any).querySelector('.project-button-title');
+          const titleEl = btn.querySelector('.project-button-title') as (BrowserTextElement & BrowserElementWithId) | null;
           const title = titleEl?.textContent?.trim() || "";
           if (!title) continue;
 
@@ -293,9 +322,9 @@ export class NotebookSync {
 
           // Fallback: search all element IDs and aria-labelledby for UUID
           if (!url) {
-            const allIds = (btn as any).querySelectorAll('[id]');
+            const allIds = Array.from(btn.querySelectorAll('[id]')) as BrowserElementWithId[];
             for (const el of allIds) {
-              const idMatch = el.id.match(/project-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/);
+              const idMatch = el.id?.match(/project-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/);
               if (idMatch) {
                 url = `https://notebooklm.google.com/notebook/${idMatch[1]}`;
                 break;
@@ -306,7 +335,7 @@ export class NotebookSync {
           if (!url) continue;
 
           // Extract date and source count from subtitle
-          const subtitle = (btn as any).querySelector('.project-button-subtitle')?.textContent || "";
+          const subtitle = (btn.querySelector('.project-button-subtitle') as BrowserTextElement | null)?.textContent || "";
           let createdDate = "";
           let sourceCount = 0;
 
@@ -335,6 +364,7 @@ export class NotebookSync {
 
     // First extract metadata from table rows
     const rowData = await this.page.evaluate(() => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
       const results: Array<{
         title: string;
         sourceCount: number;
@@ -342,13 +372,12 @@ export class NotebookSync {
       }> = [];
 
       // Select only data rows (with Source text), preserving DOM order
-      // @ts-expect-error - DOM types
-      const rows = document.querySelectorAll('tr[role="row"]');
+      const rows = Array.from(browser.document.querySelectorAll('tr[role="row"]')) as BrowserClickableElement[];
       for (const row of rows) {
-        const rowText = (row as any).textContent || "";
+        const rowText = row.textContent || "";
         if (!rowText.match(/\d+\s*Source/i)) continue;
 
-        const titleEl = (row as any).querySelector('.project-table-title');
+        const titleEl = row.querySelector('.project-table-title') as BrowserTextElement | null;
         const title = titleEl?.textContent?.trim() || "";
         if (!title || title.length < 3) continue;
 
@@ -376,15 +405,15 @@ export class NotebookSync {
       try {
         // Click the data row by index (skip non-data rows in evaluate)
         await this.page.evaluate((clickIdx: number) => {
-          // @ts-expect-error - DOM types
-          const allRows = document.querySelectorAll('tr[role="row"]');
-          const dataRows: any[] = [];
+          const browser = globalThis as unknown as BrowserDocumentContext;
+          const allRows = Array.from(browser.document.querySelectorAll('tr[role="row"]')) as BrowserClickableElement[];
+          const dataRows: BrowserClickableElement[] = [];
           for (const r of allRows) {
-            if ((r as any).textContent?.match(/\d+\s*Source/i)) {
+            if (r.textContent?.match(/\d+\s*Source/i)) {
               dataRows.push(r);
             }
           }
-          if (dataRows[clickIdx]) (dataRows[clickIdx] as any).click();
+          dataRows[clickIdx]?.click();
         }, i);
 
         // Wait for navigation to complete
@@ -425,6 +454,7 @@ export class NotebookSync {
     if (!this.page) return [];
 
     return await this.page.evaluate(() => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
       const results: Array<{
         title: string;
         url: string;
@@ -432,18 +462,17 @@ export class NotebookSync {
         createdDate: string;
       }> = [];
 
-      // @ts-expect-error - DOM types
-      const rows = document.querySelectorAll('tr');
+      const rows = Array.from(browser.document.querySelectorAll('tr')) as BrowserClickableElement[];
 
       for (const row of rows) {
-        const rowText = (row as any).textContent || "";
+        const rowText = row.textContent || "";
         if (!rowText.match(/\d+\s*Source/i)) continue;
 
         // Get title from dedicated class or first cell
-        const titleEl = (row as any).querySelector('.project-table-title');
+        const titleEl = row.querySelector('.project-table-title') as BrowserTextElement | null;
         let title = titleEl?.textContent?.trim() || "";
         if (!title) {
-          const cells = (row as any).querySelectorAll('td, th');
+          const cells = Array.from(row.querySelectorAll('td, th')) as BrowserTextElement[];
           for (const cell of cells) {
             const cellText = cell.textContent?.trim() || "";
             if (cellText.length > 3 &&
@@ -469,14 +498,15 @@ export class NotebookSync {
 
         // Try links/data attributes for URL
         let url = "";
-        const links = (row as any).querySelectorAll('a');
+        const links = Array.from(row.querySelectorAll('a')) as BrowserLinkElement[];
         for (const link of links) {
           const href = link.href || "";
           if (href.includes('/notebook/')) { url = href; break; }
         }
         if (!url) {
-          const dataId = (row as any).getAttribute('data-notebook-id') ||
-                        (row as any).querySelector('[data-notebook-id]')?.getAttribute('data-notebook-id');
+          const childWithDataId = row.querySelector('[data-notebook-id]') as { getAttribute(name: string): string | null } | null;
+          const dataId = row.getAttribute('data-notebook-id') ||
+                        childWithDataId?.getAttribute('data-notebook-id');
           if (dataId) url = `https://notebooklm.google.com/notebook/${dataId}`;
         }
         if (!url) url = `pending-${results.length}`;

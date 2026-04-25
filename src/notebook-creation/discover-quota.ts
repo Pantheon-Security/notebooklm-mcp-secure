@@ -11,7 +11,25 @@ import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
 import type { Page } from "patchright";
 
+type BrowserElement = {
+  tagName: string;
+  textContent?: string | null;
+  className?: string;
+  children?: { length: number };
+  getAttribute(name: string): string | null;
+  click(): void;
+};
 
+type BrowserBody = {
+  innerText: string;
+};
+
+type BrowserDocumentContext = {
+  document: {
+    body: BrowserBody;
+    querySelectorAll(selector: string): Iterable<BrowserElement>;
+  };
+};
 
 interface QuotaInfo {
   tier: string | null;
@@ -29,14 +47,14 @@ async function findQuotaElements(page: Page, description: string): Promise<void>
 
   // Look for quota-related text patterns
   const quotaInfo = await page.evaluate(() => {
+    const browser = globalThis as unknown as BrowserDocumentContext;
     const results: string[] = [];
 
     // Get all text content and look for quota patterns
-    // @ts-expect-error - DOM types
-    const allElements = document.querySelectorAll('*');
+    const allElements = browser.document.querySelectorAll('*');
 
     for (const el of allElements) {
-      const text = (el as any).textContent?.trim() || "";
+      const text = el.textContent?.trim() || "";
 
       // Skip very long text (likely containers)
       if (text.length > 200) continue;
@@ -60,8 +78,8 @@ async function findQuotaElements(page: Page, description: string): Promise<void>
         if (pattern.test(text) && text.length < 100) {
           // Get more context
           const tag = el.tagName;
-          const className = (el as any).className?.substring?.(0, 50) || "";
-          const ariaLabel = (el as any).getAttribute("aria-label") || "";
+          const className = el.className?.substring?.(0, 50) || "";
+          const ariaLabel = el.getAttribute("aria-label") || "";
 
           results.push(`[${tag}] "${text}" class="${className}" aria="${ariaLabel}"`);
           break;
@@ -82,11 +100,11 @@ async function extractQuotaFromHomepage(page: Page): Promise<Partial<QuotaInfo>>
   log.info("\n🔍 Extracting quota info from homepage...");
 
   const info = await page.evaluate(() => {
-    const result: any = { rawTexts: [] };
+    const browser = globalThis as unknown as BrowserDocumentContext;
+    const result: Partial<QuotaInfo> & { rawTexts: string[] } = { rawTexts: [] };
 
     // Look for PRO/FREE badge
-    // @ts-expect-error - DOM types
-    const allText = document.body.innerText;
+    const allText = browser.document.body.innerText;
 
     if (allText.includes("PRO")) {
       result.tier = "pro";
@@ -95,11 +113,10 @@ async function extractQuotaFromHomepage(page: Page): Promise<Partial<QuotaInfo>>
     }
 
     // Count notebooks in the table
-    // @ts-expect-error - DOM types
-    const rows = document.querySelectorAll('tr');
+    const rows = browser.document.querySelectorAll('tr');
     let notebookCount = 0;
     for (const row of rows) {
-      if ((row as any).textContent?.includes("Source")) {
+      if (row.textContent?.includes("Source")) {
         notebookCount++;
       }
     }
@@ -126,13 +143,13 @@ async function checkSettingsPage(page: Page): Promise<void> {
 
   // Try to click Settings button
   const settingsClicked = await page.evaluate(() => {
-    // @ts-expect-error - DOM types
-    const buttons = document.querySelectorAll('button');
+    const browser = globalThis as unknown as BrowserDocumentContext;
+    const buttons = browser.document.querySelectorAll('button');
     for (const btn of buttons) {
-      const aria = (btn as any).getAttribute("aria-label")?.toLowerCase() || "";
-      const text = (btn as any).textContent?.toLowerCase() || "";
+      const aria = btn.getAttribute("aria-label")?.toLowerCase() || "";
+      const text = btn.textContent?.toLowerCase() || "";
       if (aria.includes("settings") || text.includes("settings")) {
-        (btn as any).click();
+        btn.click();
         return true;
       }
     }
@@ -153,12 +170,12 @@ async function checkSourceDialog(page: Page): Promise<void> {
 
   // Create a new notebook to see the source dialog
   const createClicked = await page.evaluate(() => {
-    // @ts-expect-error - DOM types
-    const buttons = document.querySelectorAll('button');
+    const browser = globalThis as unknown as BrowserDocumentContext;
+    const buttons = browser.document.querySelectorAll('button');
     for (const btn of buttons) {
-      const aria = (btn as any).getAttribute("aria-label") || "";
+      const aria = btn.getAttribute("aria-label") || "";
       if (aria.includes("Create new notebook")) {
-        (btn as any).click();
+        btn.click();
         return true;
       }
     }
@@ -171,10 +188,10 @@ async function checkSourceDialog(page: Page): Promise<void> {
 
     // Look for source limit indicator
     const sourceLimitInfo = await page.evaluate(() => {
-      // @ts-expect-error - DOM types
-      const spans = document.querySelectorAll('span');
+      const browser = globalThis as unknown as BrowserDocumentContext;
+      const spans = browser.document.querySelectorAll('span');
       for (const span of spans) {
-        const text = (span as any).textContent?.trim() || "";
+        const text = span.textContent?.trim() || "";
         // Look for "X/Y" pattern near "Source"
         if (text.match(/\d+\s*\/\s*\d+/)) {
           return text;

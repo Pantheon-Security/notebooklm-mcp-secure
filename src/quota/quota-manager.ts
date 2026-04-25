@@ -70,6 +70,24 @@ const PAGE_EVALUATE_TIMEOUT_MS = 30_000;
 
 let notebookIncrementQueue: Promise<void> = Promise.resolve();
 
+type BrowserDomElement = unknown;
+
+type BrowserTextElement = {
+  textContent?: string | null;
+};
+
+type BrowserBodyElement = {
+  innerText: string;
+};
+
+type BrowserDocumentContext = {
+  document: {
+    body: BrowserBodyElement;
+    querySelector(selector: string): BrowserDomElement | null;
+    querySelectorAll(selector: string): Iterable<BrowserDomElement>;
+  };
+};
+
 export class QuotaManager {
   private settings: QuotaSettings;
   private settingsPath: string;
@@ -182,8 +200,8 @@ export class QuotaManager {
     log.info("🔍 Detecting license tier...");
 
     const tierInfo = await this.evaluateWithTimeout(page, () => {
-      // @ts-expect-error - DOM types
-      const accountSection = document.querySelector(
+      const browser = globalThis as unknown as BrowserDocumentContext;
+      const accountSection = browser.document.querySelector(
         [
           "[data-testid*='account']",
           "[data-testid*='plan']",
@@ -198,9 +216,8 @@ export class QuotaManager {
           "nav",
         ].join(", ")
       );
-      const accountText = accountSection?.textContent?.toUpperCase() || "";
-      // @ts-expect-error - DOM types
-      const allText = document.body.innerText.toUpperCase();
+      const accountText = (accountSection as BrowserTextElement | null)?.textContent?.toUpperCase() || "";
+      const allText = browser.document.body.innerText.toUpperCase();
 
       const hasTierLabel = (text: string, tier: "FREE" | "PLUS" | "PRO" | "ULTRA") => {
         const escapedTier = tier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -226,15 +243,13 @@ export class QuotaManager {
       }
 
       // Legacy "PRO" badge (some accounts still show this)
-      // @ts-expect-error - DOM types
-      const proBadge = document.querySelector(".pro-badge, [data-tier='pro']");
+      const proBadge = browser.document.querySelector(".pro-badge, [data-tier='pro']");
       if (proBadge) return "pro";
 
       // ── Signal 2: infer from source limit shown anywhere on the page ───────
       // NotebookLM renders "X / 300" or "X/300" next to the source list.
       // This is the most reliable signal available without opening a dialog.
-      // @ts-expect-error - DOM types
-      const limitMatch = document.body.innerText.match(/\b(\d+)\s*\/\s*(50|300|600)\b/);
+      const limitMatch = browser.document.body.innerText.match(/\b(\d+)\s*\/\s*(50|300|600)\b/);
       if (limitMatch) {
         const limit = parseInt(limitMatch[2], 10);
         if (limit >= 600) return "ultra";
@@ -262,9 +277,9 @@ export class QuotaManager {
    */
   async extractSourceLimitFromDialog(page: Page): Promise<number | null> {
     const limitInfo = await this.evaluateWithTimeout(page, () => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
       // Look for X/Y pattern
-      // @ts-expect-error - DOM types
-      const allText = document.body.innerText;
+      const allText = browser.document.body.innerText;
       const match = allText.match(/(\d+)\s*\/\s*(\d+)/);
       if (match) {
         return parseInt(match[2], 10); // Return the limit (Y in X/Y)
@@ -289,8 +304,8 @@ export class QuotaManager {
     log.info("🔍 Looking for query usage in UI...");
 
     const usageInfo = await this.evaluateWithTimeout(page, () => {
-      // @ts-expect-error - DOM types
-      const allText = document.body.innerText;
+      const browser = globalThis as unknown as BrowserDocumentContext;
+      const allText = browser.document.body.innerText;
 
       // Pattern 1: "X/Y queries" or "X / Y queries"
       const slashPattern = allText.match(/(\d+)\s*\/\s*(\d+)\s*quer(?:y|ies)/i);
@@ -361,8 +376,8 @@ export class QuotaManager {
    */
   async checkForRateLimitError(page: Page): Promise<boolean> {
     const isRateLimited = await this.evaluateWithTimeout(page, () => {
-      // @ts-expect-error - DOM types
-      const allText = document.body.innerText.toLowerCase();
+      const browser = globalThis as unknown as BrowserDocumentContext;
+      const allText = browser.document.body.innerText.toLowerCase();
       return (
         allText.includes("rate limit") ||
         allText.includes("quota exceeded") ||
@@ -384,26 +399,24 @@ export class QuotaManager {
    */
   async countNotebooksFromPage(page: Page): Promise<number> {
     const count = await this.evaluateWithTimeout(page, () => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
       // Strategy 1: Grid view project-button cards
-      // @ts-expect-error - DOM types
-      const projectButtons = document.querySelectorAll("project-button");
+      const projectButtons = Array.from(browser.document.querySelectorAll("project-button"));
       if (projectButtons.length > 0) {
         return projectButtons.length;
       }
 
       // Strategy 2: project-action-button (one per notebook in both views)
-      // @ts-expect-error - DOM types
-      const actionButtons = document.querySelectorAll("project-action-button");
+      const actionButtons = Array.from(browser.document.querySelectorAll("project-action-button"));
       if (actionButtons.length > 0) {
         return actionButtons.length;
       }
 
       // Strategy 3: Table rows with "Source" text (legacy UI)
-      // @ts-expect-error - DOM types
-      const rows = document.querySelectorAll("tr");
+      const rows = Array.from(browser.document.querySelectorAll("tr")) as BrowserTextElement[];
       let count = 0;
       for (const row of rows) {
-        if ((row as any).textContent?.includes("Source")) {
+        if (row.textContent?.includes("Source")) {
           count++;
         }
       }

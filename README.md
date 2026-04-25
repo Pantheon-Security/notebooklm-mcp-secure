@@ -737,6 +737,8 @@ All core NotebookLM features work immediately with just browser authentication:
 
 **Optional:** Add `GEMINI_API_KEY` for bonus features like `deep_research`, `gemini_query`, and `upload_document`.
 
+For repeatable authenticated validation, see the [Authenticated Testing Runbook](./docs/testing-runbook.md).
+
 ---
 
 ### Claude Code

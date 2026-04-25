@@ -7,6 +7,31 @@ import { CONFIG, NOTEBOOKLM_URL } from "../config.js";
 import { AuthManager } from "../auth/auth-manager.js";
 import { SharedContextManager } from "../session/shared-context-manager.js";
 
+type ClickableTextElement = {
+  textContent?: string | null;
+  getAttribute(name: string): string | null;
+  click(): void;
+};
+
+type BrowserRenameElement = {
+  textContent?: string | null;
+  placeholder?: string;
+  value?: string;
+  isContentEditable?: boolean;
+  offsetParent?: unknown;
+  parentElement?: BrowserRenameElement | null;
+  closest(selector: string): BrowserRenameElement | null;
+  getAttribute(name: string): string | null;
+  focus(): void;
+  dispatchEvent(event: unknown): boolean;
+};
+
+type ButtonQueryDocument = {
+  document: {
+    querySelectorAll(selector: string): Iterable<ClickableTextElement>;
+  };
+};
+
 export class NotebookNavigation {
   private page: Page | null = null;
 
@@ -114,13 +139,13 @@ export class NotebookNavigation {
     for (const pattern of textPatterns) {
       try {
         const clicked = await this.page.evaluate((searchText) => {
-          // @ts-expect-error - DOM types
-          const elements = document.querySelectorAll('button, a, [role="button"]');
+          const browser = globalThis as unknown as ButtonQueryDocument;
+          const elements = browser.document.querySelectorAll('button, a, [role="button"]');
           for (const el of elements) {
-            const elText = (el as any).textContent?.toLowerCase() || "";
-            const ariaLabel = (el as any).getAttribute("aria-label")?.toLowerCase() || "";
+            const elText = el.textContent?.toLowerCase() || "";
+            const ariaLabel = el.getAttribute("aria-label")?.toLowerCase() || "";
             if (elText.includes(searchText.toLowerCase()) || ariaLabel.includes(searchText.toLowerCase())) {
-              (el as any).click();
+              el.click();
               return true;
             }
           }
@@ -158,23 +183,85 @@ export class NotebookNavigation {
 
     if (!element) {
       log.warning("⚠️ Name input not found - notebook may have been created with default name");
-      return;
-    }
-
-    const selectors = getSelectors("notebookNameInput");
-    for (const selector of selectors) {
-      try {
-        const input = await this.page.$(selector);
-        if (input && await input.isVisible()) {
-          await humanType(this.page, selector, name, { withTypos: false });
-          await randomDelay(500, 1000);
-          log.success(`✅ Set notebook name: ${name}`);
-          return;
+    } else {
+      const selectors = getSelectors("notebookNameInput");
+      for (const selector of selectors) {
+        try {
+          const input = await this.page.$(selector);
+          if (input && await input.isVisible()) {
+            await humanType(this.page, selector, name, { withTypos: false });
+            await randomDelay(500, 1000);
+            log.success(`✅ Set notebook name: ${name}`);
+            return;
+          }
+        } catch (err) {
+          log.debug(`notebook-nav: typing notebook name into input selector: ${err instanceof Error ? err.message : String(err)}`);
         }
-      } catch (err) {
-        log.debug(`notebook-nav: typing notebook name into input selector: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+
+    try {
+      const renamed = await this.page.evaluate((nextName) => {
+        const browser = globalThis as unknown as {
+          document: {
+            querySelectorAll(selector: string): Iterable<BrowserRenameElement>;
+          };
+          Event: new (type: string, options?: { bubbles?: boolean }) => unknown;
+          InputEvent: new (
+            type: string,
+            options?: { bubbles?: boolean; data?: string; inputType?: string }
+          ) => unknown;
+        };
+
+        const visible = (el: BrowserRenameElement) => el.offsetParent !== null;
+        const textOf = (el: BrowserRenameElement) =>
+          `${el.textContent || ""} ${el.getAttribute("aria-label") || ""} ${el.placeholder || ""}`.toLowerCase();
+        const inDialog = (el: BrowserRenameElement) =>
+          Boolean(el.closest("[role='dialog'], mat-dialog-container, .cdk-overlay-pane"));
+
+        const candidates = Array.from(
+          browser.document.querySelectorAll("header [contenteditable='true'], h1[contenteditable='true'], [role='heading'][contenteditable='true'], [contenteditable='true'], input[type='text']")
+        );
+
+        for (const candidate of candidates) {
+          if (!visible(candidate) || inDialog(candidate)) continue;
+          const text = textOf(candidate);
+          if (text.includes("emoji") || text.includes("search")) continue;
+
+          if (typeof candidate.value === "string") {
+            candidate.focus();
+            candidate.value = nextName;
+            candidate.dispatchEvent(new browser.Event("input", { bubbles: true }));
+            candidate.dispatchEvent(new browser.Event("change", { bubbles: true }));
+            return true;
+          }
+
+          if (candidate.isContentEditable) {
+            candidate.focus();
+            candidate.textContent = nextName;
+            candidate.dispatchEvent(new browser.InputEvent("input", {
+              bubbles: true,
+              data: nextName,
+              inputType: "insertText",
+            }));
+            candidate.dispatchEvent(new browser.Event("change", { bubbles: true }));
+            return true;
+          }
+        }
+
+        return false;
+      }, name);
+
+      if (renamed) {
+        await randomDelay(500, 1000);
+        log.success(`✅ Set notebook name via DOM fallback: ${name}`);
+        return;
+      }
+    } catch (err) {
+      log.warning(`⚠️ DOM fallback rename failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    log.warning("⚠️ Name input not found - notebook may have been created with default name");
   }
 
   async finalizeAndGetUrl(): Promise<string> {

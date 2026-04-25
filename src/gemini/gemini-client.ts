@@ -23,6 +23,7 @@ import type {
   QueryDocumentResult,
   ListDocumentsResult,
   UploadedChunk,
+  GeminiModel,
 } from "./types.js";
 import { analyzePdf, chunkPdf, cleanupChunks } from "./pdf-chunker.js";
 import fs from "fs";
@@ -30,6 +31,108 @@ import path from "path";
 
 // Re-export the agent constant
 export { DEEP_RESEARCH_AGENT } from "./types.js";
+
+type GeminiToolConfig = {
+  type: string;
+};
+
+type GeminiGenerationConfigRequest = {
+  temperature?: number;
+  maxOutputTokens?: number;
+  thinkingLevel?: string;
+  responseMimeType?: string;
+  responseSchema?: unknown;
+};
+
+type GeminiInteractionCreateRequest = {
+  model?: string;
+  input: string;
+  tools?: GeminiToolConfig[];
+  previousInteractionId?: string;
+  store?: boolean;
+  generationConfig?: GeminiGenerationConfigRequest;
+  agent?: string;
+  background?: boolean;
+};
+
+type GeminiUploadRequest = {
+  file: string;
+  config: {
+    displayName: string;
+    mimeType: string;
+  };
+};
+
+type GeminiFileLookupRequest = {
+  name: string;
+};
+
+type GeminiFileListRequest = {
+  pageSize?: number;
+  pageToken?: string;
+};
+
+type GeminiFilePart = {
+  fileData: {
+    fileUri: string;
+    mimeType: string;
+  };
+};
+
+type GeminiTextPart = {
+  text: string;
+};
+
+type GeminiGenerateContentRequest = {
+  model: string;
+  contents: Array<{
+    role: "user";
+    parts: Array<GeminiFilePart | GeminiTextPart>;
+  }>;
+  generationConfig?: {
+    temperature?: number;
+    maxOutputTokens?: number;
+  };
+};
+
+type GeminiInteractionsApi = {
+  create(request: GeminiInteractionCreateRequest): Promise<unknown>;
+  get(interactionId: string): Promise<unknown>;
+  delete(interactionId: string): Promise<void>;
+};
+
+type GeminiFilesApi = {
+  upload(request: GeminiUploadRequest): Promise<{ name: string }>;
+  get(request: GeminiFileLookupRequest): Promise<unknown>;
+  list(request: GeminiFileListRequest): Promise<{ files?: unknown[]; nextPageToken?: string }>;
+  delete(request: GeminiFileLookupRequest): Promise<void>;
+};
+
+type GeminiModelsApi = {
+  generateContent(request: GeminiGenerateContentRequest): Promise<unknown>;
+};
+
+type GeminiClientWithApis = GoogleGenAI & {
+  interactions: GeminiInteractionsApi;
+  files: GeminiFilesApi;
+  models: GeminiModelsApi;
+};
+
+type GeminiGenerateContentResponse = {
+  response?: {
+    text?: () => string;
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{
+          text?: string;
+        }>;
+      };
+    }>;
+    usageMetadata?: {
+      totalTokenCount?: number;
+    };
+  };
+};
 
 /**
  * Retry a function with exponential backoff on transient errors.
@@ -72,6 +175,12 @@ async function retryWithBackoff<T>(
   throw lastError;
 }
 
+function normalizeGeminiModel(model?: string): GeminiModel {
+  return model === "gemini-3-pro-preview"
+    ? "gemini-3-pro-preview"
+    : "gemini-3-flash-preview";
+}
+
 /**
  * Client for Gemini Interactions API
  */
@@ -96,15 +205,20 @@ export class GeminiClient {
     return this.client !== null;
   }
 
+  private requireClient(): GeminiClientWithApis {
+    if (!this.client) {
+      throw new Error("Gemini API key not configured. Set GEMINI_API_KEY environment variable.");
+    }
+    return this.client as GeminiClientWithApis;
+  }
+
   /**
    * Perform a quick query to Gemini
    */
   async query(options: GeminiQueryOptions): Promise<GeminiInteraction> {
-    if (!this.client) {
-      throw new Error("Gemini API key not configured. Set GEMINI_API_KEY environment variable.");
-    }
+    const client = this.requireClient();
 
-    const model = options.model || CONFIG.geminiDefaultModel || "gemini-3-flash-preview";
+    const model = normalizeGeminiModel(options.model || CONFIG.geminiDefaultModel);
     log.info(`Gemini query to ${model}: ${options.query.substring(0, 50)}...`);
 
     // Check for deprecated model
@@ -114,8 +228,7 @@ export class GeminiClient {
     }
 
     try {
-      // Build tools array - use 'as any' to bypass strict SDK typing
-      const tools: unknown[] = [];
+      const tools: GeminiToolConfig[] = [];
       if (options.tools) {
         for (const tool of options.tools) {
           tools.push({ type: tool });
@@ -132,8 +245,7 @@ export class GeminiClient {
 
       // Retry with exponential backoff on transient errors
       const response = await retryWithBackoff(async () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return (this.client!.interactions as any).create({
+        return client.interactions.create({
           model,
           input,
           tools: tools.length > 0 ? tools : undefined,
@@ -180,9 +292,7 @@ export class GeminiClient {
    * Start deep research using the Deep Research agent
    */
   async deepResearch(options: DeepResearchOptions): Promise<GeminiInteraction> {
-    if (!this.client) {
-      throw new Error("Gemini API key not configured. Set GEMINI_API_KEY environment variable.");
-    }
+    const client = this.requireClient();
 
     if (!CONFIG.geminiDeepResearchEnabled) {
       throw new Error("Deep Research is disabled. Set GEMINI_DEEP_RESEARCH_ENABLED=true to enable.");
@@ -191,8 +301,7 @@ export class GeminiClient {
     log.info(`Starting deep research: ${options.query.substring(0, 50)}...`);
 
     try {
-      // Start research in background - use 'as any' to handle SDK type strictness
-      const response = await (this.client.interactions as any).create({
+      const response = await client.interactions.create({
         input: options.query,
         agent: "deep-research-pro-preview-12-2025",
         ...(options.thinkingLevel && {
@@ -226,12 +335,10 @@ export class GeminiClient {
    * Get an existing interaction by ID
    */
   async getInteraction(interactionId: string): Promise<GeminiInteraction> {
-    if (!this.client) {
-      throw new Error("Gemini API key not configured.");
-    }
+    const client = this.requireClient();
 
     try {
-      const response = await (this.client.interactions as any).get(interactionId);
+      const response = await client.interactions.get(interactionId);
       return this.mapInteraction(response);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -307,12 +414,10 @@ export class GeminiClient {
    * Delete a stored interaction
    */
   async deleteInteraction(interactionId: string): Promise<void> {
-    if (!this.client) {
-      throw new Error("Gemini API key not configured.");
-    }
+    const client = this.requireClient();
 
     try {
-      await (this.client.interactions as any).delete(interactionId);
+      await client.interactions.delete(interactionId);
       log.info(`Deleted interaction: ${interactionId}`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -380,9 +485,7 @@ export class GeminiClient {
    * Large PDFs (>50MB or >1000 pages) are automatically chunked
    */
   async uploadDocument(options: UploadDocumentOptions): Promise<UploadDocumentResult> {
-    if (!this.client) {
-      throw new Error("Gemini API key not configured. Set GEMINI_API_KEY environment variable.");
-    }
+    const client = this.requireClient();
 
     const { filePath, displayName, mimeType } = options;
 
@@ -418,7 +521,7 @@ export class GeminiClient {
 
     try {
       // Upload file using SDK
-      const uploadResult = await (this.client.files as any).upload({
+      const uploadResult = await client.files.upload({
         file: filePath,
         config: {
           displayName: fileName,
@@ -427,7 +530,11 @@ export class GeminiClient {
       });
 
       // Poll for processing completion
-      let file = await this.waitForFileProcessing(uploadResult.name);
+      const uploadedFileName = uploadResult.name;
+      if (!uploadedFileName) {
+        throw new Error("Files API upload response did not include a file name");
+      }
+      let file = await this.waitForFileProcessing(uploadedFileName);
 
       log.success(`Document uploaded: ${file.name}`);
 
@@ -473,7 +580,7 @@ export class GeminiClient {
       for (const chunk of chunkResult.chunks) {
         log.info(`  Uploading chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} (pages ${chunk.pageStart}-${chunk.pageEnd})...`);
 
-        const uploadResult = await (this.client!.files as any).upload({
+        const uploadResult = await this.requireClient().files.upload({
           file: chunk.filePath,
           config: {
             displayName: `${displayName} (Part ${chunk.chunkIndex + 1}/${chunk.totalChunks})`,
@@ -482,7 +589,11 @@ export class GeminiClient {
         });
 
         // Wait for processing
-        const file = await this.waitForFileProcessing(uploadResult.name);
+        const uploadedFileName = uploadResult.name;
+        if (!uploadedFileName) {
+          throw new Error("Files API upload response did not include a file name");
+        }
+        const file = await this.waitForFileProcessing(uploadedFileName);
 
         uploadedChunks.push({
           fileName: file.name,
@@ -555,12 +666,10 @@ export class GeminiClient {
    * Get file metadata
    */
   async getFile(fileName: string): Promise<GeminiFile> {
-    if (!this.client) {
-      throw new Error("Gemini API key not configured.");
-    }
+    const client = this.requireClient();
 
     try {
-      const response = await (this.client.files as any).get({ name: fileName });
+      const response = await client.files.get({ name: fileName });
       return this.mapFile(response);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -573,12 +682,10 @@ export class GeminiClient {
    * List all uploaded files
    */
   async listFiles(pageSize = 100, pageToken?: string): Promise<ListDocumentsResult> {
-    if (!this.client) {
-      throw new Error("Gemini API key not configured.");
-    }
+    const client = this.requireClient();
 
     try {
-      const response = await (this.client.files as any).list({
+      const response = await client.files.list({
         pageSize,
         pageToken,
       });
@@ -601,12 +708,10 @@ export class GeminiClient {
    * Delete an uploaded file
    */
   async deleteFile(fileName: string): Promise<void> {
-    if (!this.client) {
-      throw new Error("Gemini API key not configured.");
-    }
+    const client = this.requireClient();
 
     try {
-      await (this.client.files as any).delete({ name: fileName });
+      await client.files.delete({ name: fileName });
       log.info(`Deleted file: ${fileName}`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -619,12 +724,10 @@ export class GeminiClient {
    * Query an uploaded document
    */
   async queryDocument(options: QueryDocumentOptions): Promise<QueryDocumentResult> {
-    if (!this.client) {
-      throw new Error("Gemini API key not configured. Set GEMINI_API_KEY environment variable.");
-    }
+    const client = this.requireClient();
 
     const { fileName, query, model, additionalFiles, generationConfig } = options;
-    const modelId = model || CONFIG.geminiDefaultModel || "gemini-3-flash-preview";
+    const modelId = normalizeGeminiModel(model || CONFIG.geminiDefaultModel);
 
     log.info(`Querying document ${fileName}: ${query.substring(0, 50)}...`);
 
@@ -636,7 +739,7 @@ export class GeminiClient {
       }
 
       // Build content parts with file references
-      const fileParts: unknown[] = [
+      const fileParts: GeminiFilePart[] = [
         { fileData: { fileUri: file.uri, mimeType: file.mimeType } },
       ];
 
@@ -655,7 +758,7 @@ export class GeminiClient {
       }
 
       // Generate content with the document
-      const response = await (this.client.models as any).generateContent({
+      const response = await client.models.generateContent({
         model: modelId,
         contents: [
           {
@@ -670,7 +773,7 @@ export class GeminiClient {
           temperature: generationConfig.temperature,
           maxOutputTokens: generationConfig.maxOutputTokens,
         } : undefined,
-      });
+      }) as GeminiGenerateContentResponse;
 
       // Extract response text
       const answer = response.response?.text?.() ||
@@ -720,11 +823,11 @@ export class GeminiClient {
       return this.queryDocument({
         fileName: fileNames[0],
         query,
-        model: options?.model as any,
+        model: normalizeGeminiModel(options?.model || CONFIG.geminiDefaultModel),
       });
     }
 
-    const modelId = options?.model || CONFIG.geminiDefaultModel || "gemini-3-flash-preview";
+    const modelId = normalizeGeminiModel(options?.model || CONFIG.geminiDefaultModel);
     log.info(`Querying ${fileNames.length} document chunks...`);
 
     // Query each chunk
@@ -737,7 +840,7 @@ export class GeminiClient {
       const result = await this.queryDocument({
         fileName: fileNames[i],
         query,
-        model: options?.model as any,
+        model: modelId,
       });
 
       chunkResults.push({
@@ -765,7 +868,7 @@ Synthesized answer:`;
 
     const aggregateResult = await this.query({
       query: aggregatePrompt,
-      model: modelId as any,
+      model: modelId,
     });
 
     const answer = aggregateResult.outputs.find(o => o.type === "text")?.text || "";

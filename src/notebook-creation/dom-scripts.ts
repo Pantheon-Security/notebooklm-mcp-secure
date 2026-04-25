@@ -9,6 +9,7 @@ interface BrowserElementLike {
   textContent?: string | null;
   tagName?: string;
   parentElement?: BrowserElementLike | null;
+  getAttribute?: (name: string) => string | null;
   click?: () => void;
 }
 
@@ -17,16 +18,19 @@ interface BrowserDocumentLike {
   querySelectorAll: (selector: string) => Iterable<BrowserElementLike> | ArrayLike<BrowserElementLike>;
 }
 
-function getBrowserDocument(): BrowserDocumentLike {
-  return (globalThis as unknown as { document: BrowserDocumentLike }).document;
-}
-
-function asArray<T>(items: Iterable<T> | ArrayLike<T>): T[] {
-  return Array.from(items as ArrayLike<T>);
-}
-
 export function clickCopiedTextSourceOption(): { clicked: boolean } {
-  const document = getBrowserDocument();
+  const document = (globalThis as unknown as { document: BrowserDocumentLike }).document;
+  const asArray = <T>(items: Iterable<T> | ArrayLike<T>): T[] => Array.from(items as ArrayLike<T>);
+  const normalized = (value?: string | null) => (value || "").replace(/\s+/g, " ").trim().toLowerCase();
+  const isCopiedTextLabel = (value?: string | null) => {
+    const text = normalized(value);
+    return text.includes("copied text") || text.includes("paste as text");
+  };
+  const isSearchUi = (value?: string | null) => {
+    const text = normalized(value);
+    return text.includes("search the web") || text.includes("discover sources");
+  };
+
   const byData = document.querySelector(
     '[data-source-type="text"], [data-type="text"], mat-chip[value="text"]'
   );
@@ -37,8 +41,8 @@ export function clickCopiedTextSourceOption(): { clicked: boolean } {
 
   const chips = asArray(document.querySelectorAll("mat-chip, mat-chip-option, [mat-chip-option]"));
   for (const chip of chips) {
-    const chipText = chip.textContent?.trim() || "";
-    if (chipText.includes("Copied text") && chip.click) {
+    const chipText = chip.textContent;
+    if (isCopiedTextLabel(chipText) && !isSearchUi(chipText) && chip.click) {
       chip.click();
       return { clicked: true };
     }
@@ -46,14 +50,16 @@ export function clickCopiedTextSourceOption(): { clicked: boolean } {
 
   const spans = asArray(document.querySelectorAll("span"));
   for (const span of spans) {
-    const spanText = span.textContent?.trim() || "";
-    if (spanText !== "Copied text") continue;
+    const spanText = span.textContent;
+    if (!isCopiedTextLabel(spanText) || isSearchUi(spanText)) continue;
 
     let target: BrowserElementLike = span;
     for (let i = 0; i < 5; i++) {
       if (!target.parentElement) break;
       target = target.parentElement;
       const tagName = target.tagName?.toLowerCase();
+      const aria = target.getAttribute?.("aria-label");
+      if (isSearchUi(target.textContent) || isSearchUi(aria)) continue;
       if ((tagName === "mat-chip" || tagName === "mat-chip-option" || tagName === "button") && target.click) {
         target.click();
         return { clicked: true };

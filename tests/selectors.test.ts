@@ -41,4 +41,10 @@ describe("NOTEBOOKLM_SELECTORS", () => {
   it("does not use a generic textarea aria-label fallback for chat input", () => {
     expect(NOTEBOOKLM_SELECTORS.chatInput.fallbacks).not.toContain("textarea[aria-label]");
   });
+
+  it("excludes source-discovery query textareas from text source selectors", () => {
+    expect(NOTEBOOKLM_SELECTORS.textInput.primary).toContain(":not(.query-box-input)");
+    expect(NOTEBOOKLM_SELECTORS.textInput.primary).toContain('[placeholder*="search the web" i]');
+    expect(NOTEBOOKLM_SELECTORS.textInput.fallbacks.some((selector) => selector.includes("mat-dialog-container textarea"))).toBe(true);
+  });
 });

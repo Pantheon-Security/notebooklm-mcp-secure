@@ -38,7 +38,7 @@ describe("notebook-creation dom scripts", () => {
 
   it("walks from the Copied text span to a clickable parent", () => {
     const click = vi.fn();
-    const parent = { tagName: "BUTTON", click };
+    const parent = { tagName: "BUTTON", click, getAttribute: vi.fn(() => null) };
     setDocument({
       byData: null,
       chips: [],
@@ -53,5 +53,23 @@ describe("notebook-creation dom scripts", () => {
     setDocument({ byData: null, chips: [], spans: [] });
 
     expect(clickCopiedTextSourceOption()).toEqual({ clicked: false });
+  });
+
+  it("does not click a copied-text span when the clickable parent is the search UI", () => {
+    const click = vi.fn();
+    const parent = {
+      tagName: "BUTTON",
+      click,
+      textContent: "Discover sources Search the web for new sources Copied text",
+      getAttribute: vi.fn(() => "Discover sources"),
+    };
+    setDocument({
+      byData: null,
+      chips: [],
+      spans: [{ textContent: "Copied text", parentElement: parent }],
+    });
+
+    expect(clickCopiedTextSourceOption()).toEqual({ clicked: false });
+    expect(click).not.toHaveBeenCalled();
   });
 });

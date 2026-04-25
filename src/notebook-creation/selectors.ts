@@ -51,10 +51,12 @@ export const NOTEBOOKLM_SELECTORS = {
    * Primary is scoped to an Angular Material dialog to avoid matching
    * random text inputs elsewhere on the page. */
   notebookNameInput: {
-    primary: 'mat-dialog-container input[type="text"]',
+    primary: 'header [contenteditable="true"]',
     fallbacks: [
-      '[role="dialog"] input[type="text"]',
-      'mat-dialog-container [contenteditable="true"]',
+      'h1[contenteditable="true"]',
+      '[role="heading"][contenteditable="true"]',
+      '[contenteditable="true"][aria-label*="title" i]',
+      '[contenteditable="true"][aria-label*="name" i]',
       'input[aria-label*="name" i]',
       'input[aria-label*="title" i]',
     ],
@@ -90,8 +92,10 @@ export const NOTEBOOKLM_SELECTORS = {
   /** Text/Paste source option
    * Locale note: aria-label text is locale-dependent */
   textSourceOption: {
-    primary: 'mat-chip[value="text"], button[value="text"]',     // Value attr: locale-independent
+    primary: 'mat-chip[value="text"], button[value="text"], [data-source-type="text"], [data-type="text"]',
     fallbacks: [
+      'mat-chip-option[value="text"]',
+      '[mat-chip-option][value="text"]',
       'button[aria-label*="Copied text"]',  // English aria-label
       'button[aria-label*="Paste"]',        // English
       'button[class*="text-source"]',       // Class: locale-independent
@@ -127,11 +131,11 @@ export const NOTEBOOKLM_SELECTORS = {
   /** Text input/paste area - appears after clicking "Copied text"
    * Discovered: class contains "text-area" */
   textInput: {
-    primary: 'textarea.text-area',
+    primary: 'textarea.text-area:not(.query-box-input):not([aria-label*="discover sources" i]):not([placeholder*="search the web" i])',
     fallbacks: [
-      'textarea[class*="text-area"]',
-      'textarea.mat-mdc-form-field-textarea-control',
-      'textarea:not([readonly]):not(.query-box-input)',
+      'textarea[class*="text-area"]:not(.query-box-input):not([aria-label*="discover sources" i]):not([placeholder*="search the web" i])',
+      'textarea.mat-mdc-form-field-textarea-control:not(.query-box-input):not([aria-label*="discover sources" i]):not([placeholder*="search the web" i])',
+      'mat-dialog-container textarea:not([readonly]):not(.query-box-input):not([aria-label*="discover sources" i]):not([placeholder*="search the web" i])',
     ],
     confirmed: true, // December 2025
   },

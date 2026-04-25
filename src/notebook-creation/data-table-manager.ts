@@ -45,6 +45,34 @@ export interface GetDataTableResult {
   error?: string;
 }
 
+type BrowserDomElement = unknown;
+
+interface BrowserClickableElement {
+  click(): void;
+}
+
+interface BrowserVisibleElement {
+  offsetWidth?: number;
+  querySelector(selector: string): BrowserDomElement | null;
+  querySelectorAll(selector: string): Iterable<BrowserDomElement>;
+  classList: { contains(token: string): boolean };
+}
+
+interface BrowserTextElement {
+  textContent: string | null;
+}
+
+interface BrowserTableRow {
+  querySelectorAll(selector: string): Iterable<BrowserTextElement>;
+}
+
+interface BrowserDocumentContext {
+  document: {
+    querySelector(selector: string): BrowserDomElement | null;
+    querySelectorAll(selector: string): Iterable<BrowserDomElement>;
+  };
+}
+
 export class DataTableManager {
   private page: Page | null = null;
 
@@ -98,9 +126,10 @@ export class DataTableManager {
     }
 
     return await page.evaluate(() => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
+
       // 1. Tiles already visible — panel is open, nothing to do
-      // @ts-expect-error - DOM types
-      if (document.querySelector(".create-artifact-button-container, [class*='create-artifact'][role='button']")) return true;
+      if (browser.document.querySelector(".create-artifact-button-container, [class*='create-artifact'][role='button']")) return true;
 
       // 2. Find the toggle button (primary selector first, then fallbacks for DOM changes)
       const candidateSelectors = [
@@ -112,8 +141,7 @@ export class DataTableManager {
       // 2. Tiles absent — panel is collapsed. Find toggle and click to open.
       // No aria-label text matching: labels are locale-dependent (e.g. "Réduire" in French).
       for (const selector of candidateSelectors) {
-        // @ts-expect-error - DOM types
-        const toggleBtn = document.querySelector(selector) as any;
+        const toggleBtn = browser.document.querySelector(selector) as BrowserClickableElement | null;
         if (!toggleBtn) continue;
         toggleBtn.click();
         return true;
@@ -129,20 +157,20 @@ export class DataTableManager {
    */
   private async checkDataTableStatusInternal(page: Page): Promise<DataTableStatus> {
     return await page.evaluate(() => {
-      // @ts-expect-error - DOM types
-      const artifactItems = document.querySelectorAll(".artifact-item-button");
+      const browser = globalThis as unknown as BrowserDocumentContext;
+      const artifactItems = Array.from(browser.document.querySelectorAll(".artifact-item-button")) as BrowserVisibleElement[];
       for (const item of artifactItems) {
-        const icon = (item as any).querySelector(".artifact-icon");
+        const icon = item.querySelector(".artifact-icon") as BrowserTextElement | null;
         const iconText = icon?.textContent?.trim() || "";
         if (iconText !== "table_view") continue;
 
         // Found a data table artifact
-        const title = (item as any).querySelector(".artifact-title");
+        const title = item.querySelector(".artifact-title") as BrowserTextElement | null;
         const titleText = title?.textContent?.trim() || "";
 
         // Check if generating — shimmer-blue class is locale-independent (primary);
         // title text fallback is English-only ("Generating data table…")
-        if ((item as any).classList.contains("shimmer-blue") || titleText.toLowerCase().includes("generating")) {
+        if (item.classList.contains("shimmer-blue") || titleText.toLowerCase().includes("generating")) {
           return { status: "generating" as const, progress: 0 };
         }
 
@@ -161,27 +189,28 @@ export class DataTableManager {
    */
   private async clickDataTableTile(page: Page): Promise<boolean> {
     return await page.evaluate(() => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
+
       // Primary: Material icon name inside tile (locale-independent — icon names are never translated)
       // Confirmed Feb 2026: Data table tile contains icon text "table_view"
-      // @ts-expect-error - DOM types
-      const tiles = document.querySelectorAll('.create-artifact-button-container[role="button"]');
+      const tiles = Array.from(
+        browser.document.querySelectorAll('.create-artifact-button-container[role="button"]')
+      ) as BrowserVisibleElement[];
       for (const tile of tiles) {
-        const icon = (tile as any).querySelector("mat-icon");
+        const icon = tile.querySelector("mat-icon") as BrowserTextElement | null;
         if (icon?.textContent?.trim() === "table_view") {
-          (tile as any).click();
+          (tile as unknown as BrowserClickableElement).click();
           return true;
         }
       }
       // Secondary: jslog attribute (locale-independent numeric ID, confirmed stable Feb 2026)
-      // @ts-expect-error - DOM types
-      const tileByJslog = document.querySelector('[jslog^="282298"][role="button"]') as any;
+      const tileByJslog = browser.document.querySelector('[jslog^="282298"][role="button"]') as BrowserClickableElement | null;
       if (tileByJslog) {
         tileByJslog.click();
         return true;
       }
       // Fallback: English aria-label
-      // @ts-expect-error - DOM types
-      const tileByAria = document.querySelector('[aria-label="Data table"][role="button"]') as any;
+      const tileByAria = browser.document.querySelector('[aria-label="Data table"][role="button"]') as BrowserClickableElement | null;
       if (tileByAria) {
         tileByAria.click();
         return true;
@@ -195,24 +224,24 @@ export class DataTableManager {
    */
   private async clickDataTableArtifact(page: Page): Promise<boolean> {
     return await page.evaluate(() => {
-      // @ts-expect-error - DOM types
-      const artifactItems = document.querySelectorAll(".artifact-item-button");
+      const browser = globalThis as unknown as BrowserDocumentContext;
+      const artifactItems = Array.from(browser.document.querySelectorAll(".artifact-item-button")) as BrowserVisibleElement[];
       for (const item of artifactItems) {
-        const icon = (item as any).querySelector(".artifact-icon");
+        const icon = item.querySelector(".artifact-icon") as BrowserTextElement | null;
         const iconText = icon?.textContent?.trim() || "";
         if (iconText !== "table_view") continue;
 
         // Skip generating artifacts
-        if ((item as any).classList.contains("shimmer-blue")) continue;
+        if (item.classList.contains("shimmer-blue")) continue;
 
         // Click the artifact button
-        const btn = (item as any).querySelector("button.artifact-button-content") as any;
+        const btn = item.querySelector("button.artifact-button-content") as BrowserClickableElement | null;
         if (btn) {
           btn.click();
           return true;
         }
         // Fallback: click the item itself
-        (item as any).click();
+        (item as unknown as BrowserClickableElement).click();
         return true;
       }
       return false;
@@ -353,23 +382,23 @@ export class DataTableManager {
    */
   private async extractTableData(page: Page): Promise<DataTable | null> {
     return await page.evaluate(() => {
-      // @ts-expect-error - DOM types
-      const tables = document.querySelectorAll("table");
+      const browser = globalThis as unknown as BrowserDocumentContext;
+      const tables = Array.from(browser.document.querySelectorAll("table")) as BrowserVisibleElement[];
       if (tables.length === 0) return null;
 
       let bestTable: { headers: string[]; rows: string[][]; totalRows: number; totalColumns: number } | null = null;
 
       for (const table of tables) {
         // Only consider visible tables
-        if (!(table as any).offsetWidth) continue;
+        if (!table.offsetWidth) continue;
 
-        const allRows = (table as any).querySelectorAll("tr");
+        const allRows = Array.from(table.querySelectorAll("tr")) as BrowserTableRow[];
         const headers: string[] = [];
         const rows: string[][] = [];
 
         for (const row of allRows) {
-          const ths = row.querySelectorAll("th");
-          const tds = row.querySelectorAll("td");
+          const ths = Array.from(row.querySelectorAll("th"));
+          const tds = Array.from(row.querySelectorAll("td"));
 
           if (ths.length > 0) {
             // Header row

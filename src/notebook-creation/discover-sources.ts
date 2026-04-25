@@ -13,6 +13,34 @@ import type { Page } from "patchright";
 // Use a notebook URL with existing sources for discovery
 const TEST_NOTEBOOK_URL = process.env.TEST_NOTEBOOK_URL || "";
 
+type BrowserAttribute = {
+  name: string;
+  value: string;
+};
+
+type BrowserChildCollection = {
+  length: number;
+};
+
+type BrowserElement = {
+  tagName: string;
+  textContent?: string | null;
+  className?: string;
+  id?: string;
+  children?: BrowserChildCollection;
+  attributes?: Iterable<BrowserAttribute>;
+  getAttribute(name: string): string | null;
+  querySelector(selector: string): BrowserElement | null;
+  click(): void;
+};
+
+type BrowserDocumentContext = {
+  document: {
+    body: { innerText: string };
+    querySelectorAll(selector: string): Iterable<BrowserElement>;
+  };
+};
+
 interface SourceElementInfo {
   selector: string;
   text: string;
@@ -34,16 +62,16 @@ interface SourceElementInfo {
 
 async function dumpSourceElements(page: Page): Promise<SourceElementInfo[]> {
   return await page.evaluate(() => {
-    const results: any[] = [];
+    const browser = globalThis as unknown as BrowserDocumentContext;
+    const results: SourceElementInfo[] = [];
 
     // Look for source-related elements
-    // @ts-expect-error - DOM types
-    const allElements = document.querySelectorAll("*");
+    const allElements = browser.document.querySelectorAll("*");
 
     for (const el of allElements) {
-      const text = (el as any).textContent?.trim().substring(0, 100) || "";
-      const ariaLabel = (el as any).getAttribute("aria-label") || "";
-      const classes = (el as any).className || "";
+      const text = el.textContent?.trim().substring(0, 100) || "";
+      const ariaLabel = el.getAttribute("aria-label") || "";
+      const classes = el.className || "";
       const tag = el.tagName;
 
       // Skip if no useful info
@@ -69,7 +97,7 @@ async function dumpSourceElements(page: Page): Promise<SourceElementInfo[]> {
       if (isRelevant && text.length < 200) {
         // Get data attributes
         const dataAttrs: Record<string, string> = {};
-        for (const attr of Array.from(el.attributes) as { name: string; value: string }[]) {
+        for (const attr of Array.from(el.attributes ?? [])) {
           if (attr.name.startsWith("data-")) {
             dataAttrs[attr.name] = attr.value;
           }
@@ -95,7 +123,8 @@ async function findSourceListElements(page: Page): Promise<void> {
 
   // Look for the sources panel/sidebar
   const sourceElements = await page.evaluate(() => {
-    const results: any[] = [];
+    const browser = globalThis as unknown as BrowserDocumentContext;
+    const results: Array<{ selector: string; childCount: number; text: string }> = [];
 
     // Common patterns for source lists
     const listSelectors = [
@@ -109,14 +138,13 @@ async function findSourceListElements(page: Page): Promise<void> {
     ];
 
     for (const selector of listSelectors) {
-      // @ts-expect-error - DOM types
-      const elements = document.querySelectorAll(selector);
+      const elements = browser.document.querySelectorAll(selector);
       for (const el of elements) {
-        const text = (el as any).textContent?.substring(0, 200) || "";
+        const text = el.textContent?.substring(0, 200) || "";
         if (text.toLowerCase().includes("source")) {
           results.push({
             selector,
-            childCount: el.children.length,
+            childCount: el.children?.length || 0,
             text: text.substring(0, 100),
           });
         }
@@ -136,17 +164,24 @@ async function findSourceItems(page: Page): Promise<void> {
   log.info("\n📋 Looking for individual source items...");
 
   const items = await page.evaluate(() => {
-    const results: any[] = [];
+    const browser = globalThis as unknown as BrowserDocumentContext;
+    const results: Array<{
+      tag: string;
+      classes: string;
+      text: string;
+      hasCheckbox: boolean;
+      hasDeleteBtn: boolean;
+      hasOptionsBtn: boolean;
+    }> = [];
 
     // Look for list items that might be sources
-    // @ts-expect-error - DOM types
-    const listItems = document.querySelectorAll(
+    const listItems = browser.document.querySelectorAll(
       'mat-list-item, [role="listitem"], .source-item, [class*="source"]'
     );
 
     for (const item of listItems) {
-      const text = (item as any).textContent?.trim().substring(0, 100) || "";
-      const classes = (item as any).className || "";
+      const text = item.textContent?.trim().substring(0, 100) || "";
+      const classes = item.className || "";
 
       // Skip if it's clearly not a source item
       if (text.toLowerCase().includes("add") && text.length < 20) continue;
@@ -155,11 +190,11 @@ async function findSourceItems(page: Page): Promise<void> {
         tag: item.tagName,
         classes: (classes as string).substring(0, 80),
         text,
-        hasCheckbox: !!(item as any).querySelector('input[type="checkbox"], mat-checkbox'),
-        hasDeleteBtn: !!(item as any).querySelector(
+        hasCheckbox: !!item.querySelector('input[type="checkbox"], mat-checkbox'),
+        hasDeleteBtn: !!item.querySelector(
           '[aria-label*="delete" i], [aria-label*="remove" i], button[class*="delete"]'
         ),
-        hasOptionsBtn: !!(item as any).querySelector(
+        hasOptionsBtn: !!item.querySelector(
           '[aria-label*="more" i], [aria-label*="option" i], button[class*="menu"]'
         ),
       });
@@ -181,15 +216,15 @@ async function findDeleteButtons(page: Page): Promise<void> {
   log.info("\n📋 Looking for delete/remove buttons...");
 
   const buttons = await page.evaluate(() => {
-    const results: any[] = [];
+    const browser = globalThis as unknown as BrowserDocumentContext;
+    const results: Array<{ tag: string; ariaLabel: string; text: string; classes: string }> = [];
 
-    // @ts-expect-error - DOM types
-    const allButtons = document.querySelectorAll("button, [role='button']");
+    const allButtons = browser.document.querySelectorAll("button, [role='button']");
 
     for (const btn of allButtons) {
-      const ariaLabel = (btn as any).getAttribute("aria-label") || "";
-      const text = (btn as any).textContent?.trim() || "";
-      const classes = (btn as any).className || "";
+      const ariaLabel = btn.getAttribute("aria-label") || "";
+      const text = btn.textContent?.trim() || "";
+      const classes = btn.className || "";
 
       const isDelete =
         /delete|remove|trash|discard/i.test(ariaLabel) ||
@@ -219,23 +254,22 @@ async function findSourceCount(page: Page): Promise<void> {
   log.info("\n📋 Looking for source count indicator...");
 
   const counts = await page.evaluate(() => {
-    const results: any[] = [];
+    const browser = globalThis as unknown as BrowserDocumentContext;
+    const results: Array<{ tag: string; text: string; classes: string }> = [];
 
     // Look for "X sources" or "X/Y" patterns
-    // @ts-expect-error - DOM types
-    const allText = document.body.innerText;
+    const allText = browser.document.body.innerText;
     const matches = allText.match(/(\d+)\s*(source|file|document)s?/gi) || [];
 
     // Also look for specific elements
-    // @ts-expect-error - DOM types
-    const spans = document.querySelectorAll("span, div, p");
+    const spans = browser.document.querySelectorAll("span, div, p");
     for (const el of spans) {
-      const text = (el as any).textContent?.trim() || "";
+      const text = el.textContent?.trim() || "";
       if (/^\d+\s*(source|file|document)s?$/i.test(text) || /^\d+\s*\/\s*\d+$/.test(text)) {
         results.push({
           tag: el.tagName,
           text,
-          classes: ((el as any).className || "").substring(0, 80),
+          classes: (el.className || "").substring(0, 80),
         });
       }
     }
@@ -284,11 +318,11 @@ async function main() {
     if (!TEST_NOTEBOOK_URL) {
       log.info("📍 Looking for a notebook to open...");
       const clicked = await page.evaluate(() => {
-        // @ts-expect-error - DOM types
-        const rows = document.querySelectorAll("tr");
+        const browser = globalThis as unknown as BrowserDocumentContext;
+        const rows = browser.document.querySelectorAll("tr");
         for (const row of rows) {
-          if ((row as any).textContent?.includes("Source")) {
-            (row as any).click();
+          if (row.textContent?.includes("Source")) {
+            row.click();
             return true;
           }
         }

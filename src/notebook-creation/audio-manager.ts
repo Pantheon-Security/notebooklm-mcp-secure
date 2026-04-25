@@ -64,6 +64,36 @@ const AUDIO_SELECTORS = {
   },
 };
 
+type BrowserDomElement = unknown;
+
+interface BrowserClickableElement {
+  textContent: string | null;
+  getAttribute(name: string): string | null;
+  click(): void;
+}
+
+interface BrowserAudioElement {
+  duration?: number;
+  src?: string;
+  currentSrc?: string;
+}
+
+interface BrowserProgressElement {
+  getAttribute(name: string): string | null;
+}
+
+interface BrowserLinkElement {
+  href?: string;
+  getAttribute(name: string): string | null;
+}
+
+interface BrowserDocumentContext {
+  document: {
+    querySelector(selector: string): BrowserDomElement | null;
+    querySelectorAll(selector: string): Iterable<BrowserDomElement>;
+  };
+}
+
 export class AudioManager {
   private page: Page | null = null;
 
@@ -147,13 +177,13 @@ export class AudioManager {
       // Also try finding by text content
       if (!generateClicked) {
         generateClicked = await page.evaluate(() => {
-          // @ts-expect-error - DOM types
-          const buttons = document.querySelectorAll("button");
+          const browser = globalThis as unknown as BrowserDocumentContext;
+          const buttons = Array.from(browser.document.querySelectorAll("button")) as BrowserClickableElement[];
           for (const btn of buttons) {
-            const text = (btn as any).textContent?.toLowerCase() || "";
+            const text = btn.textContent?.toLowerCase() || "";
             if (text.includes("audio") || text.includes("podcast") || text.includes("generate")) {
               if (!text.includes("stop") && !text.includes("cancel")) {
-                (btn as any).click();
+                btn.click();
                 return true;
               }
             }
@@ -216,16 +246,16 @@ export class AudioManager {
    */
   private async checkAudioStatusInternal(page: Page): Promise<AudioStatus> {
     return await page.evaluate(() => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
+
       // Check for generating state
-      // @ts-expect-error - DOM types
-      const generating = document.querySelector('[class*="generating"], [class*="processing"]');
-      // @ts-expect-error - DOM types
-      const progressBar = document.querySelector('[role="progressbar"]');
+      const generating = browser.document.querySelector('[class*="generating"], [class*="processing"]');
+      const progressBar = browser.document.querySelector('[role="progressbar"]') as BrowserProgressElement | null;
 
       if (generating || progressBar) {
         let progress = 0;
         if (progressBar) {
-          const value = (progressBar as any).getAttribute("aria-valuenow");
+          const value = progressBar.getAttribute("aria-valuenow");
           if (value) {
             progress = parseInt(value, 10);
           }
@@ -237,17 +267,14 @@ export class AudioManager {
       }
 
       // Check for ready state (audio player or download button)
-      // @ts-expect-error - DOM types
-      const audioElement = document.querySelector("audio");
-      // @ts-expect-error - DOM types
-      const playButton = document.querySelector('button[aria-label*="play" i]');
-      // @ts-expect-error - DOM types
-      const downloadButton = document.querySelector('button[aria-label*="download" i], a[download]');
+      const audioElement = browser.document.querySelector("audio") as BrowserAudioElement | null;
+      const playButton = browser.document.querySelector('button[aria-label*="play" i]');
+      const downloadButton = browser.document.querySelector('button[aria-label*="download" i], a[download]');
 
       if (audioElement || playButton || downloadButton) {
         let duration = 0;
         if (audioElement) {
-          duration = (audioElement as any).duration || 0;
+          duration = audioElement.duration || 0;
         }
         return {
           status: "ready" as const,
@@ -256,15 +283,13 @@ export class AudioManager {
       }
 
       // Check for failed state
-      // @ts-expect-error - DOM types
-      const errorElement = document.querySelector('[class*="error"], [class*="failed"]');
+      const errorElement = browser.document.querySelector('[class*="error"], [class*="failed"]');
       if (errorElement) {
         return { status: "failed" as const };
       }
 
       // Check if audio section exists but not started
-      // @ts-expect-error - DOM types
-      const audioSection = document.querySelector('[class*="audio"], [aria-label*="audio" i]');
+      const audioSection = browser.document.querySelector('[class*="audio"], [aria-label*="audio" i]');
       if (audioSection) {
         return { status: "not_started" as const };
       }
@@ -297,19 +322,19 @@ export class AudioManager {
 
       // Look for download button or audio element
       const downloadInfo = await page.evaluate(() => {
+        const browser = globalThis as unknown as BrowserDocumentContext;
+
         // Look for download button
-        // @ts-expect-error - DOM types
-        const downloadBtn = document.querySelector('button[aria-label*="download" i], a[download]');
+        const downloadBtn = browser.document.querySelector('button[aria-label*="download" i], a[download]') as BrowserLinkElement | null;
         if (downloadBtn) {
-          const href = (downloadBtn as any).href || (downloadBtn as any).getAttribute("data-url");
+          const href = downloadBtn.href || downloadBtn.getAttribute("data-url");
           return { type: "button", url: href };
         }
 
         // Look for audio element source
-        // @ts-expect-error - DOM types
-        const audio = document.querySelector("audio");
+        const audio = browser.document.querySelector("audio") as BrowserAudioElement | null;
         if (audio) {
-          const src = (audio as any).src || (audio as any).currentSrc;
+          const src = audio.src || audio.currentSrc;
           return { type: "audio", url: src };
         }
 
@@ -319,13 +344,13 @@ export class AudioManager {
       if (!downloadInfo || !downloadInfo.url) {
         // Try clicking download button directly
         const clicked = await page.evaluate(() => {
-          // @ts-expect-error - DOM types
-          const buttons = document.querySelectorAll("button, a");
+          const browser = globalThis as unknown as BrowserDocumentContext;
+          const buttons = Array.from(browser.document.querySelectorAll("button, a")) as BrowserClickableElement[];
           for (const btn of buttons) {
-            const text = (btn as any).textContent?.toLowerCase() || "";
-            const aria = (btn as any).getAttribute("aria-label")?.toLowerCase() || "";
+            const text = btn.textContent?.toLowerCase() || "";
+            const aria = btn.getAttribute("aria-label")?.toLowerCase() || "";
             if (text.includes("download") || aria.includes("download")) {
-              (btn as any).click();
+              btn.click();
               return true;
             }
           }

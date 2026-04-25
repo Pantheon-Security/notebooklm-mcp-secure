@@ -11,6 +11,50 @@ import { log } from "../utils/logger.js";
 import { randomDelay, realisticClick } from "../utils/stealth-utils.js";
 import { CONFIG, NOTEBOOKLM_URL } from "../config.js";
 
+type BrowserAttribute = {
+  name: string;
+  value: string;
+};
+
+type BrowserDomRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type BrowserInteractiveElement = {
+  tagName?: string;
+  id?: string;
+  className?: string;
+  textContent?: string | null;
+  attributes?: Iterable<BrowserAttribute>;
+  getAttribute(name: string): string | null;
+  getBoundingClientRect(): BrowserDomRect;
+};
+
+type BrowserVisibleStyle = {
+  visibility?: string;
+  display?: string;
+  opacity?: string;
+};
+
+type BrowserWindowDocument = {
+  document: {
+    querySelectorAll(selector: string): Iterable<BrowserInteractiveElement>;
+  };
+  window: {
+    getComputedStyle(element: BrowserInteractiveElement): BrowserVisibleStyle;
+  };
+};
+
+type BrowserFileInput = {
+  id?: string;
+  name?: string;
+};
+
+type BrowserElementSummary = ElementInfo;
+
 
 
 /**
@@ -205,20 +249,17 @@ export class SelectorDiscovery {
   async dumpInteractiveElements(): Promise<ElementInfo[]> {
     if (!this.page) return [];
 
-    // Note: page.evaluate runs in browser context - uses any types
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const results = await this.page.evaluate((): any[] => {
-      // @ts-expect-error - DOM types available in browser context
-      const elements = document.querySelectorAll(
+    const results = await this.page.evaluate((): BrowserElementSummary[] => {
+      const browser = globalThis as unknown as BrowserWindowDocument;
+      const elements = browser.document.querySelectorAll(
         'button, input, textarea, [role="button"], [role="menuitem"], ' +
         '[role="option"], a[href], [tabindex="0"], [onclick], ' +
         '[data-action], .clickable, [aria-haspopup]'
       );
 
-      return Array.from(elements).map((el: any) => {
+      return Array.from(elements).map((el) => {
         const rect = el.getBoundingClientRect();
-        // @ts-expect-error - DOM types available in browser context
-        const computedStyle = window.getComputedStyle(el);
+        const computedStyle = browser.window.getComputedStyle(el);
         const isVisible =
           rect.width > 0 &&
           rect.height > 0 &&
@@ -228,7 +269,7 @@ export class SelectorDiscovery {
 
         const attrs = Array.from(el.attributes || []);
         const dataAttrs: Record<string, string> = {};
-        for (const attr of attrs as any[]) {
+        for (const attr of attrs) {
           if (attr.name && attr.name.startsWith("data-")) {
             dataAttrs[attr.name] = attr.value;
           }
@@ -372,8 +413,7 @@ export class SelectorDiscovery {
     if (fileInputs.length > 0) {
       // Try to get a more specific selector
       const selector = await this.page.evaluate((el) => {
-        // @ts-expect-error - DOM types available in browser context
-        const input = el as HTMLInputElement;
+        const input = el as unknown as BrowserFileInput;
         if (input.id) return `#${input.id}`;
         if (input.name) return `input[type="file"][name="${input.name}"]`;
         return 'input[type="file"]';

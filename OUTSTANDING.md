@@ -1,85 +1,64 @@
 # Outstanding Work Queue
 
-Generated 2026-04-24 from current repo state after legacy `ISSUES.md` closeout.
+Last verified: 2026-04-24
 
-This file is the current forward-looking queue. It replaces the stale historical issue body in `ISSUES.md` for day-to-day planning.
+## Status
 
-## Summary
+- Legacy issue tracker closeout remains valid for static checks and core query smoke testing.
+- 2 currently reproducible notebook-creation issues remain open from live authenticated testing.
 
-- 5 active workstreams
-- 3 code-quality/type-safety workstreams
-- 1 dependency/security maintenance workstream
-- 1 tracker hygiene workstream
+## Verified Working
 
-## 1. Notebook-Creation DOM Typing Cleanup
-
-Priority: medium
-
-Evidence:
-- `rg -n "as any|@ts-expect-error" src` finds 268 suppressions across 13 files.
-- The largest concentration is in notebook-creation helpers:
-  - `src/notebook-creation/source-manager.ts` — 71
-  - `src/notebook-creation/video-manager.ts` — 31
-  - `src/notebook-creation/notebook-sync.ts` — 30
-  - `src/notebook-creation/discover-sources.ts` — 23
-  - `src/notebook-creation/data-table-manager.ts` — 22
-  - `src/notebook-creation/audio-manager.ts` — 20
-  - `src/notebook-creation/discover-quota.ts` — 16
-  - `src/notebook-creation/discover-creation-flow.ts` — 16
-  - `src/notebook-creation/selector-discovery.ts` — 4
-  - `src/notebook-creation/notebook-nav.ts` — 4
-
-Goal:
-- Replace broad DOM/browser `as any` and `@ts-expect-error` usage with explicit browser-context types.
-
-## 2. Gemini SDK Typing Cleanup
-
-Priority: medium
-
-Evidence:
-- `src/gemini/gemini-client.ts` still has 15 `as any` suppressions around SDK interactions.
-
-Goal:
-- Introduce explicit wrapper types for `interactions`, `files`, and `models` calls so the Gemini client no longer bypasses strict typing.
-
-## 3. Quota + Stealth Browser-Context Typing Cleanup
-
-Priority: low
-
-Evidence:
-- `src/quota/quota-manager.ts` — 11 DOM-type suppressions
-- `src/utils/stealth-utils.ts` — 2 browser-context suppressions
-
-Goal:
-- Apply the same typed browser-context pattern already used in `auth-manager`, `browser-session`, and `page-utils`.
-
-## 4. Dependency / Vulnerability Review
-
-Priority: medium
-
-Evidence:
-- Recent `npm install` runs reported:
-  - 7 vulnerabilities after Stryker install
-  - earlier run reported 8 vulnerabilities before final dependency set settled
-- `npm audit --json` could not be re-run in the default sandbox because registry DNS failed (`EAI_AGAIN`), so the exact current breakdown still needs a networked audit pass.
-
-Goal:
-- Run `npm audit` in a network-enabled context, identify the real remaining advisories, and either upgrade/fix or document accepted risk.
-
-## 5. Tracker Hygiene / Archival
-
-Priority: low
-
-Evidence:
-- `ISSUES.md` still contains the full historical issue body below the closeout staging section.
-- The current active queue is no longer in that body; it is now only historical evidence.
-
-Goal:
-- Archive or rewrite the historical issue body so `ISSUES.md` becomes a concise status document, with resolved legacy findings moved to an archive file.
-
-## Current Verification Baseline
-
-- `npx vitest run` passes: 50 files, 606 tests
 - `npx tsc --noEmit` passes
+- `npx vitest run` passes: 50 files, 607 tests
 - `npx stryker run --dryRunOnly` passes
+- `npm audit --json` reports 0 vulnerabilities
+- Live MCP smoke test passes:
+  - `get_health(deep_check=true)`
+  - `list_notebooks`
+  - `select_notebook`
+  - `ask_question`
 
+## Outstanding Issues
+
+### 1. `create_notebook` text-source flow is not reliable
+
+Priority: high
+
+Evidence:
+- Live authenticated creation smoke test created real notebooks but returned partial success with `sourceCount: 0`.
+- Notebook URLs created successfully:
+  - `22ff429c-5e01-4a6c-9a5f-71a0545228cb`
+  - `62452ce9-5cca-40eb-91b1-cba210a53703`
+  - `cfe1ed6e-99db-4fbc-8ef3-c67e17791bcf`
+- The source-add portion failed during the creation flow for text sources.
+
+Current understanding:
+- One browser-evaluate helper regression was fixed locally, but the end-to-end creation flow is still not verified clean.
+- A remaining selector/UI-flow issue is still present in the creation path.
+
+Impact:
+- `create_notebook` cannot yet be trusted for disposable text-seeded notebook creation in live NotebookLM testing.
+
+### 2. Notebook naming/source dialog selectors need UI refresh
+
+Priority: medium
+
+Evidence:
+- `setNotebookName()` repeatedly matched an unrelated emoji search input in the live create flow and fell back to:
+  - `Name input not found - notebook may have been created with default name`
+- Standalone `add_source` smoke behavior also showed dialog-state fragility when a source overlay/backdrop was already present.
+
+Current understanding:
+- The new NotebookLM UI appears to expose overlays/dialogs that do not match the current name-input and source-dialog assumptions reliably.
+- Additional selector discovery or a more state-aware flow is needed before creation/source-management can be considered stable.
+
+Impact:
+- New notebooks may keep default names.
+- Source-add operations can become brittle when NotebookLM opens or preserves modal state automatically.
+
+## Notes
+
+- `ISSUES.md` remains the concise closed summary for the legacy queue.
+- Historical issue detail is archived at `docs/archive/ISSUES-legacy-2026-04-24.md`.
+- This file should now be treated as the live forward tracker again until the creation-flow issues are resolved and re-verified.

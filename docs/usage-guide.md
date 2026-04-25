@@ -3,6 +3,7 @@
 This guide covers advanced usage patterns, best practices, and detailed examples for the NotebookLM MCP server.
 
 > 📘 For installation and quick start, see the main [README](../README.md).
+> 🧪 For repeatable authenticated validation, use the [Authenticated Testing Runbook](./testing-runbook.md).
 
 ## Research Patterns
 
