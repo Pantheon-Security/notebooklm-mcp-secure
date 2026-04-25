@@ -1,7 +1,7 @@
 # NotebookLM MCP Server - Feature List
 
-**Version:** 1.6.0
-**Last Updated:** 2025-12-20
+**Version:** 2026.3.0
+**Last Updated:** 2026-04-25
 
 ---
 

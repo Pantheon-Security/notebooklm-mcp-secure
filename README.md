@@ -7,7 +7,7 @@
 **Zero-hallucination answers • Gemini Deep Research • 17 Security Layers • Enterprise Compliance**
 
 [![npm](https://img.shields.io/npm/v/@pan-sec/notebooklm-mcp?color=blue)](https://www.npmjs.com/package/@pan-sec/notebooklm-mcp)
-[![CalVer](https://img.shields.io/badge/CalVer-2026.x.x-blue.svg)](https://calver.org/)
+[![CalVer](https://img.shields.io/badge/CalVer-2026.3.0-blue.svg)](https://calver.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-2026-green.svg)](https://modelcontextprotocol.io/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#cross-platform-support)
@@ -17,7 +17,7 @@
 [![Documents](https://img.shields.io/badge/Documents-API%20Upload-34A853.svg)](#-document-api-v190)
 [![Notebooks](https://img.shields.io/badge/Notebooks-Create%20%26%20Manage-orange.svg)](#programmatic-notebook-creation-v170)
 [![Compliance](https://img.shields.io/badge/Compliance%20Ready-GDPR%20%7C%20SOC2%20%7C%20CSSF-blue.svg)](./docs/COMPLIANCE-SPEC.md)
-[![Tests](https://img.shields.io/badge/Tests-168%20Passing-brightgreen.svg)](./tests/)
+[![Tests](https://img.shields.io/badge/Tests-609%20Passing-brightgreen.svg)](./tests/)
 
 [**What's New 2026**](#-whats-new-in-2026) • [**Deep Research**](#-gemini-deep-research) • [**Document API**](#-document-api) • [**Create Notebooks**](#programmatic-notebook-creation) • [**Security**](#security-features) • [**Install**](#installation)
 
@@ -44,10 +44,11 @@
 
 ## 🚀 What's New in 2026
 
-**Latest: v2026.2.10** — 17 security layers, handler architecture overhaul, secure-by-default auth
+**Latest: v2026.3.0** — The Security Audit Release. 334-issue independent audit closed. 609 tests. Full MCP protocol compliance.
 
 | Version | Highlights |
 |---------|------------|
+| **v2026.3.0** | **The Security Audit Release** — 4-agent parallel deep audit (MCP Developer, Architect, Skeptic, Sentinel) against 334 issues. All highs and mediums resolved. Tests: 139 → 609 across 50 files (4.4×). Full MCP protocol compliance: structuredContent, isError, transport tags. Schema bounds on all 48 tools. Annotation correctness. Webhook SSRF fix. Audit log integrity (hash chain, concurrent write lock, rotation continuity). Per-page mutex. HandlerContext DI. Cert pinning retracted (claims aligned with implementation). |
 | **v2026.2.10** | **The Hardening Release** — 3 new security layers (14→17): secure-by-default auth, exponential backoff lockout, credential isolation. Architecture overhaul: 3,611-line handler split into 9 domain modules, tool registry pattern. Gemini API retry with backoff. Multi-stage Docker build. Token CLI (`token show/rotate`). 168 tests. |
 | **v2026.2.9** | `performSetup` no longer wipes credentials before Chrome opens — prevents auth destruction on failed launch |
 | **v2026.2.8** | `cleanup_data` never deletes auth dirs (`browser_state/`, `chrome_profile/`) — auth survives all cleanup paths |
@@ -86,6 +87,43 @@ claude mcp add notebooklm -- npx @pan-sec/notebooklm-mcp@latest
 | Data Table extraction | ❌ | ✅ **NEW** |
 | Chat history extraction | ❌ | ✅ |
 | Deep health verification | ❌ | ✅ |
+
+---
+
+## 🔬 Security Audit 2026 — What We Found and Fixed
+
+In April 2026, we commissioned a parallel deep-audit of v2026.2.11 (`main @ 2973097`) using four specialised AI code reviewers, each focused on a different attack surface: **security vulnerabilities**, **protocol correctness**, **architecture quality**, and **testing gaps and edge cases**. The four reviewers operated independently so their findings wouldn't influence each other. Together they produced a **334-item master issue list** covering protocol correctness, security vulnerabilities, architecture flaws, test gaps, and documentation accuracy. All high and medium issues are now resolved in v2026.3.0.
+
+### Audit by the Numbers
+
+| Metric | Before (v2026.2.11) | After (v2026.3.0) |
+|--------|---------------------|--------------------|
+| Tests | 139 | **609 across 50 files** |
+| Test suites | ~6 | **50** |
+| TypeScript errors (`tsc --noEmit`) | 0 | **0 (maintained)** |
+| npm audit vulnerabilities | 0 | **0 (maintained)** |
+| MCP protocol compliance | Partial | **Full** (structuredContent, isError, transport tags) |
+| Audit log integrity | Basic | **Hash-chain verified on read** |
+| Concurrent write safety | ❌ | **✅ Write-locked** |
+| Webhook SSRF | ❌ | **✅ Blocked** |
+
+### What the Four Reviewers Found
+
+**Security reviewer:** Identified the `forceAuth` bypass in `validateToken()` allowing unauthenticated access to filesystem tools; webhook SSRF via unvalidated delivery targets; audit log hash chain not verified on read; concurrent audit writes interleaving entries; auth token salt not persisted (tokens invalidated on restart).
+
+**Protocol reviewer:** Found 38 tools returning incorrect response shapes (missing `structuredContent`, wrong `isError` semantics, transport tags leaking into content); all 48 tools had incorrect or missing `readOnlyHint`/`idempotentHint`/`destructiveHint` annotations; 9 tool schemas lacked numeric bounds, enabling out-of-range inputs.
+
+**Architecture reviewer:** Flagged the 3,611-line `handlers.ts` as a maintenance liability; singleton imports throughout domain functions preventing unit testing; the 500-line `switch/case` dispatch adding O(n) overhead and making tool registration error-prone.
+
+**Testing & edge-case reviewer:** Found test suite at 139 tests with minimal coverage of security-critical modules; `mcp-auth.ts` at near-zero coverage; no tests for prompt injection patterns, audit log tampering, or concurrent browser session state; the DSAR handler had an undetected race condition.
+
+### Key Fixes
+
+- **17 security vulnerabilities** addressed (auth bypass, SSRF, audit integrity, race conditions, selector injection vectors)
+- **MCP protocol fully compliant** — all 48 tools return correct `structuredContent`/`isError` shapes; annotations accurate; schema bounds enforced
+- **Architecture decomposed** — `handlers.ts` split into 9 domain modules with HandlerContext dependency injection; 100% unit-testable without process mocks
+- **Test coverage** — 15 new security-critical test suites including browser session, auth, prompt injection, audit log, webhook, DSAR, and compliance
+- **Claims aligned** — certificate pinning removed (implementation was retracted in Day 1 of the audit); PQ encryption scope documented accurately; compliance language uses "controls implemented" not "certified"
 
 <details>
 <summary><b>📋 Full Feature List (48 Tools)</b></summary>
@@ -208,7 +246,7 @@ Run deep research in the background and check progress:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                      NotebookLM MCP Server v2026.2.x                         │
+│                      NotebookLM MCP Server v2026.3.x                         │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌────────────────────────────────┐    ┌──────────────────────────────────┐  │
@@ -237,7 +275,7 @@ Run deep research in the background and check progress:
 │                      ┌─────────────────────────────────┐                     │
 │                      │       17 SECURITY LAYERS        │                     │
 │                      │   Post-Quantum • Audit Logs     │                     │
-│                      │   Cert Pinning • Memory Wipe    │                     │
+│                      │   Secrets Scan • Memory Wipe    │                     │
 │                      │  GDPR • SOC2 • CSSF Ready*      │                     │
 │                      └─────────────────────────────────┘                     │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -995,7 +1033,7 @@ Go to [notebooklm.google.com](https://notebooklm.google.com) → Create notebook
 | Browser cookies | Post-quantum encrypted at rest |
 | Session tokens | Auto-expire + memory scrubbing |
 | Query history | Audit logged with tamper detection |
-| Google connection | Certificate pinned (MITM blocked) |
+| Google connection | TLS with response validation |
 | Log output | Credentials auto-redacted |
 | API responses | Scanned for leaked secrets |
 | Gemini API key | Secure memory handling |
@@ -1034,9 +1072,6 @@ NLMCP_SESSION_INACTIVITY=1800     # 30 minutes
 NLMCP_SECRETS_SCANNING=true
 NLMCP_SECRETS_BLOCK=false         # Block on detection
 NLMCP_SECRETS_REDACT=true         # Auto-redact
-
-# Certificate Pinning
-NLMCP_CERT_PINNING=true
 
 # Audit Logging
 NLMCP_AUDIT_ENABLED=true
@@ -1137,6 +1172,7 @@ Or integrate in CI/CD:
 
 | Version | Highlights |
 |---------|------------|
+| **v2026.3.0** | 🔬 **Security Audit Release** — 334-issue independent audit. Tests 139→609 (50 files). Full MCP protocol compliance. Webhook SSRF fix. Audit log hash-chain verified on read. Per-page mutex. HandlerContext DI. Cert pinning retracted. |
 | **v2026.2.9** | 🔐 `performSetup` no longer destroys credentials before Chrome opens — last root cause of auth loop fixed |
 | **v2026.2.8** | 🛡️ `cleanup_data` excludes `browser_state/` and `chrome_profile/` from all deletion paths — auth survives cleanup |
 | **v2026.2.7** | 🚫 Block headless `setup_auth`; `auth-now.mjs` standalone script handles Chrome profile locks and silent save failures |

@@ -2,26 +2,33 @@
 
 This is a security-hardened fork of [PleasePrompto/notebooklm-mcp](https://github.com/PleasePrompto/notebooklm-mcp), maintained by [Pantheon Security](https://pantheonsecurity.io).
 
-**Version**: 1.5.1
-**Security Features**: 14 hardening layers
+**Version**: 2026.3.0
+**Security Features**: 17 hardening layers
 **Platforms**: Linux, macOS, Windows
+
+> **v2026.3.0 — Security Audit Release.** In April 2026 we ran a parallel deep-audit of this codebase using four specialised AI code reviewers, each independently focused on a different attack surface. They produced a 334-item master issue list. Every high and medium issue is resolved in this release. See [CHANGELOG.md](./CHANGELOG.md#20263.0---2026-04-25) for the full list.
 
 ## Security Features Overview
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| Input Validation | ✅ | URL whitelisting, sanitization |
+| Input Validation | ✅ | URL whitelisting, Zod schemas, injection prevention |
 | Rate Limiting | ✅ | Per-session request throttling |
-| Log Sanitization | ✅ | Credential masking |
-| Audit Logging | ✅ | Tamper-evident event logging |
+| Log Sanitization | ✅ | Credential masking, PII redaction |
+| Audit Logging | ✅ | Hash-chained tamper-evident logs, verified on read |
 | Session Timeout | ✅ | Hard lifetime + inactivity limits |
-| MCP Authentication | ✅ | Token-based auth with lockout |
-| Response Validation | ✅ | Prompt injection detection |
-| **Post-Quantum Encryption** | ✅ | ML-KEM-768 + ChaCha20-Poly1305 |
-| **Secrets Scanning** | ✅ | Detect API keys, tokens, passwords |
-| **Memory Scrubbing** | ✅ | Zero sensitive data after use |
-| **MEDUSA Integration** | ✅ | Automated security scanning |
+| MCP Authentication | ✅ | Token-based auth with persistent salt + lockout |
+| Response Validation | ✅ | Prompt injection detection, suspicious URL blocking |
+| **Post-Quantum Encryption** | ✅ | ML-KEM-768 + ChaCha20-Poly1305 (local at-rest) |
+| **Secrets Scanning** | ✅ | Detect 30+ credential patterns (AWS, GitHub, Slack…) |
+| **Memory Scrubbing** | ✅ | Zero sensitive data after use, FinalizationRegistry cleanup |
+| **MEDUSA Integration** | ✅ | Automated security scanning in CI |
 | **Cross-Platform Permissions** | ✅ | Secure file permissions on all OSes |
+| **Secure-by-Default Auth** | ✅ | Auth enabled without configuration; explicit opt-out via `NLMCP_AUTH_DISABLED=true` |
+| **Exponential Backoff Lockout** | ✅ | Failed auth lockouts escalate 5min → 15min → 45min → 4hr; `lockoutCount` persists |
+| **Credential Isolation** | ✅ | `LOGIN_PASSWORD` and `GEMINI_API_KEY` wrapped in `SecureCredential` with 30-min TTL; env vars scrubbed from `process.env` |
+| **Webhook SSRF Protection** | ✅ | Delivery targets validated against SSRF blocklist; HMAC signing on all deliveries |
+| **Per-Page Mutex** | ✅ | Browser page operations serialised per-page to prevent race conditions |
 
 ---
 

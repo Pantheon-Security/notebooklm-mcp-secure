@@ -5,6 +5,114 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.3.0] - 2026-04-25
+
+### The Security Audit Release
+
+We commissioned a parallel deep-audit of main @ `2973097` (v2026.2.11) using four specialised AI code reviewers, each independently focused on a different attack surface: security vulnerabilities, MCP protocol correctness, architecture quality, and testing gaps. Operating independently so findings wouldn't influence each other, they produced a 334-item master issue list across four severity tiers. This release closes the full high and medium tiers — every protocol correctness issue, every security gap identified, and every coverage hole — across three multi-day resolution sessions.
+
+**By the numbers:**
+- 334 issues audited across critical / high / medium / low / nit tiers
+- ~115 issues closed (all highs and mediums resolved; lows/nits triaged)
+- Tests: **139 → 609** across **50 test files** (4.4× increase)
+- `npx tsc --noEmit` — clean
+- `npm audit` — 0 vulnerabilities
+- Live smoke test — `create_notebook` with text source: `sourceCount: 1, partial: false`
+
+---
+
+### Security — Critical & High Fixes
+
+- **Auth token salt persisted** — `TOOLS_REQUIRING_AUTH` and `TOOLS_EXEMPT` converted to `Set<string>` for O(1) lookups; token hash salt now persisted across restarts so tokens survive server restart (I007, I110)
+- **`forceAuth` bypass closed** — `validateToken()` accepts `forceValidation` flag; filesystem tools (`add_folder`, `cleanup_data`, `export_library`) now require auth even when auth is globally disabled (I069)
+- **Webhook SSRF** — webhook dispatcher validates target URLs against SSRF blocklist before delivery; HMAC signing covers all delivery attempts (I269)
+- **Webhook delivery persistence** — dispatcher retries failed deliveries with exponential backoff; results persisted across server restarts (I279)
+- **Per-page mutex** — browser page operations now serialised per-page to prevent race conditions on concurrent tool calls (I163)
+- **Login cancellation resilience** — auth flow handles user cancelling the Google login dialog without crashing or corrupting state (I123)
+- **Headless session guard** — browser tools validate `headless` option before use; passing invalid values now returns a typed error instead of silently misbehaving (I131)
+- **Selector timeout budget** — all `waitForSelector` calls use a deadline-based timeout budget shared across retries so no single selector can hang indefinitely (I145)
+
+### Security — Audit Integrity
+
+- **Hash chain verification on read** — audit log reader now recomputes the chain on every load and rejects tampered entries (I216)
+- **Log rotation integrity** — chain anchor preserved across daily rotation boundaries; no gap in hash continuity (I217)
+- **Concurrent write serialisation** — audit logger uses a write lock to prevent interleaved entries corrupting the JSONL file under concurrent tool calls (I218)
+
+### MCP Protocol Compliance
+
+- **Response shape** — all tool handlers now return `structuredContent` alongside `content`; error responses use `isError: true`; transport-layer tags stripped before delivery; server sends `notifications/cancelled` on shutdown (I010, I011, I012, I013, I014)
+- **Annotation correctness** — `readOnlyHint`, `idempotentHint`, `destructiveHint` set correctly for all 48 tools — read-only tools no longer claim mutating side effects (I035, I036, I037, I038, I039)
+- **Schema bounds** — all numeric and string tool parameters have explicit min/max constraints: `deep_research` depth (1-10), `list_documents` limit (1-100), query/chat history limits (1-500), browser timeout (5000-300000), batch size (1-10) (I050-I057)
+- **Retired model names** — deprecated `gemini-2.5-*` model IDs replaced; deprecation messages corrected to past tense (I059)
+
+### Architecture
+
+- **Handler split** — 3,611-line `handlers.ts` decomposed into 9 domain modules: `ask-question`, `session-management`, `auth`, `notebook-management`, `notebook-creation`, `system`, `audio-video`, `webhooks`, `gemini`
+- **HandlerContext DI** — all domain functions receive dependencies via `HandlerContext` instead of importing singletons directly; enables full unit testing without process-level mocks
+- **Tool registry** — `Map<string, ToolHandler>` built once at startup replaces 500-line `switch/case` dispatch; O(1) lookup
+- **Advanced tools env gate** — `generate_video_overview`, `generate_data_table`, and related Studio tools hidden behind `NLMCP_ADVANCED_TOOLS_ENABLED` flag (I069, I154)
+- **Notebook creator split** — creation flow extracted from `handlers.ts` into dedicated `src/notebook-creation/` module with typed domain errors (I159, I161)
+
+### Compliance Wiring
+
+- **ChangeLog integration** — `ChangeLog.recordChange()` called at every config mutation site; audit trail covers all configuration state transitions (I243)
+- **BreachDetector subscription** — `BreachDetector.checkEvent()` subscribes to the audit event bus; security events automatically trigger breach detection analysis (I244)
+
+### Config & Types Cleanup
+
+- **`getConfig()` alias** — `CONFIG` singleton now exported via `getConfig()` factory; consumers updated to use the factory (I024)
+- **`followUpReminder` typing** — config field typed correctly; `parseBoolean`/`parseInteger` used consistently throughout config parsing (I025)
+- **`BrowserOptions` extraction** — browser option type extracted to `src/types/browser-options.ts` and re-exported from `src/types/index.ts` (I026)
+- **Tool re-export** — `Tool` type re-exported from `src/types/index.ts` so downstream consumers have a stable import path (I029)
+- **`as any` reduction** — source tool contracts tightened; 30+ `as any` casts replaced with proper typed interfaces (I063, I064, I015)
+
+### Test Coverage
+
+Total: **139 → 609 tests across 50 files** — full breakdown of new test suites:
+
+| New Test File | Coverage Target |
+|---|---|
+| `browser-session.test.ts` | BrowserSession lifecycle, page navigation, auth state |
+| `shared-context-manager.test.ts` | Profile strategy, cloning, concurrent session coordination |
+| `prompt-injection.test.ts` | 40+ prompt injection and payload patterns |
+| `notebook-library.test.ts` | CRUD, search, persistence, concurrent access |
+| `settings-manager.test.ts` | Parse, validate, merge, env override |
+| `cleanup-manager.test.ts` | Selective deletion, preserve_library, cross-platform |
+| `file-permissions.test.ts` | Linux/macOS chmod, Windows ACL, failure logging |
+| `audit-logger.test.ts` | Hash chain, concurrent writes, rotation, tamper detection |
+| `change-log.test.ts` | Before/after tracking, impact levels |
+| `retention-engine.test.ts` | 7-year retention, purge scheduling |
+| `incident-manager.test.ts` | Severity classification, notification dispatch |
+| `dsar-handler.test.ts` | Race condition fix, export, erasure |
+| `compliance.test.ts` | Full compliance stack integration |
+| `mcp-auth.test.ts` | Token validation, lockout escalation, salt persistence |
+| `webhook-dispatcher.test.ts` | SSRF block, HMAC, retry, persistence |
+
+Security-critical module coverage (vitest --coverage):
+- `mcp-auth.ts`: 75.7% lines
+- `webhook-dispatcher.ts`: 71.4% lines
+- `data-erasure.ts`: 72.0% lines
+- `dsar-handler.ts`: 59.0% lines
+
+### Selector & Browser Reliability (post-audit)
+
+- **Notebook name selector** — removed `input[type='text']` from DOM fallback candidates (titles are always `contenteditable`); added `inSearch()` exclusion to skip candidates inside `[role='search']` ancestors (I162)
+- **Text source flow** — `clickSourceTypeByText()` now validates the target textarea is a real "Pasted text" input before typing; fallback click restricted to button/chip targets; `findValidTextInputSelector` skips any textarea whose `aria-label` or `placeholder` suggests a search context (post-audit smoke test fix)
+- **Video tile detection** — mat-icon text scan added as fallback in `clickVideoTile`; detection no longer relies solely on `.green` CSS class
+- **Studio panel** — `[class*='create-artifact']` added to `ensureStudioPanelOpen` selectors for resilience against class renames
+
+### MEDUSA CI Gate
+
+- GitHub Actions workflow updated to run `medusa scan . --fail-on high` on every push to `main` and every PR; high-severity findings now block merge (I308, I333)
+
+### Accuracy / Claims Alignment
+
+- **Certificate pinning retracted** — cert pinning implementation removed from all source paths; `NLMCP_CERT_PINNING` env var removed; documentation updated to remove pinning claims (I174-I180, I331)
+- **PQ encryption scope** — SECURITY.md already honest ("local at-rest only, not Harvest-Now-Decrypt-Later"); README badge language and architecture diagram aligned with the documented scope
+- **Compliance language** — all references updated to "compliance-ready architecture (controls implemented)" — does not imply formal SOC2 Type II report, GDPR registration, or CSSF submission
+
+---
+
 ## [2026.2.11] - 2026-03-28
 
 ### Fixed — UI Selector Hardening
