@@ -101,6 +101,11 @@ function getAuthConfig(): MCPAuthConfig {
  *
  * Handles token-based authentication for MCP requests.
  */
+/** Rate-limit window for the shared "unknown" client bucket (ms) */
+const UNKNOWN_WINDOW_MS = 60_000;
+/** Threshold of failures in one window before emitting a security alert */
+const UNKNOWN_ALERT_THRESHOLD = 20;
+
 export class MCPAuthenticator {
   private config: MCPAuthConfig;
   private tokenHash: string | null = null;
@@ -109,6 +114,7 @@ export class MCPAuthenticator {
   private initialized: boolean = false;
   private hashSalt: string = '';
   private rotationTimer?: NodeJS.Timeout;
+  private unknownTracker: { count: number; windowStart: number } = { count: 0, windowStart: Date.now() };
 
   constructor(config?: Partial<MCPAuthConfig>) {
     this.config = { ...getAuthConfig(), ...config };
@@ -313,8 +319,26 @@ export class MCPAuthenticator {
    * 1st lockout: 5min, 2nd: 15min, 3rd: 45min, 4th+: 4hr (capped)
    */
   private recordFailedAttempt(clientId: string): void {
-    // Skip tracking for the shared "unknown" bucket — DoS vector
-    if (clientId === "unknown") return;
+    // For "unknown" clients: track failures in a rolling window and emit a
+    // security alert when the threshold is exceeded, but do NOT lock out — a
+    // full lockout would DoS every unconfigured tool that shares the bucket.
+    if (clientId === "unknown") {
+      const now = Date.now();
+      if (now - this.unknownTracker.windowStart > UNKNOWN_WINDOW_MS) {
+        this.unknownTracker = { count: 0, windowStart: now };
+      }
+      this.unknownTracker.count++;
+      if (this.unknownTracker.count === UNKNOWN_ALERT_THRESHOLD) {
+        log.warning(`🔒 Unknown-client auth threshold: ${this.unknownTracker.count} failures in ${UNKNOWN_WINDOW_MS / 1000}s`);
+        getMetricsRegistry().increment("mcp_auth_unknown_threshold_exceeded_total");
+        // Fire-and-forget — same pattern as existing audit calls in this method
+        audit.security("unknown_client_brute_force_detected", "critical", {
+          failed_attempts: this.unknownTracker.count,
+          window_seconds: UNKNOWN_WINDOW_MS / 1000,
+        });
+      }
+      return;
+    }
 
     const now = Date.now();
 

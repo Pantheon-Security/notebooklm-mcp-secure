@@ -96,6 +96,9 @@ const TRUNCATED_SUFFIX = "...[truncated]";
  * Logs all Q&A interactions to JSONL files for later review.
  */
 export class QueryLogger {
+  private static instances = new Set<QueryLogger>();
+  private static processHandlersRegistered = false;
+
   private config: QueryLoggerConfig;
   private currentLogFile: string = "";
   private writeQueue: QueryLogEntry[] = [];
@@ -120,6 +123,9 @@ export class QueryLogger {
       this.initializeLogFile();
       this.cleanOldLogs();
     }
+
+    QueryLogger.instances.add(this);
+    this.registerProcessHandlers();
   }
 
   /**
@@ -346,6 +352,32 @@ export class QueryLogger {
   async flush(): Promise<void> {
     while (this.isWriting || this.writeQueue.length > 0) {
       await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  }
+
+  private registerProcessHandlers(): void {
+    if (QueryLogger.processHandlersRegistered) return;
+    process.on("beforeExit", () => QueryLogger.flushAllSync());
+    process.on("SIGTERM", () => QueryLogger.flushAllSync());
+    QueryLogger.processHandlersRegistered = true;
+  }
+
+  private static flushAllSync(): void {
+    for (const instance of QueryLogger.instances) {
+      instance.flushQueueSync();
+    }
+  }
+
+  private flushQueueSync(): void {
+    if (!this.config.enabled || this.writeQueue.length === 0) return;
+    const batch = this.writeQueue.splice(0, this.writeQueue.length);
+    const today = new Date().toISOString().split("T")[0];
+    const logFile = path.join(this.config.logDir, `query-log-${today}.jsonl`);
+    const lines = batch.map(e => JSON.stringify(e)).join("\n") + "\n";
+    try {
+      appendFileSecure(logFile, lines, PERMISSION_MODES.OWNER_READ_WRITE);
+    } catch (err) {
+      log.debug(`query-logger: sync flush on shutdown: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

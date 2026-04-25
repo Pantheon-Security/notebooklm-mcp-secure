@@ -20,6 +20,7 @@ import { getPolicyDocManager } from "./policy-docs.js";
 import { getComplianceLogger } from "./compliance-logger.js";
 import { getIncidentManager } from "./incident-manager.js";
 import type { IncidentType, IncidentSeverity, ConsentPurpose } from "./types.js";
+import { audit } from "../utils/audit-logger.js";
 
 /**
  * Tool definitions for compliance features
@@ -360,68 +361,92 @@ export async function handleComplianceToolCall(
   toolName: string,
   args: Record<string, unknown>
 ): Promise<TextContent[]> {
+  const startTime = Date.now();
   try {
+    let result: TextContent[];
     switch (toolName) {
       // Dashboard Tools
       case "compliance_dashboard":
-        return await handleComplianceDashboard(args);
+        result = await handleComplianceDashboard(args);
+        break;
       case "compliance_score":
-        return await handleComplianceScore();
+        result = await handleComplianceScore();
+        break;
 
       // Report Tools
       case "generate_compliance_report":
-        return await handleGenerateReport(args);
+        result = await handleGenerateReport(args);
+        break;
 
       // Evidence Tools
       case "collect_audit_evidence":
-        return await handleCollectEvidence(args);
+        result = await handleCollectEvidence(args);
+        break;
       case "verify_evidence_integrity":
-        return await handleVerifyEvidence(args);
+        result = await handleVerifyEvidence(args);
+        break;
       case "list_evidence_packages":
-        return await handleListEvidence();
+        result = await handleListEvidence();
+        break;
 
       // DSAR Tools
       case "submit_dsar":
-        return await handleSubmitDSAR(args);
+        result = await handleSubmitDSAR(args);
+        break;
       case "export_user_data":
-        return await handleExportUserData(args);
+        result = await handleExportUserData(args);
+        break;
       case "request_data_erasure":
-        return await handleRequestErasure(args);
+        result = await handleRequestErasure(args);
+        break;
 
       // Consent Tools
       case "get_consent_status":
-        return await handleGetConsentStatus();
+        result = await handleGetConsentStatus();
+        break;
       case "grant_consent":
-        return await handleGrantConsent(args);
+        result = await handleGrantConsent(args);
+        break;
       case "revoke_consent":
-        return await handleRevokeConsent(args);
+        result = await handleRevokeConsent(args);
+        break;
 
       // Security Tools
       case "report_security_incident":
-        return await handleReportIncident(args);
+        result = await handleReportIncident(args);
+        break;
       case "get_incident_status":
-        return await handleGetIncidentStatus();
+        result = await handleGetIncidentStatus();
+        break;
 
       // Health Tools
       case "run_health_check":
-        return await handleRunHealthCheck();
+        result = await handleRunHealthCheck();
+        break;
       case "verify_audit_log_integrity":
-        return await handleVerifyIntegrity();
+        result = await handleVerifyIntegrity();
+        break;
 
       // Policy Tools
       case "list_policies":
-        return await handleListPolicies(args);
+        result = await handleListPolicies(args);
+        break;
       case "get_policy":
-        return await handleGetPolicy(args);
+        result = await handleGetPolicy(args);
+        break;
 
       default:
-        return [{ type: "text", text: `Unknown compliance tool: ${toolName}` }];
+        result = [{ type: "text", text: `Unknown compliance tool: ${toolName}` }];
     }
+    await audit.tool(toolName, args, true, Date.now() - startTime);
+    return result;
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    await audit.tool(toolName, args, false, Date.now() - startTime, errorMessage);
     return [
       {
         type: "text",
-        text: `Error executing ${toolName}: ${error instanceof Error ? error.message : String(error)}`,
+        text: `Error executing ${toolName}: ${errorMessage}`,
       },
     ];
   }

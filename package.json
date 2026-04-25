@@ -1,6 +1,6 @@
 {
   "name": "@pan-sec/notebooklm-mcp",
-  "version": "2026.3.1",
+  "version": "2026.3.2",
   "mcpName": "io.github.Pantheon-Security/notebooklm-mcp-secure",
   "description": "Security-hardened MCP server for NotebookLM API with compliance-ready architecture (GDPR, SOC2, CSSF controls implemented)",
   "type": "module",

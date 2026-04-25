@@ -100,6 +100,43 @@ export function validateNotebookUrl(url: string): string {
 }
 
 /**
+ * Validate a user-supplied source URL (content inputs, not notebook navigation).
+ * Enforces HTTPS and blocks dangerous schemes without restricting domain.
+ */
+export function validateSourceUrl(url: string): string {
+  if (!url || typeof url !== 'string') {
+    throw new SecurityError('Source URL is required and must be a string');
+  }
+
+  const trimmed = url.trim();
+  if (trimmed.length === 0) {
+    throw new SecurityError('Source URL cannot be empty');
+  }
+
+  const lowerUrl = trimmed.toLowerCase();
+  const dangerousProtocols = ['javascript:', 'data:', 'vbscript:', 'file:', 'about:'];
+  for (const protocol of dangerousProtocols) {
+    if (lowerUrl.startsWith(protocol)) {
+      throw new SecurityError(`Dangerous protocol not allowed in source URL: ${protocol}`);
+    }
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch (err) {
+    log.debug(`security: parsing source URL in validateSourceUrl: ${err instanceof Error ? err.message : String(err)}`);
+    throw new SecurityError('Invalid source URL format');
+  }
+
+  if (parsed.protocol !== 'https:') {
+    throw new SecurityError('Only HTTPS source URLs are allowed');
+  }
+
+  return parsed.href;
+}
+
+/**
  * Validate notebook ID format
  * NotebookLM IDs are typically alphanumeric with dashes
  */

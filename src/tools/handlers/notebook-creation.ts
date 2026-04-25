@@ -21,7 +21,7 @@ import type {
 import { NotebookCreator } from "../../notebook-creation/notebook-creator.js";
 import { NotebookSync } from "../../notebook-creation/notebook-sync.js";
 import { SourceManager } from "../../notebook-creation/source-manager.js";
-import { validateNotebookUrl } from "../../utils/security.js";
+import { validateNotebookUrl, validateSourceUrl } from "../../utils/security.js";
 import { getQuotaManager } from "../../quota/index.js";
 import { log } from "../../utils/logger.js";
 import { audit } from "../../utils/audit-logger.js";
@@ -59,12 +59,7 @@ export async function handleCreateNotebook(
         throw new Error("Source value is required");
       }
       if (source.type === "url") {
-        try {
-          new URL(source.value);
-        } catch (err) {
-          log.debug(`notebook-creation: validating source URL: ${err instanceof Error ? err.message : String(err)}`);
-          throw new Error(`Invalid URL: ${source.value}`);
-        }
+        source.value = validateSourceUrl(source.value);
       }
     }
 
@@ -406,6 +401,10 @@ export async function handleAddSource(
 
     if (!["url", "text", "file"].includes(args.source.type)) {
       throw new Error(`Invalid source type: ${args.source.type}. Must be url, text, or file.`);
+    }
+
+    if (args.source.type === "url") {
+      args.source.value = validateSourceUrl(args.source.value);
     }
 
     const safeUrl = validateNotebookUrl(resolveNotebookUrl(ctx, args));

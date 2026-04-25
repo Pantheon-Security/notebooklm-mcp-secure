@@ -161,6 +161,49 @@ export class AuditLogger {
         this.previousHash = "GENESIS";
       }
     }
+
+    // If today's file has no content yet, link the chain from the previous day's
+    // last hash so cross-day gaps cannot be exploited by replacing a whole day's file.
+    if (this.previousHash === "GENESIS") {
+      const prevHash = this.findPreviousDayLastHash(today);
+      if (prevHash) {
+        this.previousHash = prevHash;
+        logger.info(`audit chain linked from previous day (…${prevHash.slice(-8)})`);
+      }
+    }
+  }
+
+  /** Return the last hash from the most recent audit file before `today`, or null. */
+  private findPreviousDayLastHash(today: string): string | null {
+    try {
+      const files = fs.readdirSync(this.config.logDir);
+      const candidates = files
+        .filter(f => {
+          if (!f.startsWith("audit-") || !f.endsWith(".jsonl")) return false;
+          const dateStr = f.slice(6, 16);
+          return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) && dateStr < today;
+        })
+        .sort()
+        .reverse(); // most recent first
+
+      for (const file of candidates) {
+        try {
+          const filePath = path.join(this.config.logDir, file);
+          const content = fs.readFileSync(filePath, "utf-8");
+          const lines = content.trim().split("\n").filter(l => l.length > 0);
+          if (lines.length === 0) continue;
+          const lastEvent = JSON.parse(lines[lines.length - 1]) as AuditEvent;
+          if (typeof lastEvent.hash === "string" && lastEvent.hash.length > 0) {
+            return lastEvent.hash;
+          }
+        } catch {
+          continue;
+        }
+      }
+    } catch (err) {
+      logger.debug(`audit-logger: reading previous day hash for cross-day chain: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return null;
   }
 
   /**
@@ -520,7 +563,19 @@ export class AuditLogger {
       const content = fs.readFileSync(file, "utf-8");
       const lines = content.trim().split("\n").filter(l => l.length > 0);
 
+      // Determine the expected starting hash. For a file that follows a previous
+      // day's file, the first event's previousHash must equal that file's last hash
+      // (not "GENESIS"), or the cross-day chain has been broken.
       let expectedPreviousHash = "GENESIS";
+      if (this.config.hashChainEnabled && lines.length > 0) {
+        const dateMatch = path.basename(file).match(/^audit-(\d{4}-\d{2}-\d{2})\.jsonl$/);
+        if (dateMatch) {
+          const prevHash = this.findPreviousDayLastHash(dateMatch[1]);
+          if (prevHash) {
+            expectedPreviousHash = prevHash;
+          }
+        }
+      }
 
       for (let i = 0; i < lines.length; i++) {
         try {
