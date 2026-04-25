@@ -87,8 +87,7 @@ const TOOL_NAMES = [
   "configure_webhook", "list_webhooks", "test_webhook", "remove_webhook", "deep_research",
   "gemini_query", "get_research_status", "upload_document", "query_document", "list_documents",
   "delete_document", "query_chunked_document", "get_query_history", "get_notebook_chat_history",
-  "submit_dsar", "export_user_data", "request_data_erasure", "get_data_inventory",
-  "get_privacy_notice", "get_compliance_report", "check_breach_risk", "manage_consent",
+  "submit_dsar", "export_user_data", "request_data_erasure",
   "grant_consent", "revoke_consent", "report_security_incident", "collect_audit_evidence",
   "generate_compliance_report",
 ] as const;
@@ -183,11 +182,6 @@ const ADVANCED_TOOLS = new Set<ToolName>([
   "submit_dsar",
   "export_user_data",
   "request_data_erasure",
-  "get_data_inventory",
-  "get_privacy_notice",
-  "get_compliance_report",
-  "check_breach_risk",
-  "manage_consent",
   "grant_consent",
   "revoke_consent",
   "report_security_incident",
@@ -208,7 +202,7 @@ export class NotebookLMMCPServer {
   private settingsManager: SettingsManager;
   private toolDefinitions: Tool[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private toolRegistry!: Map<string, ToolHandler>;
+  private toolRegistry: Map<string, ToolHandler> = new Map();
   private complianceToolNames: Set<string>;
   private retentionTimer?: NodeJS.Timeout;
   private readonly advancedToolsEnabled: boolean;
@@ -352,10 +346,16 @@ export class NotebookLMMCPServer {
       ["get_notebook_chat_history", (args) => this.toolHandlers.handleGetNotebookChatHistory(asToolInput<Parameters<ToolHandlers["handleGetNotebookChatHistory"]>[0]>(args))],
     ]));
 
-    // Startup assertion: every registered tool must be explicitly auth-classified (I313)
+    // Startup assertion: every dispatched tool must be explicitly auth-classified (I313)
     for (const toolName of this.toolRegistry.keys()) {
       if (isToolName(toolName) && !TOOLS_REQUIRING_AUTH.has(toolName) && !TOOLS_EXEMPT_FROM_AUTH.has(toolName)) {
         log.warning(`⚠️ Tool '${toolName}' not in auth lists — defaulting to unauthenticated`);
+      }
+    }
+    for (const toolName of this.complianceToolNames) {
+      if (!isToolName(toolName)) {
+        // Compliance tools not in TOOL_NAMES use read-auth by default; log for audit visibility
+        log.info(`  [auth] compliance:'${toolName}' → read-auth (not in TOOLS_REQUIRING_AUTH)`);
       }
     }
 
@@ -486,6 +486,7 @@ export class NotebookLMMCPServer {
 
         const errorBody = {
           success: false,
+          data: null,
           error: sanitized,
           _errorType: errorType,
         };
@@ -624,7 +625,7 @@ export class NotebookLMMCPServer {
       await runOnce();
       const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
       this.retentionTimer = setInterval(() => {
-        void runOnce().catch((err) => log.warning(`⚠️ retention policy run failed: ${err}`));
+        void runOnce().catch((err) => log.warning(`⚠️ retention policy run failed: ${err instanceof Error ? err.message : String(err)}`));
       }, SIX_HOURS_MS);
       this.retentionTimer.unref();
     } catch (err) {
@@ -732,7 +733,14 @@ export class NotebookLMMCPServer {
     log.info(`  Session Timeout: ${CONFIG.sessionTimeout}s`);
     log.info(`  Stealth: ${CONFIG.stealthEnabled}`);
     log.info(`  Audit Logging: ${getAuditLogger().getStats().totalEvents >= 0 ? 'enabled' : 'disabled'}`);
-    log.info(`  MCP Authentication: ${authStatus.enabled ? 'enabled' : 'disabled'}`);
+    // I314: verbose effective auth state
+    log.info(`  MCP Authentication: ${authStatus.enabled ? 'ENABLED' : 'DISABLED'}`);
+    if (authStatus.enabled) {
+      const tokenSrc = process.env.NLMCP_AUTH_TOKEN ? "env var" : "hash file";
+      log.info(`    Admin token: ${authStatus.hasToken ? `configured (${tokenSrc})` : 'NOT SET — all admin tools will reject'}`);
+      log.info(`    Read-only token: ${authStatus.hasReadOnlyToken ? 'configured' : 'not set (admin token used for read)'}`);
+      log.info(`    Admin tools (${TOOLS_REQUIRING_AUTH.size}): require auth even if globally disabled`);
+    }
     log.info("");
 
     // Connect server to transport
@@ -743,8 +751,9 @@ export class NotebookLMMCPServer {
     log.info("");
     log.info("💡 Available tools:");
     for (const tool of this.toolDefinitions) {
-      const desc = tool.description ? tool.description.split('\n')[0] : 'No description'; // First line only
-      log.info(`  - ${tool.name}: ${desc.substring(0, 80)}...`);
+      const raw = tool.description ? tool.description.split('\n')[0] : 'No description';
+      const desc = raw.replace(/\p{Extended_Pictographic}/gu, '').trim();
+      log.info(`  - ${tool.name}: ${desc.substring(0, 80)}${desc.length > 80 ? '...' : ''}`);
     }
     log.info("");
     log.info("📖 For documentation, see: README.md");

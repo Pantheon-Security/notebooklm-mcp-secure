@@ -7,7 +7,7 @@
     "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true,
+    "skipLibCheck": true, // patchright ships broken .d.ts; removing this breaks the build
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": true,

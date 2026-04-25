@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleDeepResearch } from "../src/tools/handlers/gemini.js";
+import { handleDeepResearch, handleDeleteDocument } from "../src/tools/handlers/gemini.js";
 import type { HandlerContext } from "../src/tools/handlers/types.js";
 
 vi.mock("../src/utils/audit-logger.js", () => ({
@@ -9,6 +9,22 @@ vi.mock("../src/utils/audit-logger.js", () => ({
 }));
 
 describe("Gemini handlers", () => {
+  describe("handleDeleteDocument (I331)", () => {
+    const ctx = {} as HandlerContext;
+
+    it("rejects calls without confirm: true", async () => {
+      const result = await handleDeleteDocument(ctx, { file_name: "test.pdf", confirm: false });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/confirm/i);
+    });
+
+    it("rejects calls with confirm omitted (undefined cast)", async () => {
+      const result = await handleDeleteDocument(ctx, { file_name: "test.pdf", confirm: undefined as unknown as boolean });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/confirm/i);
+    });
+  });
+
   it("forwards deep_research thinking_level to GeminiClient", async () => {
     const deepResearch = vi.fn().mockResolvedValue({
       id: "research-1",

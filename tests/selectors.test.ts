@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { NOTEBOOKLM_SELECTORS, RESPONSE_SELECTORS, waitForElement } from "../src/notebook-creation/selectors.js";
+import { NOTEBOOKLM_SELECTORS, RESPONSE_SELECTORS } from "../src/notebook-creation/selectors.js";
+import { waitForElement } from "../src/utils/page-utils.js";
 
 describe("waitForElement", () => {
   it("uses the full deadline instead of splitting timeout once across selectors", async () => {

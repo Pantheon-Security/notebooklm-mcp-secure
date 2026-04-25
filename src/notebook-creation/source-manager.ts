@@ -11,7 +11,8 @@ import { AuthManager } from "../auth/auth-manager.js";
 import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
 import { randomDelay, humanType } from "../utils/stealth-utils.js";
-import { findElement, getSelectors } from "./selectors.js";
+import { getSelectors } from "./selectors.js";
+import { findElement } from "../utils/page-utils.js";
 import type { NotebookSource } from "./types.js";
 
 export interface SourceInfo {
@@ -922,6 +923,70 @@ export class NotebookCreationSourceManager {
     return dialogIndicators.open;
   }
 
+  private async tryAddSourceByAria(page: Page): Promise<boolean> {
+    try {
+      let locator = page.locator('button[aria-label="Add source"]');
+      let count = await locator.count();
+      log.info(`  aria "Add source": ${count} found`);
+      if (count === 0) {
+        locator = page.locator('button[aria-label="Add sources"]');
+        count = await locator.count();
+        log.info(`  aria "Add sources": ${count} found`);
+      }
+      if (count > 0 && await locator.first().isVisible()) {
+        await locator.first().click();
+        await randomDelay(800, 1500);
+        return true;
+      }
+    } catch (e) {
+      log.info(`  aria approach: ${e}`);
+    }
+    return false;
+  }
+
+  private async tryAddSourceByClass(page: Page): Promise<boolean> {
+    try {
+      const locator = page.locator('button.add-source-button');
+      const count = await locator.count();
+      log.info(`  class add-source-button: ${count} found`);
+      if (count > 0 && await locator.first().isVisible()) {
+        await locator.first().click();
+        await randomDelay(800, 1500);
+        return true;
+      }
+    } catch (e) {
+      log.info(`  class approach: ${e}`);
+    }
+    return false;
+  }
+
+  private async tryAddSourceByJs(page: Page): Promise<boolean> {
+    try {
+      const clicked = await page.evaluate(() => {
+        const browser = globalThis as unknown as BrowserDocumentContext;
+        const elements = Array.from(browser.document.querySelectorAll('button, [role="button"]')) as BrowserTextVisibleElement[];
+        for (const el of elements) {
+          const elText = el.textContent?.trim().toLowerCase() ?? "";
+          const ariaLabel = el.getAttribute("aria-label")?.toLowerCase() ?? "";
+          const className = el.className?.toLowerCase() ?? "";
+          if (ariaLabel.includes("create") || className.includes("create-notebook") ||
+              elText.includes("create") || elText.includes("add note") ||
+              className.includes("add-note")) continue;
+          if (ariaLabel === "add source" || ariaLabel.includes("add source") ||
+              elText.includes("add source") || className.includes("add-source")) {
+            el.click();
+            return true;
+          }
+        }
+        return false;
+      });
+      if (clicked) { await randomDelay(800, 1500); return true; }
+    } catch (err) {
+      log.debug(`source-manager: clicking 'Add source' via JS: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return false;
+  }
+
   private async clickAddSource(): Promise<void> {
     const page = this.requirePage();
 
@@ -937,118 +1002,32 @@ export class NotebookCreationSourceManager {
     if (debugEnabled) {
       const buttonsInfo = await page.evaluate(() => {
         const browser = globalThis as unknown as BrowserDocumentContext;
-        const buttons = Array.from(browser.document.querySelectorAll('button, [role="button"]')) as BrowserTextVisibleElement[];
-        const info: Array<{text: string, aria: string, class: string, visible: boolean}> = [];
-        for (const btn of buttons) {
-          const text = btn.textContent?.trim().substring(0, 50) || "";
-          const aria = btn.getAttribute("aria-label") || "";
-          const cls = btn.className?.substring(0, 50) || "";
-          const visible = btn.offsetParent !== null;
-          if (aria.toLowerCase().includes("add") || aria.toLowerCase().includes("create") ||
-              text.toLowerCase().includes("add") || text.toLowerCase().includes("create") ||
-              cls.toLowerCase().includes("add") || cls.toLowerCase().includes("create")) {
-            info.push({ text, aria, class: cls, visible });
-          }
-        }
-        return info;
+        return (Array.from(browser.document.querySelectorAll('button, [role="button"]')) as BrowserTextVisibleElement[])
+          .filter((btn) => {
+            const aria = btn.getAttribute("aria-label")?.toLowerCase() ?? "";
+            const text = btn.textContent?.trim().toLowerCase() ?? "";
+            const cls = btn.className?.toLowerCase() ?? "";
+            return aria.includes("add") || aria.includes("create") || text.includes("add") ||
+                   text.includes("create") || cls.includes("add") || cls.includes("create");
+          })
+          .map((btn) => ({
+            text: btn.textContent?.trim().substring(0, 50) ?? "",
+            aria: btn.getAttribute("aria-label") ?? "",
+            class: btn.className?.substring(0, 50) ?? "",
+            visible: btn.offsetParent !== null,
+          }));
       });
       log.dim(`  Buttons found: ${JSON.stringify(buttonsInfo, null, 2)}`);
     }
 
-    try {
-      let addSourceLocator = page.locator('button[aria-label="Add source"]');
-      let count = await addSourceLocator.count();
-      log.info(`  Method 1a: Found ${count} button(s) with aria-label="Add source"`);
-
-      if (count === 0) {
-        addSourceLocator = page.locator('button[aria-label="Add sources"]');
-        count = await addSourceLocator.count();
-        log.info(`  Method 1b: Found ${count} button(s) with aria-label="Add sources"`);
-      }
-
-      if (count > 0 && await addSourceLocator.first().isVisible()) {
-        await addSourceLocator.first().click();
-        await randomDelay(800, 1500);
-        log.success("✅ Clicked 'Add source' button (locator)");
-        return;
-      }
-    } catch (e) {
-      log.info(`  Locator approach failed: ${e}`);
-    }
-
-    try {
-      const classLocator = page.locator('button.add-source-button');
-      const count = await classLocator.count();
-      log.info(`  Method 2: Found ${count} button(s) with class add-source-button`);
-      if (count > 0 && await classLocator.first().isVisible()) {
-        await classLocator.first().click();
-        await randomDelay(800, 1500);
-        log.success("✅ Clicked 'Add source' button (class)");
-        return;
-      }
-    } catch (e) {
-      log.info(`  Class selector failed: ${e}`);
-    }
-
-    try {
-      const clicked = await page.evaluate(() => {
-        const browser = globalThis as unknown as BrowserDocumentContext;
-        const elements = Array.from(browser.document.querySelectorAll('button, [role="button"]')) as BrowserTextVisibleElement[];
-        for (const el of elements) {
-          const elText = el.textContent?.trim().toLowerCase() || "";
-          const ariaLabel = el.getAttribute("aria-label")?.toLowerCase() || "";
-          const className = el.className?.toLowerCase() || "";
-
-          if (ariaLabel.includes("create") || className.includes("create-notebook") ||
-              elText.includes("create") || elText.includes("add note") ||
-              className.includes("add-note")) {
-            continue;
-          }
-
-          if (ariaLabel === "add source" || ariaLabel.includes("add source") ||
-              elText.includes("add source") || className.includes("add-source")) {
-            el.click();
-            return { clicked: true, aria: ariaLabel, text: elText.substring(0, 30) };
-          }
-        }
-        return { clicked: false };
-      });
-
-      if (clicked.clicked) {
-        await randomDelay(800, 1500);
-        if (process.env.DEBUG === "true") {
-          log.debug(`source-manager: clicked add-source JS fallback (aria/text lengths: ${String(clicked.aria ?? "").length}/${String(clicked.text ?? "").length})`);
-        }
-        log.success("✅ Clicked 'Add source' button (JS fallback)");
-        return;
-      }
-    } catch (err) {
-      log.debug(`source-manager: clicking 'Add source' button via JS fallback: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    if (await this.tryAddSourceByAria(page)) return;
+    if (await this.tryAddSourceByClass(page)) return;
+    if (await this.tryAddSourceByJs(page)) return;
 
     log.warning("⚠️ Add source button not found, waiting and retrying...");
     await randomDelay(3000, 4000);
 
-    try {
-      let addSourceLocator = page.locator('button[aria-label="Add source"]');
-      let count = await addSourceLocator.count();
-      log.info(`  Retry: Found ${count} button(s) with aria-label="Add source"`);
-
-      if (count === 0) {
-        addSourceLocator = page.locator('button[aria-label="Add sources"]');
-        count = await addSourceLocator.count();
-        log.info(`  Retry: Found ${count} button(s) with aria-label="Add sources"`);
-      }
-
-      if (count > 0 && await addSourceLocator.first().isVisible()) {
-        await addSourceLocator.first().click();
-        await randomDelay(800, 1500);
-        log.success("✅ Clicked 'Add source' button (retry)");
-        return;
-      }
-    } catch (e) {
-      log.info(`  Retry failed: ${e}`);
-    }
+    if (await this.tryAddSourceByAria(page)) return;
 
     throw new Error("Could not find 'Add source' button after retry");
   }
@@ -1067,7 +1046,7 @@ export class NotebookCreationSourceManager {
         if (input && await input.isVisible()) {
           await humanType(page, selector, url, { withTypos: false });
           await randomDelay(500, 1000);
-          await this.clickSubmitButton();
+          await this.clickDialogSubmit();
           await this.waitForSourceProcessing({ mode: "strict" });
           return;
         }
@@ -1202,8 +1181,22 @@ export class NotebookCreationSourceManager {
       };
     }, { selector: activeSelector });
     log.info(`🧪 Text source state before insert: ${JSON.stringify(textState)}`);
-    await this.clickInsertButton();
+    await this.clickDialogSubmit();
     await this.waitForSourceProcessing({ mode: "lenient" });
+  }
+
+  private async tryFileUploadViaTrigger(page: Page, locatorStr: string, absolutePath: string): Promise<boolean> {
+    const locator = page.locator(locatorStr);
+    if (await locator.count() > 0 && await locator.first().isVisible()) {
+      await locator.first().click();
+      await page.waitForSelector('input[type="file"]', { timeout: 5000, state: 'attached' });
+      await randomDelay(200, 400);
+      await page.locator('input[type="file"]').first().setInputFiles(absolutePath);
+      await randomDelay(1000, 2000);
+      await this.waitForSourceProcessing({ mode: "lenient" });
+      return true;
+    }
+    return false;
   }
 
   private async addFileSource(filePath: string): Promise<void> {
@@ -1217,43 +1210,13 @@ export class NotebookCreationSourceManager {
     await randomDelay(500, 1000);
 
     try {
-      const chooseFileLocator = page.locator('span.dropzone__file-dialog-button');
-      if (await chooseFileLocator.count() > 0 && await chooseFileLocator.first().isVisible()) {
-        await chooseFileLocator.first().click();
-        await page.waitForSelector('input[type="file"]', { timeout: 5000, state: 'attached' });
-        await randomDelay(200, 400);
-        await page.locator('input[type="file"]').first().setInputFiles(absolutePath);
-        log.success("  ✅ File uploaded via Playwright click + setInputFiles");
-        await randomDelay(1000, 2000);
-        await this.waitForSourceProcessing({ mode: "lenient" });
-        return;
-      }
-
-      const xapscottyLocator = page.locator('[xapscottyuploadertrigger]');
-      if (await xapscottyLocator.count() > 0 && await xapscottyLocator.first().isVisible()) {
-        await xapscottyLocator.first().click();
-        await page.waitForSelector('input[type="file"]', { timeout: 5000, state: 'attached' });
-        await randomDelay(200, 400);
-        await page.locator('input[type="file"]').first().setInputFiles(absolutePath);
-        log.success("  ✅ File uploaded via xapscotty click + setInputFiles");
-        await randomDelay(1000, 2000);
-        await this.waitForSourceProcessing({ mode: "lenient" });
-        return;
-      }
-
-      const uploadBtnLocator = page.locator(
-        'button[class*="upload"], button[aria-label="Upload sources from your computer"]'
-      );
-      if (await uploadBtnLocator.count() > 0 && await uploadBtnLocator.first().isVisible()) {
-        await uploadBtnLocator.first().click();
-        await page.waitForSelector('input[type="file"]', { timeout: 5000, state: 'attached' });
-        await randomDelay(200, 400);
-        await page.locator('input[type="file"]').first().setInputFiles(absolutePath);
-        log.success("  ✅ File uploaded via upload button click + setInputFiles");
-        await randomDelay(1000, 2000);
-        await this.waitForSourceProcessing({ mode: "lenient" });
-        return;
-      }
+      if (await this.tryFileUploadViaTrigger(page, 'span.dropzone__file-dialog-button', absolutePath)) return;
+      if (await this.tryFileUploadViaTrigger(page, '[xapscottyuploadertrigger]', absolutePath)) return;
+      if (await this.tryFileUploadViaTrigger(
+        page,
+        'button[class*="upload"], button[aria-label="Upload sources from your computer"]',
+        absolutePath
+      )) return;
     } catch (e) {
       log.info(`  Playwright click approach: ${e}`);
     }
@@ -1403,11 +1366,30 @@ export class NotebookCreationSourceManager {
     }
   }
 
-  private async clickSubmitButton(): Promise<void> {
+  private async clickDialogSubmit(): Promise<void> {
     const page = this.requirePage();
-    const selectors = getSelectors("submitButton");
 
-    for (const selector of selectors) {
+    // Strategy 1: JS-based click (works when elements are partially obscured)
+    const clicked = await page.evaluate(() => {
+      const browser = globalThis as unknown as BrowserDocumentContext;
+      const submitBtn = browser.document.querySelector("button[type='submit']:not([disabled])") as BrowserVisibleElement | null;
+      if (submitBtn && submitBtn.offsetParent !== null) { submitBtn.click(); return true; }
+      const primaryBtn = browser.document.querySelector(
+        "button.button-color--primary:not([disabled])"
+      ) as BrowserVisibleElement | null;
+      if (primaryBtn && primaryBtn.offsetParent !== null) { primaryBtn.click(); return true; }
+      const buttons = Array.from(browser.document.querySelectorAll("button")) as BrowserVisibleElement[];
+      for (const btn of buttons) {
+        const text = btn.textContent?.trim() ?? "";
+        if (text === "Insert" || text.toLowerCase() === "insert") { btn.click(); return true; }
+      }
+      return false;
+    });
+
+    if (clicked) return;
+
+    // Strategy 2: Patchright selector-based click
+    for (const selector of getSelectors("submitButton")) {
       try {
         const element = await page.$(selector);
         if (element && await element.isVisible()) {
@@ -1419,43 +1401,8 @@ export class NotebookCreationSourceManager {
       }
     }
 
+    // Final fallback
     await page.keyboard.press("Enter");
-  }
-
-  private async clickInsertButton(): Promise<void> {
-    const page = this.requirePage();
-    const clicked = await page.evaluate(() => {
-      const browser = globalThis as unknown as BrowserDocumentContext;
-      const submitBtn = browser.document.querySelector("button[type='submit']:not([disabled])") as BrowserVisibleElement | null;
-      if (submitBtn && submitBtn.offsetParent !== null) {
-        submitBtn.click();
-        return true;
-      }
-      const primaryBtn = browser.document.querySelector(
-        "button.button-color--primary:not([disabled])"
-      ) as BrowserVisibleElement | null;
-      if (primaryBtn && primaryBtn.offsetParent !== null) {
-        primaryBtn.click();
-        return true;
-      }
-      const buttons = Array.from(browser.document.querySelectorAll("button")) as BrowserVisibleElement[];
-      for (const btn of buttons) {
-        const text = btn.textContent?.trim() || "";
-        if (text === "Insert" || text.toLowerCase() === "insert") {
-          btn.click();
-          return true;
-        }
-      }
-      return false;
-    });
-
-    if (clicked) {
-      log.success("✅ Clicked 'Insert' button");
-      return;
-    }
-
-    log.warning("⚠️ 'Insert' button not found, trying submit button");
-    await this.clickSubmitButton();
   }
 
   private async waitForSourceProcessing(

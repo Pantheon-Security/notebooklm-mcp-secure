@@ -270,6 +270,10 @@ export class AuditLogger {
         this.currentLogFile = logFile;
         appendFileSecure(logFile, line, PERMISSION_MODES.OWNER_READ_WRITE);
         this.pendingEvents = this.pendingEvents.filter((pendingEvent) => pendingEvent !== event);
+        // Advance the chain pointer only after the write physically succeeds (I228)
+        if (this.config.hashChainEnabled && event.hash) {
+          this.previousHash = event.hash;
+        }
       });
 
       // Fan-out to subscribers after successful write (I244)
@@ -327,10 +331,7 @@ export class AuditLogger {
       hash,
     };
 
-    if (this.config.hashChainEnabled) {
-      this.previousHash = hash;
-    }
-
+    // previousHash is updated inside flushEvent after the write succeeds (I228)
     await this.writeEvent(event);
   }
 

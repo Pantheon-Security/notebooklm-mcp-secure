@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   validateNotebookUrl,
+  validateNotebookId,
   validateQuestion,
   RateLimiter,
   SecurityError,
@@ -127,6 +128,40 @@ describe("Security Utilities", () => {
     it("should accept questions at the max length boundary", () => {
       const maxQuestion = "a".repeat(32000);
       expect(validateQuestion(maxQuestion)).toBe(maxQuestion);
+    });
+  });
+
+  describe("validateNotebookId (I329)", () => {
+    it("accepts alphanumeric IDs", () => {
+      expect(validateNotebookId("abc123")).toBe("abc123");
+    });
+
+    it("accepts IDs with dashes and underscores", () => {
+      expect(validateNotebookId("abc-123_XYZ")).toBe("abc-123_XYZ");
+    });
+
+    it("trims surrounding whitespace", () => {
+      expect(validateNotebookId("  abc123  ")).toBe("abc123");
+    });
+
+    it("rejects IDs containing slashes (path traversal)", () => {
+      expect(() => validateNotebookId("abc/123")).toThrow(SecurityError);
+    });
+
+    it("rejects IDs containing dots", () => {
+      expect(() => validateNotebookId("abc.123")).toThrow(SecurityError);
+    });
+
+    it("rejects IDs over 128 characters", () => {
+      expect(() => validateNotebookId("a".repeat(129))).toThrow(SecurityError);
+    });
+
+    it("rejects empty string", () => {
+      expect(() => validateNotebookId("")).toThrow(SecurityError);
+    });
+
+    it("rejects whitespace-only string", () => {
+      expect(() => validateNotebookId("   ")).toThrow(SecurityError);
     });
   });
 

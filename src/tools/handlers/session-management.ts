@@ -72,94 +72,59 @@ export async function handleListSessions(ctx: HandlerContext): Promise<
   }
 }
 
-/**
- * Handle close_session tool
- */
-export async function handleCloseSession(
-  ctx: HandlerContext,
-  args: { session_id: string }
-): Promise<ToolResult<{ status: string; message: string; session_id: string }>> {
-  const { session_id } = args;
+type SessionOpResult = ToolResult<{ status: string; message: string; session_id: string }>;
 
-  log.info(`🔧 [TOOL] close_session called`);
+async function withSessionOp(
+  toolName: string,
+  session_id: string,
+  action: () => Promise<{ ok: boolean; message: string }>
+): Promise<SessionOpResult> {
+  log.info(`🔧 [TOOL] ${toolName} called`);
   log.info(`  Session ID: ${session_id}`);
 
   try {
-    const closed = await ctx.sessionManager.closeSession(session_id);
-
-    if (closed) {
-      log.success(`✅ [TOOL] close_session completed`);
-      return {
-        success: true,
-        data: {
-          status: "success",
-          message: `Session ${session_id} closed successfully`,
-          session_id,
-        },
-      };
-    } else {
+    const result = await action();
+    if (!result.ok) {
       log.warning(`⚠️  [TOOL] Session ${session_id} not found`);
-      return {
-        success: false,
-        data: null,
-        error: `Session ${session_id} not found`,
-      };
+      return { success: false, data: null, error: `Session ${session_id} not found` };
     }
+    log.success(`✅ [TOOL] ${toolName} completed`);
+    return { success: true, data: { status: "success", message: result.message, session_id } };
   } catch (error) {
     const errorMessage = getSanitizedErrorMessage(error);
-    log.error(`❌ [TOOL] close_session failed: ${errorMessage}`);
-    return {
-      success: false,
-      data: null,
-      error: errorMessage,
-    };
+    log.error(`❌ [TOOL] ${toolName} failed: ${errorMessage}`);
+    return { success: false, data: null, error: errorMessage };
   }
+}
+
+/**
+ * Handle close_session tool
+ */
+export function handleCloseSession(
+  ctx: HandlerContext,
+  args: { session_id: string }
+): Promise<SessionOpResult> {
+  return withSessionOp("close_session", args.session_id, async () => {
+    const closed = await ctx.sessionManager.closeSession(args.session_id);
+    return closed
+      ? { ok: true, message: `Session ${args.session_id} closed successfully` }
+      : { ok: false, message: "" };
+  });
 }
 
 /**
  * Handle reset_session tool
  */
-export async function handleResetSession(
+export function handleResetSession(
   ctx: HandlerContext,
   args: { session_id: string }
-): Promise<ToolResult<{ status: string; message: string; session_id: string }>> {
-  const { session_id } = args;
-
-  log.info(`🔧 [TOOL] reset_session called`);
-  log.info(`  Session ID: ${session_id}`);
-
-  try {
-    const session = ctx.sessionManager.getSession(session_id);
-
-    if (!session) {
-      log.warning(`⚠️  [TOOL] Session ${session_id} not found`);
-      return {
-        success: false,
-        data: null,
-        error: `Session ${session_id} not found`,
-      };
-    }
-
+): Promise<SessionOpResult> {
+  return withSessionOp("reset_session", args.session_id, async () => {
+    const session = ctx.sessionManager.getSession(args.session_id);
+    if (!session) return { ok: false, message: "" };
     await session.reset();
-
-    log.success(`✅ [TOOL] reset_session completed`);
-    return {
-      success: true,
-      data: {
-        status: "success",
-        message: `Session ${session_id} reset successfully`,
-        session_id,
-      },
-    };
-  } catch (error) {
-    const errorMessage = getSanitizedErrorMessage(error);
-    log.error(`❌ [TOOL] reset_session failed: ${errorMessage}`);
-    return {
-      success: false,
-      data: null,
-      error: errorMessage,
-    };
-  }
+    return { ok: true, message: `Session ${args.session_id} reset successfully` };
+  });
 }
 
 /**

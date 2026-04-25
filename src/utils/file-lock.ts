@@ -306,6 +306,7 @@ export function forceUnlock(filePath: string): boolean {
       return false;
     }
 
+    let lockPid: number | undefined;
     try {
       const content = fs.readFileSync(lockPath, "utf-8");
       const existing = JSON.parse(content) as LockContent;
@@ -314,6 +315,7 @@ export function forceUnlock(filePath: string): boolean {
         throw new Error(`Invalid lock file PID: ${existing.pid}`);
       }
 
+      lockPid = existing.pid;
       process.kill(existing.pid, 0);
       throw new Error(
         `Cannot force-unlock: owning process ${existing.pid} is still running.`
@@ -325,6 +327,13 @@ export function forceUnlock(filePath: string): boolean {
       ) {
         throw error;
       }
+      // EPERM means the process exists but is owned by another user — still alive (I296)
+      if ((error as NodeJS.ErrnoException).code === "EPERM") {
+        throw new Error(
+          `Cannot force-unlock: owning process ${lockPid} is still alive (EPERM).`
+        );
+      }
+      // ESRCH means the process is gone — safe to remove the orphaned lock
     }
 
     fs.unlinkSync(lockPath);

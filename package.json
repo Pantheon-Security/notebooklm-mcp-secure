@@ -1,6 +1,6 @@
 {
   "name": "@pan-sec/notebooklm-mcp",
-  "version": "2026.3.0",
+  "version": "2026.3.1",
   "mcpName": "io.github.Pantheon-Security/notebooklm-mcp-secure",
   "description": "Security-hardened MCP server for NotebookLM API with compliance-ready architecture (GDPR, SOC2, CSSF controls implemented)",
   "type": "module",
@@ -21,7 +21,8 @@
     "test:watch": "npx vitest",
     "test:coverage": "npx vitest run --coverage",
     "security-check": "npm audit",
-    "security-scan": "medusa scan . --fail-on high"
+    "security-scan": "medusa scan . --fail-on high",
+    "discover-selectors": "npx tsx scripts/run-discovery.ts"
   },
   "keywords": [
     "mcp",

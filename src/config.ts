@@ -18,7 +18,7 @@ import { SecureCredential } from "./utils/secure-memory.js";
 /**
  * Clamp an integer to a [min, max] range
  */
-function clampInteger(value: number, min: number, max: number): number {
+export function clampInteger(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 

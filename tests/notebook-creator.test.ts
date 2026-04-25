@@ -76,6 +76,26 @@ describe("NotebookCreator", () => {
     vi.restoreAllMocks();
   });
 
+  it("sanitized throw does not surface raw notebook URL when creation URL is unexpected (I332)", async () => {
+    const unexpectedUrl = "https://accounts.google.com/login?redirect=https%3A%2F%2Fnotebooklm.google.com";
+    const creator = new NotebookCreator({} as never, {} as never);
+    creator["navigation"] = {
+      initialize: vi.fn().mockResolvedValue(undefined),
+      clickNewNotebook: vi.fn().mockResolvedValue(undefined),
+      validateCurrentAuth: vi.fn().mockResolvedValue(undefined),
+      getCurrentPage: vi.fn(() => ({ url: () => unexpectedUrl })),
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    } as never;
+    creator["sourceManager"] = {} as never;
+
+    await expect(creator.createNotebook({ name: "X", sources: [] })).rejects.toSatisfy(
+      (err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        return !msg.includes(unexpectedUrl) && !msg.includes("accounts.google.com");
+      }
+    );
+  });
+
   it("marks created notebooks as partial when one or more sources fail", async () => {
     const creator = new NotebookCreator({} as never, {} as never);
     creator["navigation"] = {
@@ -138,5 +158,47 @@ describe("NotebookCreator", () => {
     });
 
     expect(validateCurrentAuth).toHaveBeenCalledTimes(2);
+  });
+
+  it("propagates a typed NotebookCreationError when navigation throws during creation", async () => {
+    const creator = new NotebookCreator({} as never, {} as never);
+    const creationError = new NotebookCreationError("click failed", {
+      code: NotebookCreationErrorCode.CLICK_NEW_NOTEBOOK_FAILED,
+      url: "https://notebooklm.google.com",
+    });
+    creator["navigation"] = {
+      initialize: vi.fn().mockResolvedValue(undefined),
+      clickNewNotebook: vi.fn().mockRejectedValue(creationError),
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    } as never;
+    creator["sourceManager"] = {} as never;
+
+    await expect(creator.createNotebook({ name: "X", sources: [] })).rejects.toBeInstanceOf(
+      NotebookCreationError
+    );
+  });
+
+  it("succeeds with sourceCount: 0 and partial: false when sources array is empty", async () => {
+    const creator = new NotebookCreator({} as never, {} as never);
+    creator["navigation"] = {
+      initialize: vi.fn().mockResolvedValue(undefined),
+      clickNewNotebook: vi.fn().mockResolvedValue(undefined),
+      validateCurrentAuth: vi.fn().mockResolvedValue(undefined),
+      getCurrentPage: vi.fn(() => ({
+        url: () => "https://notebooklm.google.com/notebook/abc123",
+      })),
+      setNotebookName: vi.fn().mockResolvedValue(undefined),
+      finalizeAndGetUrl: vi.fn().mockResolvedValue("https://notebooklm.google.com/notebook/abc123"),
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    } as never;
+    creator["sourceManager"] = {
+      getSourceDescription: vi.fn(),
+      addSource: vi.fn(),
+    } as never;
+
+    const result = await creator.createNotebook({ name: "Empty", sources: [] });
+
+    expect(result.sourceCount).toBe(0);
+    expect(result.partial).toBe(false);
   });
 });

@@ -1,5 +1,6 @@
 import type { Page } from "patchright";
-import { waitForElement, getSelectors } from "./selectors.js";
+import { getSelectors } from "./selectors.js";
+import { waitForElement } from "../utils/page-utils.js";
 import { NotebookCreationError, NotebookCreationErrorCode } from "./errors.js";
 import { log } from "../utils/logger.js";
 import { randomDelay, humanType, realisticClick } from "../utils/stealth-utils.js";

@@ -12,7 +12,7 @@
 
 import type { Page } from "patchright";
 import { log } from "./logger.js";
-import { RESPONSE_SELECTORS } from "../notebook-creation/selectors.js";
+import { RESPONSE_SELECTORS, getSelectors, type SelectorKey } from "../notebook-creation/selectors.js";
 
 type BrowserVisibleElement = {
   isConnected?: boolean;
@@ -462,6 +462,53 @@ async function extractLatestText(
     // Ignore evaluation errors
   }
 
+  return null;
+}
+
+// ============================================================================
+// Selector Utilities (moved from notebook-creation/selectors.ts — I149)
+// ============================================================================
+
+export async function findElement(
+  page: { $(selector: string): Promise<unknown | null> },
+  key: SelectorKey
+): Promise<unknown | null> {
+  for (const selector of getSelectors(key)) {
+    try {
+      const element = await page.$(selector);
+      if (element) return element;
+    } catch (err) {
+      log.debug(`selector not found (${selector}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return null;
+}
+
+export async function waitForElement(
+  page: {
+    waitForSelector(selector: string, options?: { timeout?: number; state?: string }): Promise<unknown>;
+  },
+  key: SelectorKey,
+  options: { timeout?: number; state?: string } = {}
+): Promise<unknown | null> {
+  const deadline = Date.now() + (options.timeout ?? 10000);
+  const state = options.state ?? "visible";
+
+  while (Date.now() < deadline) {
+    for (const selector of getSelectors(key)) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return null;
+      try {
+        const element = await page.waitForSelector(selector, {
+          timeout: Math.max(1, Math.min(remaining, 250)),
+          state,
+        });
+        if (element) return element;
+      } catch (err) {
+        log.debug(`waitForElement: ${selector} timed out: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
   return null;
 }
 

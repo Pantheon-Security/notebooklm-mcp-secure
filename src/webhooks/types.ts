@@ -30,6 +30,8 @@ export interface WebhookDelivery {
   success: boolean;
   statusCode?: number;
   error?: string;
+  /** Classifies network-level failures: timeout = AbortController fired; dns_or_connect = permanent unreachable; network = other */
+  errorKind?: "timeout" | "dns_or_connect" | "network";
   attempts: number;
   durationMs: number;
 }

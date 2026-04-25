@@ -66,3 +66,17 @@ venv/
 
 # Stray tooling configs (do not commit)
 tools.yaml
+
+# Internal process documents (issue trackers, session handovers, AI batch prompts)
+CODEX_BATCH*.md
+OUTSTANDING.md
+ISSUES.md
+HANDOVER.md
+LOW-ISSUES.md
+medusa-fp-analysis.md
+graph_issues.md
+
+# Tooling artifacts (graphify, mutation testing)
+graphify-out/
+src/graphify-out/
+.stryker-tmp/

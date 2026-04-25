@@ -133,6 +133,15 @@ Supports:
       response_schema: {
         type: "object",
         description: "JSON schema for structured output. When provided, Gemini returns valid JSON matching this schema. Example: { type: 'object', properties: { name: { type: 'string' }, score: { type: 'number' } }, required: ['name'] }",
+        properties: {
+          type: { type: "string", enum: ["object", "array", "string", "number", "boolean"] },
+          properties: { type: "object", additionalProperties: true },
+          items: { type: "object", additionalProperties: true },
+          required: { type: "array", items: { type: "string" } },
+          enum: { type: "array" },
+          description: { type: "string" },
+        },
+        additionalProperties: true,
       },
     },
     required: ["query"],
@@ -347,8 +356,12 @@ const deleteDocumentTool: Tool = {
         maxLength: 256,
         description: "File name/ID to delete (from upload_document or list_documents)",
       },
+      confirm: {
+        type: "boolean",
+        description: "Must be true to confirm deletion. Prevents accidental permanent removal.",
+      },
     },
-    required: ["file_name"],
+    required: ["file_name", "confirm"],
   },
 };
 

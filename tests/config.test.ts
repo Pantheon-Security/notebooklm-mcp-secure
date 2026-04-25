@@ -10,6 +10,7 @@ import {
   parseBoolean,
   parseInteger,
   parseArray,
+  clampInteger,
   applyBrowserOptions,
   CONFIG,
 } from "../src/config.js";
@@ -124,6 +125,29 @@ describe("Config Parsing", () => {
     it("should have browserTimeout between 5000 and 300000", () => {
       expect(CONFIG.browserTimeout).toBeGreaterThanOrEqual(5000);
       expect(CONFIG.browserTimeout).toBeLessThanOrEqual(300000);
+    });
+  });
+
+  describe("clampInteger (I304)", () => {
+    it("returns value when within range", () => {
+      expect(clampInteger(10, 1, 50)).toBe(10);
+    });
+
+    it("clamps value below min to min", () => {
+      expect(clampInteger(0, 1, 50)).toBe(1);
+      expect(clampInteger(-100, 60, 86400)).toBe(60);
+    });
+
+    it("clamps value above max to max", () => {
+      expect(clampInteger(999999, 5000, 300000)).toBe(300000);
+      expect(clampInteger(100, 1, 50)).toBe(50);
+    });
+
+    it("accepts boundary values exactly", () => {
+      expect(clampInteger(1, 1, 50)).toBe(1);
+      expect(clampInteger(50, 1, 50)).toBe(50);
+      expect(clampInteger(5000, 5000, 300000)).toBe(5000);
+      expect(clampInteger(300000, 5000, 300000)).toBe(300000);
     });
   });
 

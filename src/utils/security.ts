@@ -180,12 +180,9 @@ export function sanitizeForLogging(value: string): string {
     return '[invalid]';
   }
 
-  // Mask email addresses (show first char and domain)
+  // Mask email addresses via maskEmail — preserves neither local part nor domain (I207)
   EMAIL_SANITIZE_PATTERN.lastIndex = 0;
-  const emailMasked = value.replace(
-    EMAIL_SANITIZE_PATTERN,
-    (_, first, rest, domain) => `${first}${'*'.repeat(Math.min(rest.length, 8))}@${domain}`
-  );
+  const emailMasked = value.replace(EMAIL_SANITIZE_PATTERN, (match) => maskEmail(match));
 
   // Mask anything that looks like a password or secret
   let result = emailMasked;

@@ -246,68 +246,16 @@ export type SelectorKey = keyof typeof NOTEBOOKLM_SELECTORS;
  */
 export function getSelectors(key: SelectorKey): string[] {
   const info = NOTEBOOKLM_SELECTORS[key];
-  return [info.primary, ...info.fallbacks].filter(Boolean);
+  return ([info.primary, ...info.fallbacks] as string[]).filter(Boolean);
 }
 
-/**
- * Try each selector until one matches
- */
-export async function findElement(
-  page: { $(selector: string): Promise<unknown | null> },
-  key: SelectorKey
-): Promise<unknown | null> {
-  const selectors = getSelectors(key);
-
-  for (const selector of selectors) {
-    try {
-      const element = await page.$(selector);
-      if (element) {
-        return element;
-      }
-    } catch (err) {
-      log.debug(`selector not found (${selector}): ${err instanceof Error ? err.message : String(err)}`);
-      continue;
-    }
+// I146: warn once at module load for unconfirmed selectors so UI drift is visible
+{
+  const unconfirmed = (Object.entries(NOTEBOOKLM_SELECTORS) as [string, { confirmed: boolean }][])
+    .filter(([, v]) => !v.confirmed)
+    .map(([k]) => k);
+  if (unconfirmed.length > 0) {
+    log.warning(`⚠️  Unconfirmed selectors in use (run discovery to validate): ${unconfirmed.join(", ")}`);
   }
-
-  return null;
 }
 
-/**
- * Wait for any of the selectors to appear
- */
-export async function waitForElement(
-  page: {
-    waitForSelector(selector: string, options?: { timeout?: number; state?: string }): Promise<unknown>;
-  },
-  key: SelectorKey,
-  options: { timeout?: number; state?: string } = {}
-): Promise<unknown | null> {
-  const selectors = getSelectors(key);
-  const timeout = options.timeout || 10000;
-  const state = options.state || "visible";
-  const deadline = Date.now() + timeout;
-
-  while (Date.now() < deadline) {
-    for (const selector of selectors) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) {
-        return null;
-      }
-
-      try {
-        const element = await page.waitForSelector(selector, {
-          timeout: Math.max(1, Math.min(remaining, 250)),
-          state,
-        });
-        if (element) {
-          return element;
-        }
-      } catch (err) {
-        log.debug(`waitForElement: ${selector} timed out: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-  }
-
-  return null;
-}

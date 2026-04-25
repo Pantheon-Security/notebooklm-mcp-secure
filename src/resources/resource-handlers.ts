@@ -10,6 +10,7 @@ import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { Icon, Resource } from "@modelcontextprotocol/sdk/types.js";
 import { NotebookLibrary } from "../library/notebook-library.js";
 import { log } from "../utils/logger.js";
+import { validateNotebookId } from "../utils/security.js";
 
 /**
  * Create an SVG icon data URI
@@ -227,6 +228,13 @@ export class ResourceHandlers {
           );
         }
 
+        // I108: Reject multi-segment paths before decoding to prevent path confusion
+        if (encodedId.includes("/")) {
+          throw new Error(
+            "Notebook resource URI must contain a single path segment (e.g. notebooklm://library/{id})"
+          );
+        }
+
         let id: string;
         try {
           id = decodeURIComponent(encodedId);
@@ -237,7 +245,10 @@ export class ResourceHandlers {
           );
         }
 
-        if (!/^[a-z0-9][a-z0-9-]{0,127}$/i.test(id)) {
+        // I107: Use centralised validateNotebookId instead of inline regex
+        try {
+          id = validateNotebookId(id);
+        } catch {
           throw new Error(
             `Invalid notebook identifier: ${sanitizeUserUri(encodedId)}. Notebook IDs may only contain letters, numbers, and hyphens.`
           );
@@ -326,28 +337,24 @@ export class ResourceHandlers {
             description:
               "Guide for initial Google authentication setup for NotebookLM access. " +
               "Use this when the user needs to authenticate for the first time.",
-            arguments: [],
           },
           {
             name: "notebooklm.auth-repair",
             description:
               "Troubleshooting guide for authentication issues. " +
               "Use this when authentication fails or cookies have expired.",
-            arguments: [],
           },
           {
             name: "notebooklm.quick-start",
             description:
               "Quick start guide for NotebookLM MCP. " +
               "Explains how to add notebooks, query them, and manage sessions.",
-            arguments: [],
           },
           {
             name: "notebooklm.security-overview",
             description:
               "Overview of security features in this hardened MCP server. " +
               "Includes GDPR compliance, audit logging, and post-quantum encryption details.",
-            arguments: [],
           },
         ],
       };
@@ -510,7 +517,7 @@ deep_research({ query: "Comprehensive analysis of..." })
 This is a security-hardened fork with 14 security layers:
 
 ## Core Security
-- **Input Validation** - Zod schemas for all inputs
+- **Input Validation** - Type-checked parameters via MCP SDK
 - **URL Whitelisting** - Only approved domains
 - **Rate Limiting** - Abuse prevention
 - **Session Timeout** - Auto-expire idle sessions

@@ -6,10 +6,10 @@
  */
 
 import type { Page, BrowserContext } from "patchright";
-import type { ElementInfo, DiscoveryResult, SelectorInfo } from "./types.js";
-import { log } from "../utils/logger.js";
-import { randomDelay, realisticClick } from "../utils/stealth-utils.js";
-import { CONFIG, NOTEBOOKLM_URL } from "../config.js";
+import type { ElementInfo, DiscoveryResult, SelectorInfo } from "../src/notebook-creation/types.js";
+import { log } from "../src/utils/logger.js";
+import { randomDelay, realisticClick } from "../src/utils/stealth-utils.js";
+import { CONFIG, NOTEBOOKLM_URL } from "../src/config.js";
 
 type BrowserAttribute = {
   name: string;

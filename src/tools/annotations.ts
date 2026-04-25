@@ -30,7 +30,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   ask_question: {
     title: "Ask NotebookLM",
     annotations: {
-      title: "Research Question",
       readOnlyHint: false, // Mutates quota counters, writes to query log
       destructiveHint: false,
       idempotentHint: false, // Same question may get different answers
@@ -44,7 +43,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   add_notebook: {
     title: "Add Notebook",
     annotations: {
-      title: "Add Notebook to Library",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false, // Library creates a new entry per call (no dedupe)
@@ -54,7 +52,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   list_notebooks: {
     title: "List Notebooks",
     annotations: {
-      title: "List Library Notebooks",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -64,7 +61,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   get_notebook: {
     title: "Get Notebook",
     annotations: {
-      title: "Get Notebook Details",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -74,7 +70,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   select_notebook: {
     title: "Select Notebook",
     annotations: {
-      title: "Set Active Notebook",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
@@ -84,7 +79,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   update_notebook: {
     title: "Update Notebook",
     annotations: {
-      title: "Update Notebook Metadata",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
@@ -94,7 +88,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   remove_notebook: {
     title: "Remove Notebook",
     annotations: {
-      title: "Remove from Library",
       readOnlyHint: false,
       destructiveHint: true, // Removes from library
       idempotentHint: true,
@@ -104,7 +97,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   search_notebooks: {
     title: "Search Notebooks",
     annotations: {
-      title: "Search Library",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -114,7 +106,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   get_library_stats: {
     title: "Library Stats",
     annotations: {
-      title: "Get Library Statistics",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -124,7 +115,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   export_library: {
     title: "Export Library",
     annotations: {
-      title: "Export Library Backup",
       readOnlyHint: false, // Writes backup file to host filesystem
       destructiveHint: false,
       idempotentHint: true,
@@ -134,7 +124,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   create_notebook: {
     title: "Create Notebook",
     annotations: {
-      title: "Create NotebookLM Notebook",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false, // Creates new notebook each time
@@ -144,7 +133,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   sync_library: {
     title: "Sync Library",
     annotations: {
-      title: "Sync with NotebookLM",
       readOnlyHint: false, // Can modify library
       destructiveHint: false,
       idempotentHint: true,
@@ -154,7 +142,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   batch_create_notebooks: {
     title: "Batch Create",
     annotations: {
-      title: "Batch Create Notebooks",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -168,7 +155,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   list_sources: {
     title: "List Sources",
     annotations: {
-      title: "List Notebook Sources",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -178,7 +164,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   add_source: {
     title: "Add Source",
     annotations: {
-      title: "Add Source to Notebook",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false, // NotebookLM creates a new source entry per call
@@ -188,7 +173,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   remove_source: {
     title: "Remove Source",
     annotations: {
-      title: "Remove Source from Notebook",
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: true,
@@ -202,7 +186,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   generate_audio_overview: {
     title: "Generate Audio",
     annotations: {
-      title: "Generate Audio Overview",
       readOnlyHint: false, // Creates audio
       destructiveHint: false,
       idempotentHint: false, // Regenerates each time
@@ -212,7 +195,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   get_audio_status: {
     title: "Audio Status",
     annotations: {
-      title: "Check Audio Generation Status",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -222,7 +204,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   download_audio: {
     title: "Download Audio",
     annotations: {
-      title: "Download Audio File",
       readOnlyHint: false, // Writes file to host filesystem
       destructiveHint: false,
       idempotentHint: true,
@@ -236,7 +217,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   generate_video_overview: {
     title: "Generate Video",
     annotations: {
-      title: "Generate Video Overview",
       readOnlyHint: false, // Creates video
       destructiveHint: false,
       idempotentHint: false, // Regenerates each time
@@ -246,7 +226,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   get_video_status: {
     title: "Video Status",
     annotations: {
-      title: "Check Video Generation Status",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -260,7 +239,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   generate_data_table: {
     title: "Generate Table",
     annotations: {
-      title: "Generate Data Table",
       readOnlyHint: false, // Creates table
       destructiveHint: false,
       idempotentHint: false,
@@ -270,7 +248,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   get_data_table: {
     title: "Get Table",
     annotations: {
-      title: "Extract Data Table Content",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -284,7 +261,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   list_sessions: {
     title: "List Sessions",
     annotations: {
-      title: "List Active Sessions",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -294,7 +270,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   close_session: {
     title: "Close Session",
     annotations: {
-      title: "Close Browser Session",
       readOnlyHint: false,
       destructiveHint: true, // Closes session
       idempotentHint: true,
@@ -304,7 +279,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   reset_session: {
     title: "Reset Session",
     annotations: {
-      title: "Reset Session History",
       readOnlyHint: false,
       destructiveHint: true, // Clears history
       idempotentHint: true,
@@ -318,7 +292,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   get_health: {
     title: "Health Check",
     annotations: {
-      title: "Server Health Status",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -328,7 +301,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   setup_auth: {
     title: "Setup Auth",
     annotations: {
-      title: "Setup Google Authentication",
       readOnlyHint: false,
       destructiveHint: true, // Clears any existing saved credentials before re-login
       idempotentHint: false, // Opens browser each time
@@ -338,7 +310,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   re_auth: {
     title: "Re-authenticate",
     annotations: {
-      title: "Re-authenticate with Google",
       readOnlyHint: false,
       destructiveHint: true, // Deletes existing auth
       idempotentHint: false,
@@ -348,7 +319,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   cleanup_data: {
     title: "Cleanup Data",
     annotations: {
-      title: "Clean MCP Data Files",
       readOnlyHint: false,
       destructiveHint: true, // Deletes files
       idempotentHint: true,
@@ -358,7 +328,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   get_quota: {
     title: "Get Quota",
     annotations: {
-      title: "Check Quota Status",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -368,7 +337,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   set_quota_tier: {
     title: "Set Tier",
     annotations: {
-      title: "Set License Tier",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
@@ -378,7 +346,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   get_project_info: {
     title: "Project Info",
     annotations: {
-      title: "Get Project Context",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -392,7 +359,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   configure_webhook: {
     title: "Configure Webhook",
     annotations: {
-      title: "Configure Webhook Endpoint",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
@@ -402,7 +368,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   list_webhooks: {
     title: "List Webhooks",
     annotations: {
-      title: "List Configured Webhooks",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -412,7 +377,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   test_webhook: {
     title: "Test Webhook",
     annotations: {
-      title: "Send Test Event",
       readOnlyHint: false, // Dispatches HTTP request with side effects on the third-party receiver
       destructiveHint: false,
       idempotentHint: true,
@@ -422,7 +386,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   remove_webhook: {
     title: "Remove Webhook",
     annotations: {
-      title: "Remove Webhook Configuration",
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: true,
@@ -436,7 +399,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   deep_research: {
     title: "Deep Research",
     annotations: {
-      title: "Gemini Deep Research",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: false, // Results may vary
@@ -450,7 +412,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   gemini_query: {
     title: "Gemini Query",
     annotations: {
-      title: "Quick Gemini Query",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: false,
@@ -460,7 +421,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   get_research_status: {
     title: "Research Status",
     annotations: {
-      title: "Check Research Progress",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -470,7 +430,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   upload_document: {
     title: "Upload Document",
     annotations: {
-      title: "Upload to Gemini",
       readOnlyHint: false, // Uploads file
       destructiveHint: false,
       idempotentHint: false, // Files API creates a new resource per upload
@@ -480,7 +439,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   query_document: {
     title: "Query Document",
     annotations: {
-      title: "Ask About Document",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: false,
@@ -490,7 +448,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   list_documents: {
     title: "List Documents",
     annotations: {
-      title: "List Uploaded Documents",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -500,7 +457,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   delete_document: {
     title: "Delete Document",
     annotations: {
-      title: "Delete from Gemini",
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: true,
@@ -510,7 +466,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   query_chunked_document: {
     title: "Query Chunked Doc",
     annotations: {
-      title: "Query Large Document",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: false,
@@ -524,7 +479,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   get_query_history: {
     title: "Query History",
     annotations: {
-      title: "Get Query History",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -534,7 +488,6 @@ export const toolMetadata: Record<string, ToolMetadata> = {
   get_notebook_chat_history: {
     title: "Chat History",
     annotations: {
-      title: "Get Notebook Chat History",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,

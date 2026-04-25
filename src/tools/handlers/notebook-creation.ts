@@ -28,6 +28,7 @@ import { audit } from "../../utils/audit-logger.js";
 import {
   getErrorAuditArgs,
   getSanitizedErrorMessage,
+  resolveNotebookUrl,
 } from "./error-utils.js";
 
 export async function handleCreateNotebook(
@@ -361,28 +362,7 @@ export async function handleListSources(
   log.info(`🔧 [TOOL] list_sources called`);
 
   try {
-    // Resolve notebook URL
-    let notebookUrl = args.notebook_url;
-
-    if (!notebookUrl && args.notebook_id) {
-      const notebook = ctx.library.getNotebook(args.notebook_id);
-      if (!notebook) {
-        throw new Error(`Notebook not found in library: ${args.notebook_id}`);
-      }
-      notebookUrl = notebook.url;
-      log.info(`  Resolved notebook: ${notebook.name}`);
-    } else if (!notebookUrl) {
-      const active = ctx.library.getActiveNotebook();
-      if (active) {
-        notebookUrl = active.url;
-        log.info(`  Using active notebook: ${active.name}`);
-      } else {
-        throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
-      }
-    }
-
-    // Validate URL
-    const safeUrl = validateNotebookUrl(notebookUrl);
+    const safeUrl = validateNotebookUrl(resolveNotebookUrl(ctx, args));
 
     // Get the shared context manager from session manager
     const contextManager = ctx.sessionManager.getContextManager();
@@ -428,28 +408,7 @@ export async function handleAddSource(
       throw new Error(`Invalid source type: ${args.source.type}. Must be url, text, or file.`);
     }
 
-    // Resolve notebook URL
-    let notebookUrl = args.notebook_url;
-
-    if (!notebookUrl && args.notebook_id) {
-      const notebook = ctx.library.getNotebook(args.notebook_id);
-      if (!notebook) {
-        throw new Error(`Notebook not found in library: ${args.notebook_id}`);
-      }
-      notebookUrl = notebook.url;
-      log.info(`  Resolved notebook: ${notebook.name}`);
-    } else if (!notebookUrl) {
-      const active = ctx.library.getActiveNotebook();
-      if (active) {
-        notebookUrl = active.url;
-        log.info(`  Using active notebook: ${active.name}`);
-      } else {
-        throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
-      }
-    }
-
-    // Validate URL
-    const safeUrl = validateNotebookUrl(notebookUrl);
+    const safeUrl = validateNotebookUrl(resolveNotebookUrl(ctx, args));
 
     // Get the shared context manager from session manager
     const contextManager = ctx.sessionManager.getContextManager();
@@ -826,28 +785,7 @@ export async function handleRemoveSource(
       throw new Error("source_id is required");
     }
 
-    // Resolve notebook URL
-    let notebookUrl = args.notebook_url;
-
-    if (!notebookUrl && args.notebook_id) {
-      const notebook = ctx.library.getNotebook(args.notebook_id);
-      if (!notebook) {
-        throw new Error(`Notebook not found in library: ${args.notebook_id}`);
-      }
-      notebookUrl = notebook.url;
-      log.info(`  Resolved notebook: ${notebook.name}`);
-    } else if (!notebookUrl) {
-      const active = ctx.library.getActiveNotebook();
-      if (active) {
-        notebookUrl = active.url;
-        log.info(`  Using active notebook: ${active.name}`);
-      } else {
-        throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
-      }
-    }
-
-    // Validate URL
-    const safeUrl = validateNotebookUrl(notebookUrl);
+    const safeUrl = validateNotebookUrl(resolveNotebookUrl(ctx, args));
 
     // Get the shared context manager from session manager
     const contextManager = ctx.sessionManager.getContextManager();

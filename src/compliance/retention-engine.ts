@@ -134,6 +134,12 @@ export class RetentionEngine {
         const data = JSON.parse(content);
         if (data.policies && Array.isArray(data.policies)) {
           for (const policy of data.policies) {
+            // Reject any custom policy whose id collides with a built-in — prevents
+            // silently overriding the CSSF 7-year retention requirement (I267)
+            if (DEFAULT_POLICIES.some(dp => dp.id === policy.id)) {
+              log.warning(`retention-engine: custom policy '${policy.id}' conflicts with built-in policy — skipped`);
+              continue;
+            }
             this.policies.set(policy.id, policy);
           }
         }

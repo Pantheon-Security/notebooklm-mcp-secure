@@ -301,8 +301,8 @@ export class ToolHandlers {
   // === Cleanup ===
   async cleanup(): Promise<void> {
     const { log } = await import("../../utils/logger.js");
-    log.info(`🧹 Cleaning up tool handlers...`);
+    log.info("Cleaning up tool handlers...");
     await this.ctx.sessionManager.closeAllSessions();
-    log.success(`✅ Tool handlers cleanup complete`);
+    log.info("Tool handlers cleanup complete");
   }
 }

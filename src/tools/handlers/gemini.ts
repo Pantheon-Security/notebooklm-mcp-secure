@@ -472,10 +472,19 @@ export async function handleDeleteDocument(
   ctx: HandlerContext,
   args: {
     file_name: string;
+    confirm: boolean;
   }
 ): Promise<ToolResult<{ deleted: boolean; fileName: string }>> {
   log.info(`🔧 [TOOL] delete_document called`);
   log.info(`  File: ${args.file_name}`);
+
+  if (args.confirm !== true) {
+    return {
+      success: false,
+      data: null,
+      error: 'Deletion requires confirm: true to prevent accidental data loss.',
+    };
+  }
 
   // Check if Gemini is available
   const geminiClient = getConfiguredGeminiClient(ctx);

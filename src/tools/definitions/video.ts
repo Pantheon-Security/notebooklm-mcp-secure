@@ -59,7 +59,7 @@ const generateVideoOverviewTool: Tool = {
       },
       style: {
         type: "string",
-        enum: ["auto-select", "custom", "classic", "whiteboard", "kawaii", "anime", "watercolour", "retro-print", "heritage", "paper-craft"],
+        enum: ["auto-select", "custom", "classic", "whiteboard", "kawaii", "anime", "watercolour", "retro-print", "heritage", "paper-craft", "documentary"],
         default: "auto-select",
         description: "Visual style for the video overview",
       },

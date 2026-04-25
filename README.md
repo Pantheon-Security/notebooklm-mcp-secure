@@ -7,7 +7,7 @@
 **Zero-hallucination answers • Gemini Deep Research • 17 Security Layers • Enterprise Compliance**
 
 [![npm](https://img.shields.io/npm/v/@pan-sec/notebooklm-mcp?color=blue)](https://www.npmjs.com/package/@pan-sec/notebooklm-mcp)
-[![CalVer](https://img.shields.io/badge/CalVer-2026.3.0-blue.svg)](https://calver.org/)
+[![CalVer](https://img.shields.io/badge/CalVer-2026.3.1-blue.svg)](https://calver.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-2026-green.svg)](https://modelcontextprotocol.io/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#cross-platform-support)
@@ -44,10 +44,11 @@
 
 ## 🚀 What's New in 2026
 
-**Latest: v2026.3.0** — The Security Audit Release. 334-issue independent audit closed. 609 tests. Full MCP protocol compliance.
+**Latest: v2026.3.1** — All 334 audit issues resolved. 631 tests. Full MCP protocol compliance.
 
 | Version | Highlights |
 |---------|------------|
+| **v2026.3.1** | **Security Audit Complete** — All 334 issues from the independent audit resolved. Tests: 609 → 631. Code quality: URL resolution deduplicated, handler extraction, non-null assertions eliminated. Test gaps closed: `validateNotebookId`, error body shape, `delete_document` confirm guard, sanitized throws, log rotation, rate-limiter memory bound, range clamping. |
 | **v2026.3.0** | **The Security Audit Release** — Four parallel AI code reviews (security, protocol, architecture, testing) against 334 issues. All highs and mediums resolved. Tests: 139 → 609 across 50 files (4.4×). Full MCP protocol compliance: structuredContent, isError, transport tags. Schema bounds on all 48 tools. Annotation correctness. Webhook SSRF fix. Audit log integrity (hash chain, concurrent write lock, rotation continuity). Per-page mutex. HandlerContext DI. Cert pinning retracted (claims aligned with implementation). |
 | **v2026.2.10** | **The Hardening Release** — 3 new security layers (14→17): secure-by-default auth, exponential backoff lockout, credential isolation. Architecture overhaul: 3,611-line handler split into 9 domain modules, tool registry pattern. Gemini API retry with backoff. Multi-stage Docker build. Token CLI (`token show/rotate`). 168 tests. |
 | **v2026.2.9** | `performSetup` no longer wipes credentials before Chrome opens — prevents auth destruction on failed launch |
@@ -92,13 +93,13 @@ claude mcp add notebooklm -- npx @pan-sec/notebooklm-mcp@latest
 
 ## 🔬 Security Audit 2026 — What We Found and Fixed
 
-In April 2026, we commissioned a parallel deep-audit of v2026.2.11 (`main @ 2973097`) using four specialised AI code reviewers, each focused on a different attack surface: **security vulnerabilities**, **protocol correctness**, **architecture quality**, and **testing gaps and edge cases**. The four reviewers operated independently so their findings wouldn't influence each other. Together they produced a **334-item master issue list** covering protocol correctness, security vulnerabilities, architecture flaws, test gaps, and documentation accuracy. All high and medium issues are now resolved in v2026.3.0.
+In April 2026, we commissioned a parallel deep-audit of v2026.2.11 (`main @ 2973097`) using four specialised AI code reviewers, each focused on a different attack surface: **security vulnerabilities**, **protocol correctness**, **architecture quality**, and **testing gaps and edge cases**. The four reviewers operated independently so their findings wouldn't influence each other. Together they produced a **334-item master issue list** covering protocol correctness, security vulnerabilities, architecture flaws, test gaps, and documentation accuracy. All 334 issues are resolved across v2026.3.0 and v2026.3.1.
 
 ### Audit by the Numbers
 
-| Metric | Before (v2026.2.11) | After (v2026.3.0) |
+| Metric | Before (v2026.2.11) | After (v2026.3.1) |
 |--------|---------------------|--------------------|
-| Tests | 139 | **609 across 50 files** |
+| Tests | 139 | **631 across 50 files** |
 | Test suites | ~6 | **50** |
 | TypeScript errors (`tsc --noEmit`) | 0 | **0 (maintained)** |
 | npm audit vulnerabilities | 0 | **0 (maintained)** |
@@ -730,7 +731,7 @@ All sensitive files (encryption keys, auth tokens, audit logs) are automatically
 
 ### Enterprise Compliance-Ready Architecture (v1.6.0+)
 
-Built to the standards required for regulated industries. All controls are implemented — formal certification (SOC2 Type II report, GDPR registration, CSSF submission) requires a third-party audit engagement.
+Built to the standards required for regulated industries. All code-level technical controls are implemented — full compliance also requires organizational process controls (policies, training, vendor management). Formal certification (SOC2 Type II report, GDPR registration, CSSF submission) requires a third-party audit engagement.
 
 | Regulation | Controls Implemented |
 |------------|----------|
@@ -1162,7 +1163,7 @@ Or integrate in CI/CD:
 | **SOC2 Type II** | ❌ | ✅ Controls implemented* |
 | **CSSF (Luxembourg)** | ❌ | ✅ Controls implemented* |
 
-> \* Compliance-ready: all required controls are implemented. Formal certification (SOC2 Type II report, GDPR registration, CSSF submission) requires a third-party audit engagement.
+> \* Compliance-ready: code-level technical controls are implemented. Full compliance also requires organizational process controls and formal certification via third-party audit.
 
 > **Bottom line**: If you need more than basic queries, or care about security, there's only one choice.
 
@@ -1172,6 +1173,7 @@ Or integrate in CI/CD:
 
 | Version | Highlights |
 |---------|------------|
+| **v2026.3.1** | ✅ **Security Audit Complete** — All 334 issues resolved. Tests 609→631. Code quality + test gap phase. |
 | **v2026.3.0** | 🔬 **Security Audit Release** — 334-issue independent audit. Tests 139→609 (50 files). Full MCP protocol compliance. Webhook SSRF fix. Audit log hash-chain verified on read. Per-page mutex. HandlerContext DI. Cert pinning retracted. |
 | **v2026.2.9** | 🔐 `performSetup` no longer destroys credentials before Chrome opens — last root cause of auth loop fixed |
 | **v2026.2.8** | 🛡️ `cleanup_data` excludes `browser_state/` and `chrome_profile/` from all deletion paths — auth survives cleanup |

@@ -430,6 +430,7 @@ export class WebhookDispatcher {
         success: delivery.success,
         statusCode: delivery.statusCode,
         error: delivery.error,
+        errorKind: delivery.errorKind,
         durationMs: delivery.durationMs,
       })}`
     );
@@ -538,6 +539,25 @@ export class WebhookDispatcher {
         );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Walk the cause chain: Node's fetch wraps DNS/connect errors as
+        // TypeError("fetch failed", { cause: Error("getaddrinfo ENOTFOUND ...") })
+        const causeMessages: string[] = [];
+        let cur: unknown = error;
+        while (cur instanceof Error) {
+          causeMessages.push(cur.message);
+          cur = (cur as { cause?: unknown }).cause;
+        }
+        const combinedMessage = causeMessages.join(" ");
+
+        const isAbort = error instanceof DOMException && error.name === "AbortError";
+        const isDns = /ENOTFOUND|EAI_AGAIN|ECONNREFUSED/.test(combinedMessage);
+        const errorKind: WebhookDelivery["errorKind"] = isAbort
+          ? "timeout"
+          : isDns
+            ? "dns_or_connect"
+            : "network";
+
         const delivery: WebhookDelivery = {
           id: `${deliveryId}-${attempt}`,
           sequence: this.nextDeliverySequence(),
@@ -546,20 +566,27 @@ export class WebhookDispatcher {
           timestamp: new Date().toISOString(),
           success: false,
           error: errorMessage,
+          errorKind,
           attempts: attempt,
           durationMs: Date.now() - startTime,
         };
         this.recordDelivery(delivery);
         this.logAttempt(webhook, event, attempt, maxAttempts, delivery);
 
+        if (isDns) {
+          this.onDeliveryFailure(webhook);
+          log.error(`  ❌ Webhook failed permanently: ${webhook.name} - ${errorKind}: ${errorMessage}`);
+          return false;
+        }
+
         if (attempt === maxAttempts) {
           this.onDeliveryFailure(webhook);
-          log.error(`  ❌ Webhook failed permanently: ${webhook.name} - ${errorMessage}`);
+          log.error(`  ❌ Webhook failed permanently: ${webhook.name} - ${errorKind}: ${errorMessage}`);
           return false;
         }
 
         log.warning(
-          `  ⚠️ Webhook error (attempt ${attempt}/${maxAttempts}): ${webhook.name} - ${errorMessage}`
+          `  ⚠️ Webhook error (attempt ${attempt}/${maxAttempts}): ${webhook.name} - ${errorKind}: ${errorMessage}`
         );
       }
 

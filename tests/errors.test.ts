@@ -13,13 +13,12 @@ describe("Custom Error Classes", () => {
   });
 
   it("should create AuthenticationError instances with the correct name and message", () => {
-    const error = new AuthenticationError("invalid credentials", true);
+    const error = new AuthenticationError("invalid credentials");
 
     expect(error).toBeInstanceOf(AuthenticationError);
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(RateLimitError);
     expect(error.name).toBe("AuthenticationError");
     expect(error.message).toBe("invalid credentials");
-    expect(error.suggestCleanup).toBe(true);
   });
 });

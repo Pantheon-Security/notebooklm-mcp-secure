@@ -76,8 +76,13 @@ function getAuthConfig(): MCPAuthConfig {
   if (explicitlyDisabled && !legacyEnabled) {
     log.warning("⚠️  MCP authentication explicitly disabled via NLMCP_AUTH_DISABLED=true");
     log.warning("   This is NOT recommended for production use.");
+    log.warning("   Effective auth state: DISABLED");
   } else if (explicitlyDisabled && legacyEnabled) {
     log.warning("⚠️  Both NLMCP_AUTH_DISABLED and NLMCP_AUTH_ENABLED are set. Auth stays ENABLED (NLMCP_AUTH_ENABLED takes precedence).");
+    log.warning("   Effective auth state: ENABLED (NLMCP_AUTH_ENABLED wins)");
+  } else if (legacyEnabled) {
+    log.info("ℹ️  NLMCP_AUTH_ENABLED (legacy flag) is set — auth enabled via legacy flag");
+    log.info("   Effective auth state: ENABLED (legacy)");
   }
 
   return {
@@ -103,6 +108,7 @@ export class MCPAuthenticator {
   private failedAttempts: Map<string, FailedAttemptTracker> = new Map();
   private initialized: boolean = false;
   private hashSalt: string = '';
+  private rotationTimer?: NodeJS.Timeout;
 
   constructor(config?: Partial<MCPAuthConfig>) {
     this.config = { ...getAuthConfig(), ...config };
@@ -149,6 +155,7 @@ export class MCPAuthenticator {
         log.success("  ✅ Using read-only token from environment variable");
       }
       this.initialized = true;
+      this.startPeriodicRotation();
       return;
     }
 
@@ -167,6 +174,7 @@ export class MCPAuthenticator {
           this.tokenHash = content;
           log.success("  ✅ Loaded token hash from file");
           this.initialized = true;
+          this.startPeriodicRotation();
           return;
         }
       } catch (error) {
@@ -187,6 +195,27 @@ export class MCPAuthenticator {
     });
 
     this.initialized = true;
+    this.startPeriodicRotation();
+  }
+
+  private startPeriodicRotation(): void {
+    const intervalHours = parseFloat(process.env.NLMCP_AUTH_ROTATION_INTERVAL_HOURS ?? "0");
+    if (!intervalHours || intervalHours <= 0) return;
+
+    const intervalMs = intervalHours * 60 * 60 * 1000;
+    log.warning(`⚠️  Auto token rotation enabled: every ${intervalHours}h`);
+    log.warning("   Connected clients will lose auth when the token rotates.");
+    log.warning("   Retrieve the new hash: npx notebooklm-mcp token show");
+
+    this.rotationTimer = setInterval(async () => {
+      try {
+        await this.rotateToken();
+        log.warning("🔄 Token auto-rotated — connected clients must update NLMCP_AUTH_TOKEN");
+      } catch (err) {
+        log.error(`Auto-rotation failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }, intervalMs);
+    this.rotationTimer.unref();
   }
 
   /**

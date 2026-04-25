@@ -5,6 +5,77 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.3.1] - 2026-04-25
+
+### Security Audit Complete — All 334 Issues Resolved
+
+This release closes the full 334-item security audit end-to-end. v2026.3.0 closed every
+critical, high, and medium issue. This release closes all remaining low-severity issues,
+the three intentionally-deferred items (I171, I281, I305), and cleans internal process
+documents out of the repository.
+
+**By the numbers:**
+- Tests: **609 → 643** across 52 test files
+- `npx tsc --noEmit` — clean
+- `npm audit` — 0 vulnerabilities
+
+### Security & Validation
+
+- **Notebook ID validation centralised** — inline regex in `resource-handlers.ts` replaced with `validateNotebookId()` from `security.ts`; path-segment guard added to URI template handler (I107, I108)
+- **`delete_document` confirm guard** — destructive tool now requires `confirm: true` explicit param; request without it returns `{ success: false }` (I078, I331)
+- **Auth startup transparency** — `getAuthConfig()` logs effective auth state for all three configuration cases at startup (I118, I314)
+- **Token rotation** — optional periodic token rotation via `NLMCP_AUTH_ROTATION_INTERVAL_HOURS` env var; unref'd timer does not prevent clean shutdown (I119)
+- **Login retry** — `page.goto` timeout now retries once before throwing instead of warning and proceeding (I126)
+- **Startup tool coverage check** — startup asserts every registered tool appears in `TOOLS_REQUIRING_AUTH` or explicit opt-out; phantom entries removed (I313)
+- **Secrets scanner** — Bearer token pattern broadened from JWT-only (`A.B.C`) to any opaque token ≥ 20 chars (I189)
+- **Audit hash chain** — `previousHash` advanced only after write succeeds; silent kill on flush failure eliminated (I228)
+- **File lock liveness** — `forceUnlock` treats `EPERM` as "process alive" rather than unlocking erroneously (I296)
+
+### Protocol & API
+
+- **Error body shape aligned** — all error paths include `data: null`; callers can safely check `payload.data` on both success and failure (I095, I330)
+- **Annotation drift fixed** — duplicate `title` fields removed from all `annotations` blocks (I041)
+- **Prompt definitions** — empty `arguments: []` removed from all 4 prompt definitions (I109)
+- **`parseArray` delimiter** — now splits on both comma and semicolon (I028)
+- **`AuthenticationError`** — unused `suggestCleanup` field removed (I017)
+- **URL sanitization** — `"unexpected URL: ${url}"` throw replaced with sanitized message that never leaks raw notebook URLs to MCP client (I173, I332)
+- **Webhook error classification** — catch block in `webhook-dispatcher.ts` now walks the Node `fetch` cause chain and classifies errors as `timeout`, `dns_or_connect`, or `network`; DNS/connect failures skip retries; `errorKind` included in all log messages and delivery records (I281)
+
+### Code Quality
+
+- **Non-null assertion eliminated** — `toolRegistry!` replaced with `= new Map()` field initialiser (I020)
+- **Startup log emoji stripped** — `\p{Extended_Pictographic}` removed from tool descriptions before substring truncation (I018)
+- **`close_session` / `reset_session` deduplicated** — `withSessionOp` helper extracted; both handlers delegate to it (I077)
+- **Notebook URL resolution deduplicated** — 7× repeated resolution blocks in `audio-video.ts` and 3× in `notebook-creation.ts` replaced with `resolveNotebookUrl()` in `error-utils.ts` (I093, I094)
+- **`findElement` / `waitForElement` relocated** — moved from `selectors.ts` to `src/utils/page-utils.ts` (I149)
+- **Dialog submit merged** — `clickSubmitButton` and `clickInsertButton` unified as `clickDialogSubmit()`: JS-eval first, selector second, Enter fallback (I148)
+- **`clickAddSource` extracted** — 145-line method split into `tryAddSourceByAria`, `tryAddSourceByClass`, `tryAddSourceByJs` helpers (I166)
+- **`addFileSource` extracted** — 116-line method split into `tryFileUploadViaTrigger` helper; three strategies are 3 one-liners (I167)
+- **`clampInteger` exported** — pure clamping function now testable without module reload (I304)
+- **`skipLibCheck` comment** — tsconfig annotated explaining patchright broken `.d.ts` (I311)
+- **Compliance language** — README distinguishes code-level controls from organisational process controls required for formal certification (I265)
+- **Discovery scripts relocated** — `run-discovery.ts` and `selector-discovery.ts` moved from `src/notebook-creation/` to `scripts/`; `npm run discover-selectors` added to `package.json` (I171)
+
+### Test Coverage
+
+New and expanded assertions:
+- `validateNotebookId` — 8 acceptance/rejection cases in `security.test.ts` (I329)
+- `data: null` in error response body — integration test in `mcp-server.integration.test.ts` (I330)
+- `delete_document` confirm guard — `gemini-handler.test.ts` covers `confirm: false` and `confirm: undefined` (I331)
+- Sanitized throw — `notebook-creator.test.ts` asserts raw URL never surfaces in error message (I332)
+- Log rotation/retention — `audit-logger.test.ts` verifies files older than `retentionDays` are deleted (I302)
+- `RateLimiter` memory bound — `security.test.ts` asserts map size ≤ 10 000 under 10 001 distinct keys (I303)
+- `clampInteger` boundaries — 4 direct unit tests in `config.test.ts` (I304)
+- **Handler smoke tests** — `tests/session-management.test.ts` (6 tests), `tests/ask-question.test.ts` (3 tests), and `tests/notebook-creator.test.ts` extensions (+3 tests) covering all handler entry points via injected mocks; no browser required (I305)
+- **Webhook error classification** — test verifies cause-chain DNS classification and single-attempt behaviour on `ENOTFOUND` (I281)
+
+### Repository Cleanup
+
+- Removed internal process documents (`CODEX_BATCH*.md`, `ISSUES.md`, `OUTSTANDING.md`, `medusa-fp-analysis.md`) — never relevant to end users
+- `.gitignore` extended to cover tooling artifacts (`graphify-out/`, `.stryker-tmp/`) and internal document patterns
+
+---
+
 ## [2026.3.0] - 2026-04-25
 
 ### The Security Audit Release

@@ -213,7 +213,7 @@ export async function handleAskQuestion(
       if (active) {
         const notebook = ctx.library.incrementUseCount(active.id);
         if (!notebook) {
-          throw new Error(`Active notebook not found: ${active.id}`);
+          throw new Error(`Active notebook is no longer in the library`);
         }
         resolvedNotebookUrl = notebook.url;
         log.info(`  Using active notebook: ${notebook.name}`);

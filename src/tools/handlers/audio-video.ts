@@ -26,7 +26,7 @@ import {
   type GenerateDataTableResult,
   type GetDataTableResult,
 } from "../../notebook-creation/data-table-manager.js";
-import { getSanitizedErrorMessage } from "./error-utils.js";
+import { getSanitizedErrorMessage, resolveNotebookUrl } from "./error-utils.js";
 
 export async function handleGenerateAudioOverview(
   ctx: HandlerContext,
@@ -38,28 +38,7 @@ export async function handleGenerateAudioOverview(
   log.info(`🔧 [TOOL] generate_audio_overview called`);
 
   try {
-    // Resolve notebook URL
-    let notebookUrl = args.notebook_url;
-
-    if (!notebookUrl && args.notebook_id) {
-      const notebook = ctx.library.getNotebook(args.notebook_id);
-      if (!notebook) {
-        throw new Error(`Notebook not found in library: ${args.notebook_id}`);
-      }
-      notebookUrl = notebook.url;
-      log.info(`  Resolved notebook: ${notebook.name}`);
-    } else if (!notebookUrl) {
-      const active = ctx.library.getActiveNotebook();
-      if (active) {
-        notebookUrl = active.url;
-        log.info(`  Using active notebook: ${active.name}`);
-      } else {
-        throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
-      }
-    }
-
-    // Validate URL
-    const safeUrl = validateNotebookUrl(notebookUrl);
+    const safeUrl = validateNotebookUrl(resolveNotebookUrl(ctx, args));
 
     // Get the shared context manager from session manager
     const contextManager = ctx.sessionManager.getContextManager();
@@ -100,28 +79,7 @@ export async function handleGetAudioStatus(
   log.info(`🔧 [TOOL] get_audio_status called`);
 
   try {
-    // Resolve notebook URL
-    let notebookUrl = args.notebook_url;
-
-    if (!notebookUrl && args.notebook_id) {
-      const notebook = ctx.library.getNotebook(args.notebook_id);
-      if (!notebook) {
-        throw new Error(`Notebook not found in library: ${args.notebook_id}`);
-      }
-      notebookUrl = notebook.url;
-      log.info(`  Resolved notebook: ${notebook.name}`);
-    } else if (!notebookUrl) {
-      const active = ctx.library.getActiveNotebook();
-      if (active) {
-        notebookUrl = active.url;
-        log.info(`  Using active notebook: ${active.name}`);
-      } else {
-        throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
-      }
-    }
-
-    // Validate URL
-    const safeUrl = validateNotebookUrl(notebookUrl);
+    const safeUrl = validateNotebookUrl(resolveNotebookUrl(ctx, args));
 
     // Get the shared context manager from session manager
     const contextManager = ctx.sessionManager.getContextManager();
@@ -158,28 +116,7 @@ export async function handleDownloadAudio(
   log.info(`🔧 [TOOL] download_audio called`);
 
   try {
-    // Resolve notebook URL
-    let notebookUrl = args.notebook_url;
-
-    if (!notebookUrl && args.notebook_id) {
-      const notebook = ctx.library.getNotebook(args.notebook_id);
-      if (!notebook) {
-        throw new Error(`Notebook not found in library: ${args.notebook_id}`);
-      }
-      notebookUrl = notebook.url;
-      log.info(`  Resolved notebook: ${notebook.name}`);
-    } else if (!notebookUrl) {
-      const active = ctx.library.getActiveNotebook();
-      if (active) {
-        notebookUrl = active.url;
-        log.info(`  Using active notebook: ${active.name}`);
-      } else {
-        throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
-      }
-    }
-
-    // Validate URL
-    const safeUrl = validateNotebookUrl(notebookUrl);
+    const safeUrl = validateNotebookUrl(resolveNotebookUrl(ctx, args));
 
     // Get the shared context manager from session manager
     const contextManager = ctx.sessionManager.getContextManager();
@@ -222,28 +159,7 @@ export async function handleGenerateVideoOverview(
   log.info(`🔧 [TOOL] generate_video_overview called`);
 
   try {
-    // Resolve notebook URL
-    let notebookUrl = args.notebook_url;
-
-    if (!notebookUrl && args.notebook_id) {
-      const notebook = ctx.library.getNotebook(args.notebook_id);
-      if (!notebook) {
-        throw new Error(`Notebook not found in library: ${args.notebook_id}`);
-      }
-      notebookUrl = notebook.url;
-      log.info(`  Resolved notebook: ${notebook.name}`);
-    } else if (!notebookUrl) {
-      const active = ctx.library.getActiveNotebook();
-      if (active) {
-        notebookUrl = active.url;
-        log.info(`  Using active notebook: ${active.name}`);
-      } else {
-        throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
-      }
-    }
-
-    // Validate URL
-    const safeUrl = validateNotebookUrl(notebookUrl);
+    const safeUrl = validateNotebookUrl(resolveNotebookUrl(ctx, args));
 
     // Get the shared context manager from session manager
     const contextManager = ctx.sessionManager.getContextManager();
@@ -288,28 +204,7 @@ export async function handleGetVideoStatus(
   log.info(`🔧 [TOOL] get_video_status called`);
 
   try {
-    // Resolve notebook URL
-    let notebookUrl = args.notebook_url;
-
-    if (!notebookUrl && args.notebook_id) {
-      const notebook = ctx.library.getNotebook(args.notebook_id);
-      if (!notebook) {
-        throw new Error(`Notebook not found in library: ${args.notebook_id}`);
-      }
-      notebookUrl = notebook.url;
-      log.info(`  Resolved notebook: ${notebook.name}`);
-    } else if (!notebookUrl) {
-      const active = ctx.library.getActiveNotebook();
-      if (active) {
-        notebookUrl = active.url;
-        log.info(`  Using active notebook: ${active.name}`);
-      } else {
-        throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
-      }
-    }
-
-    // Validate URL
-    const safeUrl = validateNotebookUrl(notebookUrl);
+    const safeUrl = validateNotebookUrl(resolveNotebookUrl(ctx, args));
 
     // Get the shared context manager from session manager
     const contextManager = ctx.sessionManager.getContextManager();
@@ -345,28 +240,7 @@ export async function handleGenerateDataTable(
   log.info(`🔧 [TOOL] generate_data_table called`);
 
   try {
-    // Resolve notebook URL
-    let notebookUrl = args.notebook_url;
-
-    if (!notebookUrl && args.notebook_id) {
-      const notebook = ctx.library.getNotebook(args.notebook_id);
-      if (!notebook) {
-        throw new Error(`Notebook not found in library: ${args.notebook_id}`);
-      }
-      notebookUrl = notebook.url;
-      log.info(`  Resolved notebook: ${notebook.name}`);
-    } else if (!notebookUrl) {
-      const active = ctx.library.getActiveNotebook();
-      if (active) {
-        notebookUrl = active.url;
-        log.info(`  Using active notebook: ${active.name}`);
-      } else {
-        throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
-      }
-    }
-
-    // Validate URL
-    const safeUrl = validateNotebookUrl(notebookUrl);
+    const safeUrl = validateNotebookUrl(resolveNotebookUrl(ctx, args));
 
     // Get the shared context manager from session manager
     const contextManager = ctx.sessionManager.getContextManager();
@@ -407,28 +281,7 @@ export async function handleGetDataTable(
   log.info(`🔧 [TOOL] get_data_table called`);
 
   try {
-    // Resolve notebook URL
-    let notebookUrl = args.notebook_url;
-
-    if (!notebookUrl && args.notebook_id) {
-      const notebook = ctx.library.getNotebook(args.notebook_id);
-      if (!notebook) {
-        throw new Error(`Notebook not found in library: ${args.notebook_id}`);
-      }
-      notebookUrl = notebook.url;
-      log.info(`  Resolved notebook: ${notebook.name}`);
-    } else if (!notebookUrl) {
-      const active = ctx.library.getActiveNotebook();
-      if (active) {
-        notebookUrl = active.url;
-        log.info(`  Using active notebook: ${active.name}`);
-      } else {
-        throw new Error("No notebook specified. Provide notebook_id or notebook_url.");
-      }
-    }
-
-    // Validate URL
-    const safeUrl = validateNotebookUrl(notebookUrl);
+    const safeUrl = validateNotebookUrl(resolveNotebookUrl(ctx, args));
 
     // Get the shared context manager from session manager
     const contextManager = ctx.sessionManager.getContextManager();

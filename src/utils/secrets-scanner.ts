@@ -248,10 +248,10 @@ const SECRET_PATTERNS: SecretPattern[] = [
     description: "Generic API key pattern",
   },
 
-  // Bearer tokens
+  // Bearer tokens — matches both JWT (a.b.c) and opaque tokens ≥20 chars (I189)
   {
     name: "Bearer Token",
-    pattern: /\bBearer\s+[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gi,
+    pattern: /\bBearer\s+[A-Za-z0-9_.-]{20,}\b/gi,
     severity: "high",
     description: "Bearer Authorization Token",
   },

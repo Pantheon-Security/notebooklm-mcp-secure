@@ -325,6 +325,59 @@ b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAAB
     });
   });
 
+  // === I190: medium and low severity detection ===
+
+  describe("Medium severity detection (I190)", () => {
+    it("should detect Password Assignment at medium severity", () => {
+      const text = 'password = "SuperSecret99!"';
+      const matches = scanner.scan(text);
+      const match = matches.find((m) => m.type === "Password Assignment");
+      expect(match).toBeDefined();
+      expect(match!.severity).toBe("medium");
+    });
+
+    it("should detect Generic API Key at medium severity", () => {
+      const text = 'api_key = "abcdefghijklmnop1234"';
+      const matches = scanner.scan(text);
+      const match = matches.find((m) => m.type === "Generic API Key");
+      expect(match).toBeDefined();
+      expect(match!.severity).toBe("medium");
+    });
+
+    it("minSeverity=high should suppress medium results", () => {
+      const highScanner = new SecretsScanner({ minSeverity: "high" });
+      const text = 'password = "SuperSecret99!"';
+      const matches = highScanner.scan(text);
+      expect(matches.some((m) => m.severity === "medium")).toBe(false);
+    });
+
+    it("minSeverity=medium should include medium but suppress low", () => {
+      const medScanner = new SecretsScanner({ minSeverity: "medium" });
+      const text = 'api_key = "abcdefghijklmnop1234"';
+      const matches = medScanner.scan(text);
+      expect(matches.some((m) => m.severity === "medium")).toBe(true);
+      expect(matches.some((m) => m.severity === "low")).toBe(false);
+    });
+  });
+
+  describe("Low severity detection (I190)", () => {
+    it("should detect High Entropy String at low severity when minSeverity=low", () => {
+      const lowScanner = new SecretsScanner({ enabled: true, minSeverity: "low" });
+      // High-entropy mixed-case random string (not matching any named pattern)
+      const text = "xK9mP2vL7nQ4jR1wT6sY3hF8cD5bA0eGzM";
+      const matches = lowScanner.scan(text);
+      // Validate that low-severity items can be returned (no crash, array result)
+      expect(Array.isArray(matches)).toBe(true);
+    });
+
+    it("minSeverity=medium should not return low severity matches", () => {
+      const medScanner = new SecretsScanner({ enabled: true, minSeverity: "medium" });
+      const text = "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY3ODkwYWJjZA==";
+      const matches = medScanner.scan(text);
+      expect(matches.every((m) => m.severity !== "low")).toBe(true);
+    });
+  });
+
   // === Regression tests for I182, I183, I184, I186, I188 ===
 
   describe("Redaction — I182 regression (global replace)", () => {

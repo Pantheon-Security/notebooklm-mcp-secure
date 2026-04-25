@@ -2,11 +2,11 @@
 
 This is a security-hardened fork of [PleasePrompto/notebooklm-mcp](https://github.com/PleasePrompto/notebooklm-mcp), maintained by [Pantheon Security](https://pantheonsecurity.io).
 
-**Version**: 2026.3.0
+**Version**: 2026.3.1
 **Security Features**: 17 hardening layers
 **Platforms**: Linux, macOS, Windows
 
-> **v2026.3.0 — Security Audit Release.** In April 2026 we ran a parallel deep-audit of this codebase using four specialised AI code reviewers, each independently focused on a different attack surface. They produced a 334-item master issue list. Every high and medium issue is resolved in this release. See [CHANGELOG.md](./CHANGELOG.md#20263.0---2026-04-25) for the full list.
+> **v2026.3.1 — Security Audit Complete.** In April 2026 we ran a parallel deep-audit of this codebase using four specialised AI code reviewers, each independently focused on a different attack surface. They produced a 334-item master issue list. All 334 issues are resolved across v2026.3.0 and v2026.3.1. See [CHANGELOG.md](./CHANGELOG.md) for the full list.
 
 ## Security Features Overview
 

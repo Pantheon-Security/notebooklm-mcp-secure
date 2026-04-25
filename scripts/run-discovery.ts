@@ -5,14 +5,14 @@
  * This script launches a browser, navigates NotebookLM's interface,
  * and discovers CSS selectors for notebook creation elements.
  *
- * Usage: npx ts-node src/notebook-creation/run-discovery.ts
+ * Usage: npx tsx scripts/run-discovery.ts
  */
 
-import { AuthManager } from "../auth/auth-manager.js";
-import { SharedContextManager } from "../session/shared-context-manager.js";
+import { AuthManager } from "../src/auth/auth-manager.js";
+import { SharedContextManager } from "../src/session/shared-context-manager.js";
 import { discoverSelectors } from "./selector-discovery.js";
-import { log } from "../utils/logger.js";
-import { CONFIG } from "../config.js";
+import { log } from "../src/utils/logger.js";
+import { CONFIG } from "../src/config.js";
 import fs from "fs";
 import path from "path";
 
@@ -59,7 +59,7 @@ async function main() {
       const selectorsCode = generateSelectorsCode(result);
       const selectorsPath = path.join(
         path.dirname(new URL(import.meta.url).pathname),
-        "selectors.ts"
+        "../src/notebook-creation/selectors.ts"
       );
       fs.writeFileSync(selectorsPath, selectorsCode);
       log.success(`📝 Generated selectors.ts at: ${selectorsPath}`);

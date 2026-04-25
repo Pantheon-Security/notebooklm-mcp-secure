@@ -60,6 +60,7 @@ import {
   validateWebhookUrl,
   WebhookDispatcher,
 } from "../src/webhooks/webhook-dispatcher.js";
+import type { WebhookDelivery } from "../src/webhooks/types.js";
 import { log } from "../src/utils/logger.js";
 
 beforeEach(() => {
@@ -361,6 +362,37 @@ describe("WebhookDispatcher", () => {
       const records = lines.slice(before).map((line) => JSON.parse(line) as { sequence: number });
       expect(records).toHaveLength(2);
       expect(records[1].sequence).toBe(records[0].sequence + 1);
+    });
+
+    it("classifies ENOTFOUND (via cause chain) as dns_or_connect and skips retries", async () => {
+      // Node's fetch wraps DNS errors: TypeError("fetch failed", { cause: Error("ENOTFOUND ...") })
+      const dnsError = new TypeError("fetch failed", {
+        cause: new Error("getaddrinfo ENOTFOUND example.com"),
+      });
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(dnsError);
+
+      const before = fs.existsSync(path.join(TMP_ROOT, "webhook-deliveries.jsonl"))
+        ? fs.readFileSync(path.join(TMP_ROOT, "webhook-deliveries.jsonl"), "utf-8").trim().split("\n").filter(Boolean).length
+        : 0;
+
+      const wh = await dispatcher.addWebhook({
+        name: "dns-fail",
+        url: "https://example.com/hook",
+        events: ["*"],
+        retryCount: 3,
+        retryDelayMs: 0,
+      });
+
+      const result = await dispatcher.testWebhook(wh.id);
+      expect(result.success).toBe(false);
+
+      // DNS failure should bail after 1 attempt, not retry
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+      const lines = fs.readFileSync(path.join(TMP_ROOT, "webhook-deliveries.jsonl"), "utf-8")
+        .trim().split("\n").filter(Boolean);
+      const record = JSON.parse(lines[before]) as WebhookDelivery;
+      expect(record.errorKind).toBe("dns_or_connect");
     });
 
     it("opens the circuit after repeated permanent failures and skips later sends", async () => {

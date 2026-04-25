@@ -180,8 +180,11 @@ export class AuthManager {
       log.success(`✅ Loaded sessionStorage with ${encType} decryption (${Object.keys(sessionData).length} entries)`);
       return sessionData;
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        log.debug(`loadSessionStorage: parse error — ${err instanceof Error ? err.message : String(err)}`);
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        log.warning("⚠️  No sessionStorage found");
+      } else {
+        // Parse/decrypt failure is distinct from a missing file (I127)
+        log.warning(`⚠️  sessionStorage file exists but could not be read: ${err instanceof Error ? err.message : String(err)}`);
       }
       return null;
     }
@@ -472,8 +475,21 @@ export class AuthManager {
       // Progress: Navigating
       await sendProgress?.("Navigating to Google login...", 3, 10);
 
-      // Navigate to Google login (redirects to NotebookLM after auth)
-      await page.goto(NOTEBOOKLM_AUTH_URL, { timeout: 60000 });
+      // Navigate to Google login — retry once before failing (I126)
+      let gotoErr: unknown;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          await page.goto(NOTEBOOKLM_AUTH_URL, { timeout: 60000 });
+          gotoErr = undefined;
+          break;
+        } catch (err) {
+          gotoErr = err;
+          log.warning(`  ⚠️  Page load attempt ${attempt} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      if (gotoErr) {
+        throw new Error(`Failed to navigate to Google login after 2 attempts: ${gotoErr instanceof Error ? gotoErr.message : String(gotoErr)}`);
+      }
 
       // Progress: Waiting for login
       await sendProgress?.("Waiting for manual login (up to 10 minutes)...", 4, 10);
