@@ -218,13 +218,15 @@ export class NotebookNavigation {
           `${el.textContent || ""} ${el.getAttribute("aria-label") || ""} ${el.placeholder || ""}`.toLowerCase();
         const inDialog = (el: BrowserRenameElement) =>
           Boolean(el.closest("[role='dialog'], mat-dialog-container, .cdk-overlay-pane"));
+        const inSearch = (el: BrowserRenameElement) =>
+          Boolean(el.closest("[role='search'], [aria-label*='search' i], [class*='search']"));
 
         const candidates = Array.from(
-          browser.document.querySelectorAll("header [contenteditable='true'], h1[contenteditable='true'], [role='heading'][contenteditable='true'], [contenteditable='true'], input[type='text']")
+          browser.document.querySelectorAll("header [contenteditable='true'], h1[contenteditable='true'], [role='heading'][contenteditable='true'], [contenteditable='true']")
         );
 
         for (const candidate of candidates) {
-          if (!visible(candidate) || inDialog(candidate)) continue;
+          if (!visible(candidate) || inDialog(candidate) || inSearch(candidate)) continue;
           const text = textOf(candidate);
           if (text.includes("emoji") || text.includes("search")) continue;
 

@@ -1110,6 +1110,8 @@ export class NotebookCreationSourceManager {
     if (!textarea || !activeSelector) {
       const visibleOptions = await this.getVisibleSourceOptions(page);
       log.warning(`⚠️ Visible source options after text-source click: ${JSON.stringify(visibleOptions)}`);
+      const visibleTextareas = await this.getVisibleTextareas(page);
+      log.warning(`⚠️ Visible textareas after text-source click: ${JSON.stringify(visibleTextareas)}`);
       throw new Error("Could not find text input area");
     }
 
@@ -1323,7 +1325,8 @@ export class NotebookCreationSourceManager {
       }
     }
 
-    log.warning(`⚠️ Could not find source type: ${textPatterns.join(", ")}`);
+    const visibleOptions = await this.getVisibleSourceOptions(this.requirePage());
+    log.warning(`⚠️ Could not find source type: ${textPatterns.join(", ")} — visible: ${JSON.stringify(visibleOptions)}`);
   }
 
   private async findValidTextInputSelector(page: Page): Promise<string | null> {
@@ -1376,6 +1379,26 @@ export class NotebookCreationSourceManager {
       });
     } catch (err) {
       log.debug(`source-manager: collecting visible source options: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }
+
+  private async getVisibleTextareas(page: Page): Promise<Array<{ selector: string; aria: string; placeholder: string; classes: string }>> {
+    try {
+      return await page.evaluate(() => {
+        const browser = globalThis as unknown as BrowserDocumentContext;
+        return Array.from(browser.document.querySelectorAll("textarea"))
+          .map((el) => el as BrowserTextAreaCandidate)
+          .filter((el) => el.offsetParent !== null)
+          .map((el) => ({
+            selector: `textarea.${el.className?.replace(/\s+/g, ".")}` || "textarea",
+            aria: el.getAttribute("aria-label") || "",
+            placeholder: el.getAttribute("placeholder") || "",
+            classes: el.className || "",
+          }));
+      });
+    } catch (err) {
+      log.debug(`source-manager: collecting visible textareas: ${err instanceof Error ? err.message : String(err)}`);
       return [];
     }
   }
