@@ -195,6 +195,122 @@ export class ResearchManager {
     });
   }
 
+  /**
+   * Click a button using Playwright's high-level locator (real event simulation)
+   * with a programmatic JS click fallback. Material/Angular handlers respond to
+   * either, but the locator path produces full pointer events which work in more
+   * edge cases.
+   */
+  private async clickButton(page: Page, selector: string, timeout: number = 3000): Promise<boolean> {
+    try {
+      await page.locator(selector).first().click({ timeout });
+      return true;
+    } catch {
+      // Fall through to programmatic click
+    }
+    return await page.evaluate((s) => {
+      // @ts-expect-error - DOM types
+      const el = document.querySelector(s) as any;
+      if (!el || el.disabled) return false;
+      el.click();
+      return true;
+    }, selector);
+  }
+
+  private async isDiscoveryContainerVisible(page: Page): Promise<boolean> {
+    return await page.evaluate(() => {
+      // @ts-expect-error - DOM types
+      const dc = document.querySelector('.source-discovery-container') as any;
+      return !!(dc && dc.offsetParent);
+    });
+  }
+
+  private async waitForDiscoveryContainerHidden(page: Page, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (!(await this.isDiscoveryContainerVisible(page))) return true;
+      await page.waitForTimeout(300);
+    }
+    return false;
+  }
+
+  /**
+   * Clear any pre-existing `.source-discovery-container` so a freshly-submitted
+   * query produces an unambiguously new result.
+   *
+   * NotebookLM persists the discovery container server-side: dismissing or
+   * importing was previously the only way to clear it. In April 2026 the
+   * jslog 282707 (削除) click frequently fails to remove the container, so
+   * this helper escalates through several strategies and verifies the result.
+   *
+   * Without this, a stale "completed" container makes get_source_discovery_status
+   * lie ("completed" returned for research that never actually ran in this
+   * session), and triggerResearch's `waitForSelector('.source-discovery-container')`
+   * succeeds against the stale node — so the tool reports `triggered: true`
+   * even when the new submit was a no-op.
+   */
+  private async clearDiscoveryContainer(
+    page: Page
+  ): Promise<{ wasPresent: boolean; cleared: boolean; method?: string }> {
+    if (!(await this.isDiscoveryContainerVisible(page))) {
+      return { wasPresent: false, cleared: true };
+    }
+
+    log.info("  🧹 Clearing pre-existing discovery container before new research");
+
+    // 1) Real click on Dismiss (jslog 282707, text 削除)
+    const byJslog = await this.clickButton(
+      page,
+      '.source-discovery-container button[jslog^="282707"]',
+      3000
+    );
+    if (byJslog && (await this.waitForDiscoveryContainerHidden(page, 6000))) {
+      return { wasPresent: true, cleared: true, method: "dismiss-jslog" };
+    }
+
+    // 2) Text/aria fallback (in case jslog id changes upstream)
+    const byText = await page.evaluate(() => {
+      // @ts-expect-error - DOM types
+      const buttons = document.querySelectorAll('.source-discovery-container button');
+      for (const b of buttons) {
+        const txt = ((b as any).textContent || '').trim();
+        const aria = ((b as any).getAttribute('aria-label') || '');
+        if (
+          txt === '削除' || txt.includes('削除') ||
+          aria.includes('削除') ||
+          txt === 'Dismiss' || aria.includes('Dismiss')
+        ) {
+          (b as any).click();
+          return true;
+        }
+      }
+      return false;
+    });
+    if (byText && (await this.waitForDiscoveryContainerHidden(page, 4000))) {
+      return { wasPresent: true, cleared: true, method: "dismiss-text" };
+    }
+
+    // 3) Escape key (sometimes closes overlays/menus that block the click)
+    await page.keyboard.press("Escape").catch(() => {});
+    if (await this.waitForDiscoveryContainerHidden(page, 2000)) {
+      return { wasPresent: true, cleared: true, method: "escape" };
+    }
+
+    // 4) Force-remove from DOM as a last resort. The server-side state still
+    // contains the old discovery, but submitting a new query replaces it,
+    // so the user gets correct fresh results going forward.
+    await page.evaluate(() => {
+      // @ts-expect-error - DOM types
+      const dc = document.querySelector('.source-discovery-container') as any;
+      if (dc) dc.remove();
+    });
+    if (await this.waitForDiscoveryContainerHidden(page, 1000)) {
+      return { wasPresent: true, cleared: true, method: "force-remove" };
+    }
+
+    return { wasPresent: true, cleared: false };
+  }
+
   private async listSourceTitles(page: Page): Promise<string[]> {
     return await page.evaluate(() => {
       const titles: string[] = [];
@@ -252,6 +368,22 @@ export class ResearchManager {
 
       const sourcesBefore = await this.countSources(page);
 
+      // Clear any stale discovery container left over from a previous research
+      // (NotebookLM persists this server-side). Without this step the new
+      // submit would land in a notebook that already has a "completed"
+      // container, and we cannot tell whether our submit actually went through.
+      const cleared = await this.clearDiscoveryContainer(page);
+      if (cleared.wasPresent && !cleared.cleared) {
+        return {
+          success: false, triggered: false, query: options.query,
+          mode, corpus, sourcesBefore,
+          error: "A previous discovery result is blocking new research and could not be cleared automatically. Dismiss it manually in the NotebookLM UI and retry.",
+        };
+      }
+      if (cleared.wasPresent && cleared.method && cleared.method !== "dismiss-jslog") {
+        log.warning(`  ⚠️  Cleared stale container via fallback (${cleared.method}); selectors may need an update`);
+      }
+
       // Switch mode if not default
       if (mode !== "fast") {
         const modeSet = await this.setMode(page, mode);
@@ -270,14 +402,23 @@ export class ResearchManager {
       await humanType(page, 'textarea.query-box-textarea', options.query, { withTypos: false });
       await randomDelay(300, 600);
 
-      // Submit
-      const submitted = await page.evaluate(() => {
-        // @ts-expect-error - DOM types
-        const btn = document.querySelector('button.actions-enter-button:not([disabled]), button[jslog^="282723"]:not([disabled])') as any;
-        if (!btn) return false;
-        btn.click();
-        return true;
-      });
+      // Submit — prefer Playwright's locator click (real pointer events) and
+      // fall back to programmatic JS click. The selector requires the button
+      // to be enabled, which only happens once the textarea has a value.
+      const submitSelector = 'button.actions-enter-button:not([disabled])';
+      let submitted = false;
+      try {
+        await page.locator(submitSelector).first().click({ timeout: 5000 });
+        submitted = true;
+      } catch {
+        submitted = await page.evaluate(() => {
+          // @ts-expect-error - DOM types
+          const btn = document.querySelector('button.actions-enter-button:not([disabled]), button[jslog^="282723"]:not([disabled])') as any;
+          if (!btn) return false;
+          btn.click();
+          return true;
+        });
+      }
       if (!submitted) {
         return {
           success: false, triggered: false, query: options.query,
@@ -286,13 +427,22 @@ export class ResearchManager {
         };
       }
 
-      // Quick confirmation that the discovery container appeared (in "running" state).
-      // Don't wait for completion here — that is get_research_status's job.
-      await page.waitForSelector('.source-discovery-container', { timeout: 15000 }).catch(() => {});
+      // We just cleared any pre-existing container, so the appearance of
+      // `.source-discovery-container` here proves the new submit went through.
+      const appeared = await page.waitForSelector('.source-discovery-container', { timeout: 20000, state: 'visible' })
+        .then(() => true)
+        .catch(() => false);
+      if (!appeared) {
+        return {
+          success: false, triggered: false, query: options.query,
+          mode, corpus, sourcesBefore,
+          error: "Submit clicked but the discovery container did not appear within 20s — research likely did not start.",
+        };
+      }
 
       const note = mode === "deep"
-        ? "Deep Research typically takes 2-10 minutes. Poll get_research_status until status=completed, then call import_research_results."
-        : "Fast Research typically takes 15-30 seconds. Poll get_research_status until status=completed, then call import_research_results.";
+        ? "Deep Research typically takes 2-10 minutes. Poll get_source_discovery_status until status=completed, then call import_research_results."
+        : "Fast Research typically takes 15-30 seconds. Poll get_source_discovery_status until status=completed, then call import_research_results.";
 
       log.success(`  ✅ triggered (sourcesBefore=${sourcesBefore})`);
 
@@ -396,31 +546,36 @@ export class ResearchManager {
       const sourcesBefore = await this.countSources(page);
       const titlesBefore = await this.listSourceTitles(page);
 
-      const targetJslog = action === "dismiss" ? "282707" : "282708";
+      if (action === "dismiss") {
+        // Use the same robust clear strategy as triggerResearch and verify
+        // the container actually disappears (the previous implementation
+        // accepted a no-op click and reported success regardless).
+        const cleared = await this.clearDiscoveryContainer(page);
+        if (!cleared.cleared) {
+          return {
+            success: false, action, imported: false,
+            sourcesBefore, sourcesAfter: sourcesBefore,
+            error: "Dismiss did not clear the discovery container.",
+          };
+        }
+        log.success(`  ✅ dismissed (${cleared.method ?? 'noop'})`);
+        return {
+          success: true, action, imported: false,
+          sourcesBefore, sourcesAfter: await this.countSources(page),
+        };
+      }
 
-      const clicked = await page.evaluate((prefix: string) => {
-        // @ts-expect-error - DOM types
-        const btn = document.querySelector(`.source-discovery-container button[jslog^="${prefix}"]`) as any;
-        if (!btn) return false;
-        btn.click();
-        return true;
-      }, targetJslog);
-
+      // Import path
+      const clicked = await this.clickButton(
+        page,
+        '.source-discovery-container button[jslog^="282708"]',
+        5000
+      );
       if (!clicked) {
         return {
           success: false, action, imported: false,
           sourcesBefore, sourcesAfter: sourcesBefore,
           error: `Could not click the ${action} button.`,
-        };
-      }
-
-      if (action === "dismiss") {
-        // Dismiss: just wait for the discovery container to disappear
-        await page.waitForSelector('.source-discovery-container', { state: "detached", timeout: 10000 }).catch(() => {});
-        log.success(`  ✅ dismissed`);
-        return {
-          success: true, action, imported: false,
-          sourcesBefore, sourcesAfter: await this.countSources(page),
         };
       }
 
