@@ -40,6 +40,7 @@ import {
 
 import { createRequire } from "module";
 import crypto from "node:crypto";
+import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { AuthManager } from "./auth/auth-manager.js";
 import { SessionManager } from "./session/session-manager.js";
@@ -810,10 +811,19 @@ export async function main() {
   }
 }
 
-const isDirectRun = process.argv[1]
-  ? import.meta.url === pathToFileURL(process.argv[1]).href
-  : false;
+const isDirectRun = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
 if (isDirectRun) {
   void main();
+} else if (process.argv[1] && process.env.NLMCP_DEBUG) {
+  log.debug(
+    `entry-point guard: argv[1]=${process.argv[1]} did not resolve to ${import.meta.url} — main() skipped`
+  );
 }
