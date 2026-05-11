@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.3.3] - 2026-05-11
+
+### Fixed
+
+- **Entry-point detection broken for bin shim and npx invocations** — `isDirectRun` guard
+  now passes `process.argv[1]` through `realpathSync` before comparing against
+  `import.meta.url`, resolving symlinks created by `npm install -g` and `npx` before the
+  equality check. Previously the server would boot, print the banner, and silently exit
+  with no MCP transport registered when invoked via the bin shim or `npx`. Closes #11.
+- **Opt-in startup diagnostic** — set `NLMCP_DEBUG=true` to log the exact `argv[1]` vs
+  `import.meta.url` comparison when the entry-point guard gates off `main()`, making
+  silent no-start failures diagnosable.
+
 ## [2026.3.1] - 2026-04-25
 
 ### Security Audit Complete — All 334 Issues Resolved
