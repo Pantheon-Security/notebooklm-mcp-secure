@@ -637,7 +637,10 @@ export class NotebookLMMCPServer {
     try {
       const breachDetector = getBreachDetector();
       getAuditLogger().onEvent(async (event) => {
-        if (event.eventType !== "auth" && event.eventType !== "security") return;
+        // Forward ALL event types to checkEvent; it filters by event_pattern.
+        // A pre-filter on eventType dropped non-auth rules (secrets_detected in
+        // tool output, prompt_injection, data_export, encryption_error) before
+        // pattern matching, leaving those critical/high rules dead (M20).
         try {
           await breachDetector.checkEvent(event.eventName, event.details);
         } catch (err) {
@@ -652,10 +655,61 @@ export class NotebookLMMCPServer {
     // Pipe audit events to SIEM when enabled (I247). exportToSIEM is a no-op
     // when NLMCP_SIEM_ENABLED is not true.
     try {
+      // Event types whose SUCCESSFUL operations must still reach the SIEM so the
+      // tamper-evident external copy is complete (M21). Without flooring these to
+      // at least "warning", successful grant_consent / request_data_erasure /
+      // submit_dsar / config / retention events would map to "info" and be dropped
+      // by the default min_severity ("warning").
+      const SIEM_FLOOR_TYPES = new Set(["compliance", "data_access", "configuration", "retention"]);
+
+      // SIEM export crosses the local-only boundary asserted by the privacy notice
+      // ("Local device only"). audit-logger only sanitizes by KEY name, so free-text
+      // VALUES (and args_summary content) would egress raw PII to the external SIEM
+      // endpoint (L52). Value-scrub here before forwarding: drop known free-text PII
+      // fields to a short content hash + length marker, and truncate other long
+      // free-text values, so raw PII does not leave the host.
+      const SIEM_FREE_TEXT_PII_FIELDS = new Set([
+        "description", "reason", "details", "title", "question", "answer", "args_summary",
+      ]);
+      const SIEM_MAX_VALUE_LEN = 120;
+      const scrubValueForSIEM = (key: string, value: unknown): unknown => {
+        if (typeof value === "string") {
+          if (SIEM_FREE_TEXT_PII_FIELDS.has(key.toLowerCase())) {
+            const digest = crypto.createHash("sha256").update(value).digest("hex").slice(0, 12);
+            return `[scrubbed sha256:${digest} len:${value.length}]`;
+          }
+          if (value.length > SIEM_MAX_VALUE_LEN) {
+            return `${value.slice(0, SIEM_MAX_VALUE_LEN)}…[truncated len:${value.length}]`;
+          }
+          return value;
+        }
+        if (Array.isArray(value)) {
+          return value.map((item) => scrubValueForSIEM(key, item));
+        }
+        if (value !== null && typeof value === "object") {
+          return scrubDetailsForSIEM(value as Record<string, unknown>);
+        }
+        return value;
+      };
+      const scrubDetailsForSIEM = (details: Record<string, unknown>): Record<string, unknown> => {
+        const scrubbed: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(details)) {
+          scrubbed[key] = scrubValueForSIEM(key, value);
+        }
+        return scrubbed;
+      };
+
       getAuditLogger().onEvent(async (event) => {
-        const severity = event.eventType === "security" && typeof event.details.severity === "string"
-          ? event.details.severity as "info" | "warning" | "error" | "critical"
-          : event.success ? "info" : "error";
+        let severity: "info" | "warning" | "error" | "critical";
+        if (event.eventType === "security" && typeof event.details.severity === "string") {
+          severity = event.details.severity as "info" | "warning" | "error" | "critical";
+        } else if (!event.success) {
+          severity = "error";
+        } else if (SIEM_FLOOR_TYPES.has(event.eventType)) {
+          severity = "warning";
+        } else {
+          severity = "info";
+        }
 
         await exportToSIEM(
           event.eventType,
@@ -663,7 +717,7 @@ export class NotebookLMMCPServer {
           severity,
           `${event.eventType}:${event.eventName}`,
           "audit-logger",
-          event.details,
+          scrubDetailsForSIEM(event.details),
         );
       });
       log.info("📡 SIEM audit export bridge registered");

@@ -20,6 +20,7 @@ import { AuthManager } from "../auth/auth-manager.js";
 import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
 import { randomDelay } from "../utils/stealth-utils.js";
+import { validateResponse } from "../utils/response-validator.js";
 
 export interface DataTable {
   headers: string[];
@@ -174,6 +175,21 @@ export class DataTableManager {
           return { status: "generating" as const, progress: 0 };
         }
 
+        // Detect an explicit failure state on THIS artifact before assuming ready.
+        // A failed generation leaves a non-shimmer artifact, which would otherwise be
+        // misreported as "ready". Scope the check to the matched item only — a page-global
+        // alert query could match unrelated UI. Class names are best-effort (unconfirmed
+        // by live inspection); [role="alert"]/error child is the locale-independent signal.
+        const hasErrorChild = !!item.querySelector('[role="alert"], .error-state, .artifact-error');
+        if (
+          hasErrorChild ||
+          item.classList.contains("error-state") ||
+          item.classList.contains("artifact-error") ||
+          item.classList.contains("failed")
+        ) {
+          return { status: "failed" as const };
+        }
+
         // Otherwise it's ready
         return { status: "ready" as const };
       }
@@ -299,6 +315,15 @@ export class DataTableManager {
       // Check if generation started
       const newStatus = await this.checkDataTableStatusInternal(page);
 
+      if (newStatus.status === "failed") {
+        log.warning("  Data table generation reported a failed state");
+        return {
+          success: false,
+          status: newStatus,
+          error: "Data table generation failed.",
+        };
+      }
+
       if (newStatus.status === "generating" || newStatus.status === "ready") {
         log.success(`  Data table generation ${newStatus.status === "ready" ? "completed" : "started"}`);
         return { success: true, status: newStatus };
@@ -342,6 +367,12 @@ export class DataTableManager {
           error: "No data table found. Use generate_data_table first.",
         };
       }
+      if (status.status === "failed") {
+        return {
+          success: false,
+          error: "Data table generation failed. Use generate_data_table to retry.",
+        };
+      }
 
       // Click the data table artifact to open it
       const artifactClicked = await this.clickDataTableArtifact(page);
@@ -364,11 +395,16 @@ export class DataTableManager {
         };
       }
 
-      log.success(`  Extracted data table: ${table.totalColumns} columns x ${table.totalRows} rows`);
+      // Notebook sources are arbitrary documents, so table cell text is untrusted
+      // and a prompt-injection conduit. Sanitize every cell before returning it
+      // to the calling model (mirrors ask_question response validation).
+      const safeTable = await this.sanitizeTable(table);
+
+      log.success(`  Extracted data table: ${safeTable.totalColumns} columns x ${safeTable.totalRows} rows`);
 
       return {
         success: true,
-        table,
+        table: safeTable,
       };
     } finally {
       await this.closePage();
@@ -434,6 +470,37 @@ export class DataTableManager {
 
       return bestTable;
     });
+  }
+
+  /**
+   * Sanitize extracted table content through the shared response validator.
+   * Each cell originates from untrusted document sources, so any prompt
+   * injection / malicious content is redacted before the table is returned
+   * to the calling model.
+   */
+  private async sanitizeTable(table: DataTable): Promise<DataTable> {
+    let flagged = false;
+    const sanitizeCell = async (value: string): Promise<string> => {
+      const validation = await validateResponse(value);
+      if (!validation.safe) flagged = true;
+      return validation.sanitized;
+    };
+
+    const headers = await Promise.all(table.headers.map(sanitizeCell));
+    const rows = await Promise.all(
+      table.rows.map((row) => Promise.all(row.map(sanitizeCell)))
+    );
+
+    if (flagged) {
+      log.warning("🛡️ Suspicious content detected in extracted data table — sanitized");
+    }
+
+    return {
+      headers,
+      rows,
+      totalRows: table.totalRows,
+      totalColumns: table.totalColumns,
+    };
   }
 
   /**

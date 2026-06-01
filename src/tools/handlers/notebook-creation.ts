@@ -99,6 +99,24 @@ export async function handleCreateNotebook(
       browserOptions: args.browser_options || (args.show_browser ? { show: true } : undefined),
     });
 
+    // A notebook where sources were requested but NONE succeeded is discarded
+    // by the creator (which throws), so we never reach here for that case.
+    // Guard defensively anyway: never persist a library entry or count quota
+    // for a notebook that requested sources yet added none. (An empty `sources`
+    // request — e.g. an overflow shell notebook that gets populated later — is
+    // a legitimate zero-source case and is still added.)
+    const requestedSources = args.sources.length;
+    const addedNone = requestedSources > 0 && result.sourceCount === 0;
+
+    if (addedNone) {
+      log.warning(`⚠️ Notebook had no successful sources — not adding to library: ${args.name}`);
+      return {
+        success: false,
+        data: null,
+        error: "Notebook creation failed: no sources could be added",
+      };
+    }
+
     // Auto-add to library if requested (default: true)
     if (args.auto_add_to_library !== false) {
       try {

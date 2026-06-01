@@ -83,7 +83,12 @@ interface SOC2Dashboard {
   status: "compliant" | "at_risk" | "non_compliant";
   availability: {
     current_status: string;
-    uptime_percentage: number;
+    // True availability % requires downtime/incident-duration accounting that is
+    // not tracked (health-monitor only exposes process uptime_seconds). Reported
+    // as null + a flag rather than a hardcoded SOC2 figure derived from the
+    // instantaneous health status, which would misrepresent a measured control.
+    uptime_percentage: number | null;
+    uptime_percentage_measured: boolean;
     last_incident?: string;
   };
   security: {
@@ -140,9 +145,14 @@ interface SecurityDashboard {
     by_type: Record<IncidentType, number>;
   };
   alerts: {
+    // Counts of alerts sent in the last 24h, measured from AlertManager's
+    // in-process rolling window (resets on restart). Honest, not estimated.
     total_24h: number;
     critical_24h: number;
-    unacknowledged: number;
+    // No acknowledgment workflow exists, so this cannot be measured. Reported
+    // as null rather than a fabricated 0 so auditors are not misled.
+    unacknowledged: number | null;
+    unacknowledged_tracked: boolean;
   };
   breach_detection: {
     enabled: boolean;
@@ -361,9 +371,9 @@ export class ComplianceDashboard {
     const loggerStats = await complianceLogger.getStats();
     const integrity = await complianceLogger.verifyIntegrity();
 
-    // Calculate uptime (simplified - would need more sophisticated tracking)
-    const uptimePercentage = metrics?.status === "healthy" ? 99.9 :
-                            metrics?.status === "degraded" ? 95.0 : 90.0;
+    // Availability percentage is intentionally NOT computed: there is no
+    // downtime/incident-duration tracking, so any number here would be a
+    // fabricated SOC2 metric. Report null + measured=false instead.
 
     // Determine status
     let status: SOC2Dashboard["status"] = "compliant";
@@ -378,7 +388,8 @@ export class ComplianceDashboard {
       status,
       availability: {
         current_status: metrics?.status || "unknown",
-        uptime_percentage: uptimePercentage,
+        uptime_percentage: null,
+        uptime_percentage_measured: false,
         last_incident: lastIncident,
       },
       security: {
@@ -495,9 +506,12 @@ export class ComplianceDashboard {
         by_type: incidentStats.by_type,
       },
       alerts: {
-        total_24h: alertStats.alerts_this_hour * 24, // Estimate
-        critical_24h: 0, // Not tracked by alert manager
-        unacknowledged: 0, // Alert manager doesn't track acknowledgments
+        // Real 24h counts from AlertManager's rolling window (not an estimate).
+        total_24h: alertStats.alerts_24h,
+        critical_24h: alertStats.critical_24h,
+        // No acknowledgment model exists — report not-tracked rather than a fake 0.
+        unacknowledged: null,
+        unacknowledged_tracked: false,
       },
       breach_detection: {
         enabled: true,

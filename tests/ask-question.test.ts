@@ -6,13 +6,13 @@ const { mockAudit, mockQuotaManager, mockValidateResponse, mockGetQueryLogger } 
     tool: vi.fn().mockResolvedValue(undefined),
   },
   mockQuotaManager: {
-    canMakeQuery: vi.fn().mockReturnValue({ allowed: true }),
+    checkAndReserveQuery: vi.fn().mockResolvedValue({ allowed: true }),
+    releaseReservation: vi.fn().mockResolvedValue(undefined),
     getDetailedStatus: vi.fn().mockReturnValue({
       queries: { remaining: 99, used: 1, limit: 100, shouldStop: false },
       tier: "free",
       warnings: [],
     }),
-    incrementQueryCountAtomic: vi.fn().mockResolvedValue(undefined),
   },
   mockValidateResponse: vi.fn().mockResolvedValue({
     safe: true,
@@ -41,13 +41,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAudit.security.mockResolvedValue(undefined);
   mockAudit.tool.mockResolvedValue(undefined);
-  mockQuotaManager.canMakeQuery.mockReturnValue({ allowed: true });
+  mockQuotaManager.checkAndReserveQuery.mockResolvedValue({ allowed: true });
+  mockQuotaManager.releaseReservation.mockResolvedValue(undefined);
   mockQuotaManager.getDetailedStatus.mockReturnValue({
     queries: { remaining: 99, used: 1, limit: 100, shouldStop: false },
     tier: "free",
     warnings: [],
   });
-  mockQuotaManager.incrementQueryCountAtomic.mockResolvedValue(undefined);
   mockGetQueryLogger.mockReturnValue({ logQuery: vi.fn().mockResolvedValue(undefined) });
   mockValidateResponse.mockResolvedValue({ safe: true, sanitized: "", blocked: [], warnings: [] });
 });

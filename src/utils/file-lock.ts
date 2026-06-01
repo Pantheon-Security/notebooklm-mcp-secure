@@ -43,12 +43,28 @@ function parseIntegerEnv(name: string, fallback: number): number {
 }
 
 /**
+ * Single shared stale-lock threshold (L15).
+ *
+ * The async FileLock util and the synchronous shutdown-flush path in
+ * audit-logger.ts (writeWithSyncLock) lock the SAME audit-*.jsonl files, so they
+ * MUST agree on when a lock is stale. They previously diverged (900_000ms here vs
+ * a hardcoded 30_000ms in the sync path): the sync path could steal a lock at 30s
+ * that the async owner still considered live (900s), and both would then write the
+ * same audit file concurrently — corrupting the very log the lock protects.
+ *
+ * Unified UP to 900_000ms (15 min): losing a best-effort shutdown flush (the sync
+ * path only waits 10s total anyway) is strictly less bad than corrupting the audit
+ * log. Overridable via NLMCP_LOCK_STALE_MS.
+ */
+export const STALE_LOCK_THRESHOLD_MS = parseIntegerEnv("NLMCP_LOCK_STALE_MS", 900_000);
+
+/**
  * Default lock options
  */
 const DEFAULT_OPTIONS: Required<LockOptions> = {
   timeout: parseIntegerEnv("NLMCP_LOCK_TIMEOUT_MS", 10000),
   retryInterval: 100,
-  staleThreshold: parseIntegerEnv("NLMCP_LOCK_STALE_MS", 900_000),
+  staleThreshold: STALE_LOCK_THRESHOLD_MS,
 };
 
 /**
@@ -103,31 +119,53 @@ export class FileLock {
 
     while (Date.now() - startTime < opts.timeout) {
       try {
-        // Check if stale lock exists
-        if (fs.existsSync(this.lockPath)) {
+        // Check for a stale or corrupted lock. Never blind-unlink by mere
+        // existence: a concurrent process may have replaced a stale lock with
+        // its own fresh one. Use compare-and-delete — re-read the lock
+        // immediately before unlinking and only remove the EXACT bytes we
+        // observed. The atomic `wx` create below is the real backstop: if the
+        // file is recreated between our delete and our create, it EEXISTs and
+        // we simply loop.
+        let observed: string | null = null;
+        try {
+          observed = fs.readFileSync(this.lockPath, "utf-8");
+        } catch (err) {
+          // ENOENT (no lock present) is the common, expected case — fall through
+          // to the create attempt below.
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+            log.debug(`file-lock: reading lock file in acquire: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+
+        if (observed !== null) {
+          let removable = false;
           try {
-            const content = fs.readFileSync(this.lockPath, "utf-8");
-            const existing = JSON.parse(content) as LockContent;
+            const existing = JSON.parse(observed) as LockContent;
             const age = Date.now() - existing.timestamp;
 
             if (age > opts.staleThreshold) {
-              // Lock is stale, remove it
               log.warning(`🔓 Removing stale lock (age: ${Math.round(age / 1000)}s, pid: ${existing.pid})`);
-              try {
-                fs.unlinkSync(this.lockPath);
-              } catch (err) {
-                log.debug(`file-lock: removing stale lock file in acquire: ${err instanceof Error ? err.message : String(err)}`);
-                // Ignore if another process already removed it
-              }
+              removable = true;
             }
           } catch (err) {
             log.debug(`file-lock: reading/parsing lock file content in acquire: ${err instanceof Error ? err.message : String(err)}`);
-            // Corrupted lock file, try to remove it
+            // Corrupted lock file — eligible for removal, but still only if the
+            // exact corrupted bytes are unchanged when we re-read below.
+            removable = true;
+          }
+
+          if (removable) {
             try {
-              fs.unlinkSync(this.lockPath);
+              // Compare-and-delete: re-read and confirm the content is byte-for-byte
+              // identical to what we observed before unlinking, so we never delete
+              // a different process's freshly-written lock.
+              const reread = fs.readFileSync(this.lockPath, "utf-8");
+              if (reread === observed) {
+                fs.unlinkSync(this.lockPath);
+              }
             } catch (err) {
-              log.debug(`file-lock: removing corrupted lock file in acquire: ${err instanceof Error ? err.message : String(err)}`);
-              // Ignore
+              log.debug(`file-lock: compare-and-delete stale lock in acquire: ${err instanceof Error ? err.message : String(err)}`);
+              // Another process already changed or removed it — let the wx create decide.
             }
           }
         }
@@ -178,53 +216,26 @@ export class FileLock {
   release(): void {
     if (!this.acquired) return;
 
-    const tempPath = `${this.lockPath}.${this.lockId}.release`;
-
     try {
-      if (fs.existsSync(this.lockPath)) {
-        try {
-          const content = fs.readFileSync(this.lockPath, "utf-8");
-          const existing = JSON.parse(content) as LockContent;
+      // Compare-and-delete: read the lock once and only remove it if it is
+      // still ours. If another process validly stole the lock after the stale
+      // threshold, we leave it untouched rather than clobbering it (the old
+      // temp-file rename dance could overwrite a newer owner's lock with our
+      // stale content).
+      const content = fs.readFileSync(this.lockPath, "utf-8");
+      const existing = JSON.parse(content) as LockContent;
 
-          if (existing.lockId === this.lockId) {
-            fs.writeFileSync(tempPath, content, { mode: 0o600 });
-
-            const verifiedContent = fs.readFileSync(this.lockPath, "utf-8");
-            const verified = JSON.parse(verifiedContent) as LockContent;
-            if (verified.lockId === this.lockId) {
-              fs.renameSync(tempPath, this.lockPath);
-
-              const finalContent = fs.readFileSync(this.lockPath, "utf-8");
-              const finalLock = JSON.parse(finalContent) as LockContent;
-              if (finalLock.lockId === this.lockId) {
-                fs.unlinkSync(this.lockPath);
-              } else {
-                log.warning(`⚠️ Lock changed before release completed, not deleting`);
-              }
-            }
-          } else {
-            log.warning(`⚠️ Lock owned by different process, not releasing`);
-          }
-        } catch (err) {
-          log.debug(`file-lock: verifying and releasing lock file in release: ${err instanceof Error ? err.message : String(err)}`);
-          // Ignore errors during release
-        }
+      if (existing.lockId === this.lockId) {
+        fs.unlinkSync(this.lockPath);
+      } else {
+        log.warning(`⚠️ Lock owned by different process, not releasing`);
       }
     } catch (err) {
-      log.debug(`file-lock: releasing lock file in release: ${err instanceof Error ? err.message : String(err)}`);
-      // Ignore errors during release
+      // ENOENT (already gone), parse errors, or a concurrent unlink — nothing to do.
+      log.debug(`file-lock: compare-and-delete in release: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      try {
-        if (fs.existsSync(tempPath)) {
-          fs.unlinkSync(tempPath);
-        }
-      } catch (err) {
-        log.debug(`file-lock: removing temp file in release finally block: ${err instanceof Error ? err.message : String(err)}`);
-        // Ignore temp cleanup errors
-      }
+      this.acquired = false;
     }
-
-    this.acquired = false;
   }
 
   /**

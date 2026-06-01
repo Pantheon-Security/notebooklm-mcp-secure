@@ -7,6 +7,13 @@ docs/
 medusa-env/
 .mcpregistry_*
 .env*
+.npmrc
+data/
+browser_state/
+chrome_profile/
+.notebooklm-mcp/
+.claude/
+CLAUDE.md
 .vscode/
 .idea/
 screenshots/

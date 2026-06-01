@@ -41,6 +41,31 @@ export type VideoStyle =
  */
 export type VideoFormat = "explainer" | "brief";
 
+/**
+ * Allowlisted style values. Single source of truth used to validate untrusted
+ * input before it is passed into the page context (prevents attribute-selector
+ * injection in selectStyle).
+ */
+const VALID_VIDEO_STYLES: readonly VideoStyle[] = [
+  "auto-select",
+  "custom",
+  "classic",
+  "whiteboard",
+  "kawaii",
+  "anime",
+  "watercolour",
+  "retro-print",
+  "heritage",
+  "paper-craft",
+];
+
+/**
+ * Allowlisted format values. Single source of truth used to validate untrusted
+ * input before it is passed into the page context (prevents attribute-selector
+ * injection in selectFormat).
+ */
+const VALID_VIDEO_FORMATS: readonly VideoFormat[] = ["explainer", "brief"];
+
 export interface VideoStatus {
   status: "not_started" | "generating" | "ready" | "failed" | "unknown";
   progress?: number; // 0-100
@@ -190,6 +215,21 @@ export class VideoManager {
           return { status: "generating" as const, progress: 0 };
         }
 
+        // Detect an explicit failure state on THIS artifact before assuming ready.
+        // A failed generation leaves a non-shimmer artifact, which would otherwise be
+        // misreported as "ready". Scope the check to the matched item only — a page-global
+        // alert query could match unrelated UI. Class names are best-effort (unconfirmed
+        // by live inspection); [role="alert"]/error child is the locale-independent signal.
+        const hasErrorChild = !!item.querySelector('[role="alert"], .error-state, .artifact-error');
+        if (
+          hasErrorChild ||
+          item.classList?.contains("error-state") ||
+          item.classList?.contains("artifact-error") ||
+          item.classList?.contains("failed")
+        ) {
+          return { status: "failed" as const };
+        }
+
         // Otherwise it's ready
         return { status: "ready" as const };
       }
@@ -260,17 +300,28 @@ export class VideoManager {
    * Select a video format in the dialog (Explainer or Brief)
    */
   private async selectFormat(page: Page, format: VideoFormat): Promise<boolean> {
+    // Validate against the allowlist BEFORE the value crosses into the page
+    // context. Without this, a value containing `"]` could break out of the
+    // attribute selector below (selector injection).
+    if (!VALID_VIDEO_FORMATS.includes(format)) {
+      log.warning(`video-manager: ignoring non-allowlisted format "${format}"`);
+      return false;
+    }
     return await page.evaluate((fmt: string) => {
       const browser = globalThis as unknown as BrowserDocumentContext;
       // Format is in mat-radio-group.tile-group
       const radioGroup = browser.document.querySelector("mat-radio-group.tile-group") as BrowserClickableElement | null;
       if (!radioGroup) return false;
 
-      // Primary: value attribute (locale-independent if Angular Material uses stable values)
-      const byValue = radioGroup.querySelector(`[value="${fmt}"]`) as BrowserClickableElement | null;
-      if (byValue) {
-        byValue.click();
-        return true;
+      // Primary: value attribute (locale-independent if Angular Material uses stable values).
+      // Iterate radio options and compare values with === rather than building a
+      // selector from the value, so untrusted text can never alter the selector.
+      const options = Array.from(radioGroup.querySelectorAll("[value]")) as BrowserClickableElement[];
+      for (const option of options) {
+        if (option.getAttribute?.("value") === fmt) {
+          option.click();
+          return true;
+        }
       }
 
       // Fallback: text match (English only — may not work in non-English locales,
@@ -291,17 +342,28 @@ export class VideoManager {
    * Select a video style in the dialog carousel
    */
   private async selectStyle(page: Page, style: VideoStyle): Promise<boolean> {
+    // Validate against the allowlist BEFORE the value crosses into the page
+    // context. Without this, a value containing `"]` could break out of the
+    // attribute selector below (selector injection).
+    if (!VALID_VIDEO_STYLES.includes(style)) {
+      log.warning(`video-manager: ignoring non-allowlisted style "${style}"`);
+      return false;
+    }
     return await page.evaluate((styleName: string) => {
       const browser = globalThis as unknown as BrowserDocumentContext;
       // Style is in mat-radio-group.carousel-group
       const radioGroup = browser.document.querySelector("mat-radio-group.carousel-group") as BrowserClickableElement | null;
       if (!radioGroup) return false;
 
-      // Primary: value attribute (locale-independent)
-      const byValue = radioGroup.querySelector(`[value="${styleName}"]`) as BrowserClickableElement | null;
-      if (byValue) {
-        byValue.click();
-        return true;
+      // Primary: value attribute (locale-independent).
+      // Iterate radio options and compare values with === rather than building a
+      // selector from the value, so untrusted text can never alter the selector.
+      const options = Array.from(radioGroup.querySelectorAll("[value]")) as BrowserClickableElement[];
+      for (const option of options) {
+        if (option.getAttribute?.("value") === styleName) {
+          option.click();
+          return true;
+        }
       }
 
       // Fallback: text match (English only — style labels are translated in non-English UIs,
@@ -327,13 +389,25 @@ export class VideoManager {
   private async clickDialogGenerate(page: Page): Promise<boolean> {
     return await page.evaluate(() => {
       const browser = globalThis as unknown as BrowserDocumentContext;
-      // Primary: button in mat-dialog-actions
+      // Primary: the primary-color action button inside mat-dialog-actions.
+      // NEVER blindly click the FIRST button — Material dialogs conventionally place
+      // Cancel/Close first and the primary action last, so clicking [0] can hit Cancel
+      // and silently abort generation. Match the primary-color class/attribute first,
+      // then fall back to the LAST enabled button within the actions container.
       const dialogActions = browser.document.querySelector("mat-dialog-actions") as BrowserClickableElement | null;
       if (dialogActions) {
-        const btn = dialogActions.querySelector("button") as BrowserClickableElement | null;
-        if (btn) {
-          btn.click();
+        const primaryInActions = dialogActions.querySelector('button.button-color--primary, button[color="primary"]') as BrowserClickableElement | null;
+        if (primaryInActions) {
+          primaryInActions.click();
           return true;
+        }
+        const actionButtons = Array.from(dialogActions.querySelectorAll("button")) as BrowserClickableElement[];
+        for (let i = actionButtons.length - 1; i >= 0; i--) {
+          const button = actionButtons[i];
+          if (!button.disabled) {
+            button.click();
+            return true;
+          }
         }
       }
       // Fallback: button with primary color in any dialog
@@ -442,6 +516,15 @@ export class VideoManager {
 
       // Check if generation started
       const newStatus = await this.checkVideoStatusInternal(page);
+
+      if (newStatus.status === "failed") {
+        log.warning("  Video generation reported a failed state");
+        return {
+          success: false,
+          status: newStatus,
+          error: "Video generation failed.",
+        };
+      }
 
       if (newStatus.status === "generating" || newStatus.status === "ready") {
         log.success(`  Video generation ${newStatus.status === "ready" ? "completed" : "started"}`);

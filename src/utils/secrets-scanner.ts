@@ -67,6 +67,28 @@ export function shannonEntropy(s: string): number {
 }
 
 /**
+ * Resolve 1-based line/column for a byte index using a sorted array of newline
+ * offsets. `line` = number of newlines before index + 1; `column` = distance
+ * from the start of that line + 1. Matches the previous substring/split semantics.
+ */
+function lineColForIndex(newlineOffsets: number[], index: number): { line: number; column: number } {
+  // Binary search for the count of newline offsets strictly less than `index`.
+  let lo = 0;
+  let hi = newlineOffsets.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (newlineOffsets[mid] < index) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  // lo = number of newlines before index → line is lo + 1.
+  const lastNewlineBefore = lo > 0 ? newlineOffsets[lo - 1] : -1;
+  return { line: lo + 1, column: index - lastNewlineBefore };
+}
+
+/**
  * Secret detection patterns
  * Based on TruffleHog, GitLeaks, and custom patterns
  */
@@ -292,7 +314,7 @@ const SECRET_PATTERNS: SecretPattern[] = [
   // Email with password context
   {
     name: "Email with Password",
-    pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b.*(?:password|pwd|passwd)/gi,
+    pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b.*(?:password|pwd|passwd)/gi,
     severity: "medium",
     description: "Email address in password context",
   },
@@ -381,6 +403,13 @@ export class SecretsScanner {
     const matches: SecretMatch[] = [];
     const minSeverityLevel = SEVERITY_ORDER[this.config.minSeverity];
 
+    // Precompute newline offsets once so per-match line/column lookup is O(log n)
+    // instead of re-scanning from the string start for every match (I-L54).
+    const newlineOffsets: number[] = [];
+    for (let i = input.indexOf("\n"); i !== -1; i = input.indexOf("\n", i + 1)) {
+      newlineOffsets.push(i);
+    }
+
     for (const pattern of this.patterns) {
       // Skip if below minimum severity
       if (SEVERITY_ORDER[pattern.severity] < minSeverityLevel) {
@@ -403,11 +432,9 @@ export class SecretsScanner {
           continue;
         }
 
-        // Calculate line and column
-        const beforeMatch = input.substring(0, match.index);
-        const lines = beforeMatch.split("\n");
-        const line = lines.length;
-        const column = lines[lines.length - 1].length + 1;
+        // Calculate line and column via binary search over precomputed newline
+        // offsets — equivalent to counting "\n" before match.index but O(log n).
+        const { line, column } = lineColForIndex(newlineOffsets, match.index);
 
         // Generate redacted version
         const redacted = pattern.redactFn

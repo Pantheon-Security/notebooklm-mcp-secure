@@ -249,13 +249,16 @@ export function getSelectors(key: SelectorKey): string[] {
   return ([info.primary, ...info.fallbacks] as string[]).filter(Boolean);
 }
 
-// I146: warn once at module load for unconfirmed selectors so UI drift is visible
-{
+// I146 / L32: surface unconfirmed selectors so UI drift is visible, but as a
+// debug-only message gated behind NLMCP_DEBUG. Previously this ran at import
+// time as a log.warning side effect, producing constant unsuppressable startup
+// noise on every server boot.
+if (process.env.NLMCP_DEBUG) {
   const unconfirmed = (Object.entries(NOTEBOOKLM_SELECTORS) as [string, { confirmed: boolean }][])
     .filter(([, v]) => !v.confirmed)
     .map(([k]) => k);
   if (unconfirmed.length > 0) {
-    log.warning(`⚠️  Unconfirmed selectors in use (run discovery to validate): ${unconfirmed.join(", ")}`);
+    log.debug(`Unconfirmed selectors in use (run discovery to validate): ${unconfirmed.join(", ")}`);
   }
 }
 

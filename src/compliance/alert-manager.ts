@@ -23,6 +23,23 @@ function generateUUID(): string {
 }
 
 /**
+ * Parse webhook headers from environment. Malformed JSON must not throw during
+ * singleton construction (which would cascade through every getInstance caller);
+ * fall back to no custom headers with a logged warning instead.
+ */
+function parseWebhookHeaders(): Record<string, string> | undefined {
+  const raw = process.env.NLMCP_ALERTS_WEBHOOK_HEADERS;
+  if (!raw) return undefined;
+
+  try {
+    return JSON.parse(raw) as Record<string, string>;
+  } catch (err) {
+    log.warning(`alert-manager: ignoring malformed NLMCP_ALERTS_WEBHOOK_HEADERS: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
+}
+
+/**
  * Get alert configuration from environment
  */
 function getAlertConfig(): AlertConfig {
@@ -36,9 +53,7 @@ function getAlertConfig(): AlertConfig {
       } : undefined,
       webhook: process.env.NLMCP_ALERTS_WEBHOOK_URL ? {
         url: process.env.NLMCP_ALERTS_WEBHOOK_URL,
-        headers: process.env.NLMCP_ALERTS_WEBHOOK_HEADERS
-          ? JSON.parse(process.env.NLMCP_ALERTS_WEBHOOK_HEADERS)
-          : undefined,
+        headers: parseWebhookHeaders(),
       } : undefined,
     },
     min_severity: (process.env.NLMCP_ALERTS_MIN_SEVERITY as AlertSeverity) || "warning",
@@ -65,6 +80,8 @@ export class AlertManager {
   private config: AlertConfig;
   private alertHistory: Map<string, number> = new Map(); // key -> last alert timestamp
   private hourlyAlerts: { timestamp: number }[] = [];
+  // 24h rolling window of sent alerts with severity, for dashboard reporting.
+  private recentAlerts: { timestamp: number; severity: AlertSeverity }[] = [];
   private alertsDir: string;
 
   private constructor() {
@@ -115,11 +132,20 @@ export class AlertManager {
   }
 
   /**
-   * Record that an alert was sent
+   * Record that an alert was sent. When a severity is provided the alert is
+   * also added to the 24h rolling window used for dashboard metrics; internal
+   * bookkeeping keys (e.g. the rate-limit warning) omit it.
    */
-  private recordAlert(key: string): void {
-    this.alertHistory.set(key, Date.now());
-    this.hourlyAlerts.push({ timestamp: Date.now() });
+  private recordAlert(key: string, severity?: AlertSeverity): void {
+    const now = Date.now();
+    this.alertHistory.set(key, now);
+    this.hourlyAlerts.push({ timestamp: now });
+
+    if (severity) {
+      const dayAgo = now - 24 * 60 * 60 * 1000;
+      this.recentAlerts = this.recentAlerts.filter(a => a.timestamp > dayAgo);
+      this.recentAlerts.push({ timestamp: now, severity });
+    }
   }
 
   /**
@@ -195,7 +221,7 @@ export class AlertManager {
     }
 
     // Record this alert
-    this.recordAlert(key);
+    this.recordAlert(key, severity);
 
     return alert;
   }
@@ -449,6 +475,8 @@ export class AlertManager {
     cooldown_seconds: number;
     max_alerts_per_hour: number;
     alerts_this_hour: number;
+    alerts_24h: number;
+    critical_24h: number;
     channels: string[];
   } {
     const channels: string[] = [];
@@ -456,8 +484,12 @@ export class AlertManager {
     if (this.config.channels.file) channels.push("file");
     if (this.config.channels.webhook) channels.push("webhook");
 
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    const now = Date.now();
+    const oneHourAgo = now - 60 * 60 * 1000;
+    const dayAgo = now - 24 * 60 * 60 * 1000;
     const alertsThisHour = this.hourlyAlerts.filter(a => a.timestamp > oneHourAgo).length;
+    const recent24h = this.recentAlerts.filter(a => a.timestamp > dayAgo);
+    const critical24h = recent24h.filter(a => a.severity === "critical").length;
 
     return {
       enabled: this.config.enabled,
@@ -465,6 +497,8 @@ export class AlertManager {
       cooldown_seconds: this.config.cooldown_seconds,
       max_alerts_per_hour: this.config.max_alerts_per_hour,
       alerts_this_hour: alertsThisHour,
+      alerts_24h: recent24h.length,
+      critical_24h: critical24h,
       channels,
     };
   }

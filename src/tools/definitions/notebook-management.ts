@@ -161,7 +161,7 @@ Tip: You may update multiple fields at once if requested.`,
         content_types: {
           type: "array",
           items: { type: "string", maxLength: 100 },
-          maxItems: 20,
+          maxItems: 50,
           description: "New content types",
         },
         use_cases: {
@@ -796,6 +796,8 @@ Summary with:
         },
         notebook_url: {
           type: "string",
+          pattern: "^https://notebooklm\\.google\\.com/",
+          maxLength: 512,
           description: "Or direct notebook URL (overrides notebook_id)",
         },
       },
@@ -824,6 +826,8 @@ Summary with:
         },
         notebook_url: {
           type: "string",
+          pattern: "^https://notebooklm\\.google\\.com/",
+          maxLength: 512,
           description: "Or direct notebook URL (overrides notebook_id)",
         },
       },
@@ -857,6 +861,8 @@ Downloads to specified path or ~/notebooklm-audio-{timestamp}.mp3
         },
         notebook_url: {
           type: "string",
+          pattern: "^https://notebooklm\\.google\\.com/",
+          maxLength: 512,
           description: "Or direct notebook URL (overrides notebook_id)",
         },
         output_path: {

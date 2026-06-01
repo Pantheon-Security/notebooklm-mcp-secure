@@ -73,6 +73,7 @@ Paginate through history:
       },
       output_file: {
         type: "string",
+        pattern: "^(?!.*\\.\\.)(?!~)/.+",
         maxLength: 500,
         description: "If provided, exports chat history to this JSON file instead of returning to context. Useful for large histories.",
       },

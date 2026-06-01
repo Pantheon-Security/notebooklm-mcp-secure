@@ -141,8 +141,8 @@ const DEFAULTS: Config = {
   stealthRandomDelays: true,
   stealthHumanTyping: true,
   stealthMouseMovements: true,
-  typingWpmMin: 160,
-  typingWpmMax: 240,
+  typingWpmMin: 45,
+  typingWpmMax: 65,
   minDelayMs: 100,
   maxDelayMs: 400,
 

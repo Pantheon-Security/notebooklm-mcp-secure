@@ -62,9 +62,16 @@ export class NotebookNavigation {
   async initialize(headless?: boolean): Promise<void> {
     log.info("🌐 Initializing browser for notebook creation...");
 
-    const context = await this.contextManager.getOrCreateContext(
-      headless === false ? true : undefined
-    );
+    // Map the caller's headless intent to getOrCreateContext's explicit
+    // "show browser" contract (its argument is true = show/visible,
+    // false = headless, undefined = defer to CONFIG.headless).
+    //   - headless === false  -> the caller explicitly wants a VISIBLE browser
+    //                            -> showBrowser = true
+    //   - headless === true / undefined -> no explicit visible request; defer
+    //                            to the configured default
+    //                            -> showBrowser = undefined
+    const showBrowser: boolean | undefined = headless === false ? true : undefined;
+    const context = await this.contextManager.getOrCreateContext(showBrowser);
 
     const isAuthenticated = await this.authManager.validateWithRetry(context);
     if (!isAuthenticated) {
@@ -135,17 +142,24 @@ export class NotebookNavigation {
       }
     }
 
-    const textPatterns = ["New notebook", "Create notebook", "Create new", "New"];
+    // Specific, multi-word labels only. The previous last-ditch pattern was the
+    // bare word "New", which an includes()-match happily found inside unrelated
+    // controls like "New chat" or "New label" — clicking the wrong button. Match
+    // only full, unambiguous create-notebook labels.
+    const textPatterns = ["New notebook", "Create notebook", "Create new notebook"];
 
     for (const pattern of textPatterns) {
       try {
         const clicked = await this.page.evaluate((searchText) => {
           const browser = globalThis as unknown as ButtonQueryDocument;
+          const needle = searchText.toLowerCase();
           const elements = browser.document.querySelectorAll('button, a, [role="button"]');
           for (const el of elements) {
-            const elText = el.textContent?.toLowerCase() || "";
-            const ariaLabel = el.getAttribute("aria-label")?.toLowerCase() || "";
-            if (elText.includes(searchText.toLowerCase()) || ariaLabel.includes(searchText.toLowerCase())) {
+            const elText = (el.textContent || "").trim().toLowerCase();
+            const ariaLabel = (el.getAttribute("aria-label") || "").trim().toLowerCase();
+            // Exact label match only — never a loose substring — so we cannot
+            // latch onto "New chat" / "New label" etc.
+            if (elText === needle || ariaLabel === needle) {
               el.click();
               return true;
             }

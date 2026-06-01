@@ -1,6 +1,6 @@
 {
   "name": "@pan-sec/notebooklm-mcp",
-  "version": "2026.3.3",
+  "version": "2026.4.0",
   "mcpName": "io.github.Pantheon-Security/notebooklm-mcp-secure",
   "description": "Security-hardened MCP server for NotebookLM API with compliance-ready architecture (GDPR, SOC2, CSSF controls implemented)",
   "type": "module",
@@ -9,10 +9,12 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:publish": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
     "postbuild": "node -e \"if(process.platform!=='win32'){require('fs').chmodSync('dist/index.js',0o755)}\"",
+    "prepublishOnly": "npm run build:publish && node -e \"if(process.platform!=='win32'){require('fs').chmodSync('dist/index.js',0o755)}\"",
     "watch": "tsc --watch",
     "dev": "tsx watch src/index.ts",
-    "prepare": "npm run build",
+    "prepare": "npm run build:publish",
     "ci:install": "npm ci --ignore-scripts",
     "test": "npx vitest run",
     "test:integration": "npx vitest run tests/mcp-server.integration.test.ts",
@@ -57,8 +59,7 @@
     "server.json",
     "README.md",
     "SECURITY.md",
-    "LICENSE",
-    "docs"
+    "LICENSE"
   ],
   "dependencies": {
     "@google/genai": "1.41.0",

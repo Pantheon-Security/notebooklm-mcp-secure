@@ -109,6 +109,20 @@ export class NotebookCreator {
         await randomDelay(1000, 2000);
       }
 
+      // Fail-safe: if sources were requested but NONE actually succeeded, the
+      // notebook is empty and useless. Discard it (best-effort delete to avoid
+      // burning quota) and throw so the caller never persists a library entry
+      // or counts a successful creation for it. An empty `sources` array (e.g.
+      // an overflow shell notebook) is a legitimate zero-success case and is
+      // left untouched.
+      if (sources.length > 0 && successCount === 0) {
+        log.error(`❌ Notebook creation failed: no sources could be added (${notebookId})`);
+        await this.deleteEmptyNotebook();
+        throw new Error(
+          "Notebook creation failed: no sources could be added; empty notebook was discarded"
+        );
+      }
+
       currentStep++;
       await sendProgress?.("Finalizing notebook...", currentStep, totalSteps);
       const notebookUrl = await this.navigation.finalizeAndGetUrl();
@@ -127,6 +141,53 @@ export class NotebookCreator {
       throw error;
     } finally {
       await this.navigation.cleanup();
+    }
+  }
+
+  /**
+   * Best-effort deletion of a freshly-created but empty notebook (no sources
+   * added). Opens the notebook's overflow/options menu and confirms delete.
+   *
+   * Failure to delete is logged but not rethrown: the caller is already
+   * reporting the creation as failed, so we must not mask that with a
+   * secondary error.
+   */
+  private async deleteEmptyNotebook(): Promise<void> {
+    const page = this.navigation.getCurrentPage();
+    if (!page) {
+      log.debug("notebook creator: no page available to delete empty notebook");
+      return;
+    }
+
+    try {
+      const menuButton = page
+        .locator(
+          'button[aria-label*="more" i], button[aria-label*="options" i], button[aria-label*="settings" i]'
+        )
+        .first();
+      await menuButton.click({ timeout: 5000 });
+      await randomDelay(500, 1000);
+
+      const deleteOption = page
+        .locator('button:has-text("Delete"), [role="menuitem"]:has-text("Delete")')
+        .first();
+      await deleteOption.click({ timeout: 5000 });
+      await randomDelay(500, 1000);
+
+      // Confirm in any follow-up dialog.
+      const confirmButton = page
+        .locator('button:has-text("Delete"), button:has-text("Confirm")')
+        .last();
+      if ((await confirmButton.count()) > 0) {
+        await confirmButton.click({ timeout: 5000 });
+        await randomDelay(500, 1000);
+      }
+
+      log.info("🗑️  Discarded empty notebook (no sources added)");
+    } catch (error) {
+      log.warning(
+        `⚠️ Could not delete empty notebook: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 }

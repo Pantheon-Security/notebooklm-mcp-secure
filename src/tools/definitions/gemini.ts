@@ -132,14 +132,22 @@ Supports:
       },
       response_schema: {
         type: "object",
-        description: "JSON schema for structured output. When provided, Gemini returns valid JSON matching this schema. Example: { type: 'object', properties: { name: { type: 'string' }, score: { type: 'number' } }, required: ['name'] }",
+        // L21: This is a user-supplied JSON Schema passed through to Gemini for
+        // structured output. Bound it so it can't be used as an unbounded
+        // arbitrary-object passthrough: cap the number of properties at each
+        // level. The nested `properties`/`items` maps still use
+        // additionalProperties (a JSON Schema's field names are open-ended) but
+        // are length-capped via maxProperties. The handler should additionally
+        // reject excessively deep/large schemas before forwarding to Gemini.
+        description: "JSON schema for structured output (max ~50 fields per level). When provided, Gemini returns valid JSON matching this schema. Example: { type: 'object', properties: { name: { type: 'string' }, score: { type: 'number' } }, required: ['name'] }",
+        maxProperties: 16,
         properties: {
           type: { type: "string", enum: ["object", "array", "string", "number", "boolean"] },
-          properties: { type: "object", additionalProperties: true },
-          items: { type: "object", additionalProperties: true },
-          required: { type: "array", items: { type: "string" } },
-          enum: { type: "array" },
-          description: { type: "string" },
+          properties: { type: "object", additionalProperties: true, maxProperties: 50 },
+          items: { type: "object", additionalProperties: true, maxProperties: 50 },
+          required: { type: "array", items: { type: "string" }, maxItems: 50 },
+          enum: { type: "array", maxItems: 100 },
+          description: { type: "string", maxLength: 500 },
         },
         additionalProperties: true,
       },

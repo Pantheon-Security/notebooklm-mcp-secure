@@ -17,7 +17,7 @@ import path from "path";
 import crypto from "crypto";
 import { CONFIG } from "../config.js";
 import { sanitizeForLogging } from "./security.js";
-import { withLock } from "./file-lock.js";
+import { withLock, STALE_LOCK_THRESHOLD_MS } from "./file-lock.js";
 import { logger } from "./logger.js";
 import {
   mkdirSecure,
@@ -96,6 +96,21 @@ export class AuditLogger {
   private config: AuditConfig;
   private currentLogFile: string = "";
   private previousHash: string = "GENESIS";
+  // M6: external tamper anchor (chosen over a co-located sequence counter — see note
+  // below). The checkpoint persists the latest chain hash to a sidecar file OUTSIDE
+  // the audit log dir. Threat model, honestly stated:
+  //   - Location separation defends only against tampering scoped to the audit-*.jsonl
+  //     files (a tool/path that rewrites the logs but doesn't know about the sidecar).
+  //   - An attacker with broad filesystem write can also rewrite the sidecar. The HMAC
+  //     SIGNATURE is the only real defense against that, and only if
+  //     NLMCP_AUDIT_CHECKPOINT_KEY is stored where the attacker cannot read it.
+  // A co-located sequence counter was rejected: the same broad-write attacker would
+  // renumber it contiguously, so it would not close the stated threat, and it would
+  // touch the hashed payload (breaking the existing chain tests). The checkpoint leaves
+  // the hashed payload untouched. Set NLMCP_AUDIT_CHECKPOINT_PATH to place the sidecar
+  // on a different volume/trust domain for genuine location separation.
+  private checkpointPath: string = "";
+  private checkpointKey: string | undefined = process.env.NLMCP_AUDIT_CHECKPOINT_KEY;
   private writeQueue: Promise<void> = Promise.resolve();
   private pendingEvents: AuditEvent[] = [];
   private hashChainWarningLogged: boolean = false;
@@ -118,6 +133,15 @@ export class AuditLogger {
     this.config = { ...getAuditConfig(), ...config };
     AuditLogger.instances.add(this);
     this.registerProcessHandlers();
+
+    // M6: place the tamper-anchor checkpoint OUTSIDE the audit log dir but in a
+    // directory that is guaranteed to exist at write time. The parent of logDir
+    // (dataDir in production) is created by ensureLogDirectory() in this constructor
+    // before any checkpoint write; configDir is intentionally never created by the app
+    // (see config.ts), so we do NOT use it — that would make this a silent no-op.
+    // NLMCP_AUDIT_CHECKPOINT_PATH lets ops relocate the sidecar to another trust domain.
+    this.checkpointPath = process.env.NLMCP_AUDIT_CHECKPOINT_PATH
+      || path.join(path.dirname(this.config.logDir), ".audit-checkpoint.json");
 
     if (this.config.enabled) {
       this.ensureLogDirectory();
@@ -156,15 +180,23 @@ export class AuditLogger {
           }
         }
       } catch (err) {
-        // Log corruption rather than silently resetting — silent reset lets tampered chains pass (I217)
-        logger.warning(`audit log chain corruption detected in ${this.currentLogFile}: ${err instanceof Error ? err.message : String(err)}. Restarting hash chain.`);
+        // A corrupt tail on the current day must NOT silently reset to a fresh GENESIS
+        // chain — that would let an attacker append one garbage byte to force a chain
+        // restart and launder the break behind a new valid-looking chain (M7, was I217).
+        // Instead, quarantine the chain for this session (disable hash chaining) and
+        // surface a security-level warning. The "corruption detected" wording is also
+        // relied upon by tests/audit-logger.test.ts.
+        logger.warning(`audit log chain corruption detected in ${this.currentLogFile}: ${err instanceof Error ? err.message : String(err)}. Hash chain quarantined for this session.`);
+        this.disableHashChainForSession();
         this.previousHash = "GENESIS";
       }
     }
 
     // If today's file has no content yet, link the chain from the previous day's
     // last hash so cross-day gaps cannot be exploited by replacing a whole day's file.
-    if (this.previousHash === "GENESIS") {
+    // Skip this if the chain has been quarantined (M7) so a corrupted session does not
+    // re-link to a previous hash and produce a fresh valid-looking chain.
+    if (this.config.hashChainEnabled && this.previousHash === "GENESIS") {
       const prevHash = this.findPreviousDayLastHash(today);
       if (prevHash) {
         this.previousHash = prevHash;
@@ -212,8 +244,12 @@ export class AuditLogger {
   private cleanOldLogs(): void {
     try {
       const files = fs.readdirSync(this.config.logDir);
+      // Filenames are UTC dates (toISOString) and new Date("YYYY-MM-DD") parses as
+      // UTC midnight, so compute the cutoff at UTC midnight too — using local
+      // setDate/getDate would skew the comparison by up to a day near TZ boundaries (L13).
       const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - this.config.retentionDays);
+      cutoffDate.setUTCHours(0, 0, 0, 0);
+      cutoffDate.setUTCDate(cutoffDate.getUTCDate() - this.config.retentionDays);
 
       for (const file of files) {
         if (!file.startsWith("audit-") || !file.endsWith(".jsonl")) continue;
@@ -258,14 +294,27 @@ export class AuditLogger {
     for (const [key, value] of Object.entries(details)) {
       const lowerKey = key.toLowerCase();
 
-      // Skip sensitive keys entirely
-      if (/password|secret|token|key|credential|auth/i.test(key)) {
+      // Skip sensitive keys entirely. Anchored to exact key names (L14) so benign keys
+      // like author / keywords / tokenCount / monkey are no longer stomped to [REDACTED]
+      // by a loose substring match. The bare `auth` key is kept as an exact alternative so
+      // we retain full parity with the old loose regex (which matched `auth`) — `author`
+      // etc. are not exactly "auth" so they still pass through. accessToken / refreshToken
+      // / secretKey etc. are NOT matched here on purpose — their string values are still
+      // caught by the broad substring net in the string-value branch below, which we
+      // deliberately keep loose so real compound-named secrets do not leak.
+      if (/^(password|secret|token|api_?key|credential|auth|authorization)$/i.test(key)) {
         sanitized[key] = "[REDACTED]";
         continue;
       }
 
       // Sanitize string values
       if (typeof value === "string") {
+        // Intentionally broad (substring) safety net: this is what keeps camelCase
+        // compound secret keys (accessToken, refreshToken, secretKey, authToken) redacted
+        // now that the key-path above is exact-match (L14). Accepted tradeoff: a benign
+        // key holding a long (>8 char) string and containing one of these substrings
+        // (e.g. "keywords", "monkey") is still redacted here — preferred over leaking a
+        // real secret.
         if (
           value.length > 8 &&
           /password|token|secret|key|credential/.test(lowerKey)
@@ -302,7 +351,6 @@ export class AuditLogger {
     }
 
     const logFile = this.getLogFilePathForTimestamp(event.timestamp);
-    const line = `${JSON.stringify(event)}\n`;
 
     try {
       await withLock(logFile, async () => {
@@ -310,18 +358,32 @@ export class AuditLogger {
           return;
         }
 
+        // Stamp the chain link and compute the hash inside the serialized critical section
+        // so the pointer advances atomically per event in write order (H20). Computing this
+        // at log() time would let concurrent calls share a previousHash and fork the chain.
+        if (this.config.hashChainEnabled) {
+          event.previousHash = this.previousHash;
+          const { hash: _ignored, ...eventWithoutHash } = event;
+          event.hash = this.computeHash(eventWithoutHash);
+        }
+
+        const line = `${JSON.stringify(event)}\n`;
         this.currentLogFile = logFile;
         appendFileSecure(logFile, line, PERMISSION_MODES.OWNER_READ_WRITE);
         this.pendingEvents = this.pendingEvents.filter((pendingEvent) => pendingEvent !== event);
         // Advance the chain pointer only after the write physically succeeds (I228)
         if (this.config.hashChainEnabled && event.hash) {
           this.previousHash = event.hash;
+          // Anchor the latest hash externally after it advances (M6).
+          this.writeCheckpoint(event.hash);
         }
       });
 
       // Fan-out to subscribers after successful write (I244)
       for (const sub of this.eventSubscribers) {
-        sub(event).catch(() => {}); // fire-and-forget, never block audit writes
+        // Fire-and-forget so a slow/failing SIEM/compliance subscriber never blocks
+        // audit writes, but surface the failure at debug level so it is observable (L12).
+        sub(event).catch(err => logger.debug(`audit-logger: subscriber fan-out error: ${err instanceof Error ? err.message : String(err)}`));
       }
     } catch (error) {
       this.handleWriteFailure(event, error);
@@ -355,26 +417,21 @@ export class AuditLogger {
       ? this.sanitizeDetails(details)
       : {};
 
-    const eventWithoutHash: Omit<AuditEvent, "hash"> = {
+    // The previousHash and hash are NOT computed here. Concurrent log() calls would
+    // otherwise read the same this.previousHash before any write completes and fork the
+    // chain. Instead they are assigned inside flushEvent's serialized critical section, in
+    // write order, so the chain pointer advances atomically per event (H20).
+    const event: AuditEvent = {
       timestamp: new Date().toISOString(),
       eventType,
       eventName,
       success,
       duration_ms,
       details: sanitizedDetails,
-      previousHash: this.config.hashChainEnabled ? this.previousHash : "",
+      previousHash: "",
+      hash: "",
     };
 
-    const hash = this.config.hashChainEnabled
-      ? this.computeHash(eventWithoutHash)
-      : "";
-
-    const event: AuditEvent = {
-      ...eventWithoutHash,
-      hash,
-    };
-
-    // previousHash is updated inside flushEvent after the write succeeds (I228)
     await this.writeEvent(event);
   }
 
@@ -521,8 +578,22 @@ export class AuditLogger {
   private summarizeArgs(args: Record<string, unknown>): Record<string, unknown> {
     const summary: Record<string, unknown> = {};
 
+    // M8: free-text fields from compliance tools (report_security_incident
+    // title/description, request_data_erasure reason, submit_dsar details) carry
+    // user-supplied PII. sanitizeDetails only redacts by KEY name and short values pass
+    // through verbatim, so these would persist in the audit log for the 2555-day
+    // retention. Hash + length-stamp them here (the single choke point for all tool
+    // calls) so the audit record stays useful (correlatable, length known) without
+    // storing raw PII.
+    const FREE_TEXT_PII = /^(description|reason|details|title)$/i;
+
     for (const [key, value] of Object.entries(args)) {
       if (typeof value === "string") {
+        if (FREE_TEXT_PII.test(key)) {
+          const digest = crypto.createHash("sha256").update(value).digest("hex").slice(0, 16);
+          summary[key] = `[redacted PII, ${value.length} chars, sha256:${digest}]`;
+          continue;
+        }
         // Log length for long strings, actual value for short ones
         if (value.length > 100) {
           summary[key] = `[string, ${value.length} chars]`;
@@ -606,6 +677,32 @@ export class AuditLogger {
         }
       }
 
+      // M6: verify against the external tamper anchor. Log-file-scoped tampering that
+      // recomputes a self-consistent chain but does not also update the out-of-dir
+      // sidecar is caught here; broad filesystem tampering is caught only when an HMAC
+      // key (NLMCP_AUDIT_CHECKPOINT_KEY) is configured and held out of reach.
+      // Tolerate a missing checkpoint (first run / arbitrary historical file) — only
+      // flag when a checkpoint exists, so this never spuriously fails a clean log.
+      if (this.config.hashChainEnabled && lines.length > 0) {
+        const checkpoint = this.readCheckpoint();
+        if (checkpoint) {
+          // Only anchor-check the live current-day file: the checkpoint tracks the
+          // latest hash written, which belongs to the most recent file.
+          const isCurrentFile = path.resolve(file) === path.resolve(this.currentLogFile);
+          if (isCurrentFile) {
+            if (this.checkpointKey) {
+              const expectedSig = this.signCheckpoint(checkpoint.hash);
+              if (!checkpoint.signature || checkpoint.signature !== expectedSig) {
+                errors.push("Tamper anchor: checkpoint signature invalid (checkpoint may have been forged or key changed).");
+              }
+            }
+            if (checkpoint.hash !== expectedPreviousHash) {
+              errors.push(`Tamper anchor: external checkpoint hash does not match log tail. Expected ${checkpoint.hash}, log ends at ${expectedPreviousHash}. The log may have been rewritten.`);
+            }
+          }
+        }
+      }
+
       return { valid: errors.length === 0, errors };
     } catch (e) {
       return { valid: false, errors: [`Failed to read log file: ${e}`] };
@@ -622,6 +719,48 @@ export class AuditLogger {
   private getLogFilePathForTimestamp(timestamp: string): string {
     const date = timestamp.split("T")[0];
     return path.join(this.config.logDir, `audit-${date}.jsonl`);
+  }
+
+  // ============================================================================
+  // M6: external tamper-anchor checkpoint
+  // ============================================================================
+
+  /** Compute the HMAC signature for a checkpoint hash, or null when no key is set. */
+  private signCheckpoint(hash: string): string | null {
+    if (!this.checkpointKey) return null;
+    return crypto.createHmac("sha256", this.checkpointKey).update(hash).digest("hex");
+  }
+
+  /**
+   * Persist the latest chain hash to the external checkpoint (outside the log dir).
+   * Best-effort: a failure here must never break audit writes.
+   */
+  private writeCheckpoint(hash: string): void {
+    if (!this.config.hashChainEnabled || !hash || hash === "GENESIS") return;
+    try {
+      const payload: Record<string, unknown> = {
+        hash,
+        updatedAt: new Date().toISOString(),
+      };
+      const signature = this.signCheckpoint(hash);
+      if (signature) payload.signature = signature;
+      fs.writeFileSync(this.checkpointPath, JSON.stringify(payload), { mode: 0o600 });
+    } catch (err) {
+      logger.debug(`audit-logger: writing tamper-anchor checkpoint: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** Read the external checkpoint, returning null if absent or unreadable. */
+  private readCheckpoint(): { hash: string; signature?: string } | null {
+    try {
+      if (!fs.existsSync(this.checkpointPath)) return null;
+      const parsed = JSON.parse(fs.readFileSync(this.checkpointPath, "utf-8")) as { hash?: string; signature?: string };
+      if (typeof parsed.hash !== "string" || parsed.hash.length === 0) return null;
+      return { hash: parsed.hash, signature: parsed.signature };
+    } catch (err) {
+      logger.debug(`audit-logger: reading tamper-anchor checkpoint: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
   }
 
   private disableHashChainForSession(): void {
@@ -654,7 +793,19 @@ export class AuditLogger {
       AuditLogger.flushAllSync();
     });
 
+    // Mirror SIGTERM for SIGINT (Ctrl-C) and SIGHUP so buffered audit events are
+    // flushed synchronously on those signals too (M5). The process entry point owns
+    // termination (it calls process.exit after its own async shutdown), so these are
+    // additive flush-only safety nets and do not suppress termination or hang.
     process.on("SIGTERM", () => {
+      AuditLogger.flushAllSync();
+    });
+
+    process.on("SIGINT", () => {
+      AuditLogger.flushAllSync();
+    });
+
+    process.on("SIGHUP", () => {
       AuditLogger.flushAllSync();
     });
 
@@ -670,6 +821,20 @@ export class AuditLogger {
   private flushPendingEventsSync(): void {
     if (!this.config.enabled || this.pendingEvents.length === 0) {
       return;
+    }
+
+    // Re-chain the batch in write order before serializing. Buffered events were created
+    // with empty previousHash/hash (those are stamped inside flushEvent's lock on the async
+    // path); on the shutdown path we must stamp them here, advancing the running pointer
+    // per event, or the chain forks. Uses the same computeHash as the normal path so
+    // verifyIntegrity passes (H20).
+    if (this.config.hashChainEnabled) {
+      for (const event of this.pendingEvents) {
+        event.previousHash = this.previousHash;
+        const { hash: _ignored, ...eventWithoutHash } = event;
+        event.hash = this.computeHash(eventWithoutHash);
+        this.previousHash = event.hash;
+      }
     }
 
     const groupedEvents = new Map<string, AuditEvent[]>();
@@ -689,6 +854,11 @@ export class AuditLogger {
         // Ignore shutdown flush failures.
       }
       this.currentLogFile = logFile;
+    }
+
+    // Anchor the final advanced hash externally on the shutdown path too (M6).
+    if (this.config.hashChainEnabled && this.previousHash && this.previousHash !== "GENESIS") {
+      this.writeCheckpoint(this.previousHash);
     }
 
     this.pendingEvents = [];
@@ -721,7 +891,9 @@ export class AuditLogger {
         try {
           const content = fs.readFileSync(lockPath, "utf-8");
           const existing = JSON.parse(content) as { timestamp?: number };
-          if (typeof existing.timestamp === "number" && Date.now() - existing.timestamp > 30000) {
+          // Use the shared stale-lock threshold (L15) so this sync shutdown path and the
+          // async FileLock util agree on staleness for locks on the SAME audit files.
+          if (typeof existing.timestamp === "number" && Date.now() - existing.timestamp > STALE_LOCK_THRESHOLD_MS) {
             fs.unlinkSync(lockPath);
             continue;
           }

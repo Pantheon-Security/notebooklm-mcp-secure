@@ -12,6 +12,80 @@ import { log } from "../utils/logger.js";
 import { randomDelay } from "../utils/stealth-utils.js";
 import fs from "fs";
 import path from "path";
+import os from "os";
+
+/**
+ * Maximum size for a downloaded audio file. Caps unbounded in-memory buffering
+ * (response.body() reads the whole response) and arbitrary disk writes (H14).
+ */
+const MAX_AUDIO_BYTES = 200 * 1024 * 1024; // 200 MiB
+
+/**
+ * Allowed origins for audio download URLs scraped from the page DOM.
+ * Prevents SSRF: the download URL (downloadBtn.href / data-url / audio.src) is
+ * attacker-influenceable content, so it must be confined to Google/NotebookLM
+ * hosts before page.goto() (C3). Mirrors the host-matching used by
+ * validateNotebookUrl in utils/security.ts.
+ */
+const ALLOWED_AUDIO_DOWNLOAD_DOMAINS = [
+  "google.com",
+  "googleusercontent.com",
+];
+
+/**
+ * Resolve and validate the audio output path, confining it to an allowed base
+ * directory (C2). Mirrors resolveExportPath in tools/handlers/system.ts:
+ *   1. NLMCP_EXPORT_DIR env override
+ *   2. user home directory
+ * Rejects absolute paths and '..' traversal that escape the base dir.
+ */
+function resolveAudioOutputPath(userPath: string | undefined, defaultName: string): string {
+  const envDir = process.env.NLMCP_EXPORT_DIR?.trim();
+  const baseDirRaw = envDir && envDir.length > 0 ? envDir : os.homedir();
+  const baseDir = path.resolve(baseDirRaw);
+
+  const candidate = userPath && userPath.trim().length > 0
+    ? path.resolve(baseDir, userPath)
+    : path.resolve(baseDir, defaultName);
+
+  // Defence in depth: ensure resolved path is still inside the base dir.
+  const rel = path.relative(baseDir, candidate);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error(
+      `output_path must resolve inside ${baseDir} (got '${candidate}'). ` +
+      `Set NLMCP_EXPORT_DIR to allow another base directory.`
+    );
+  }
+  return candidate;
+}
+
+/**
+ * Validate a DOM-sourced audio download URL before navigating to it (C3, SSRF).
+ * Enforces https and an allowed Google/NotebookLM host. Returns the normalized
+ * URL or throws.
+ */
+function validateAudioDownloadUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Audio download URL is not a valid absolute URL");
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new Error(`Audio download URL must be https (got '${parsed.protocol}')`);
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  const allowed = ALLOWED_AUDIO_DOWNLOAD_DOMAINS.some(
+    (d) => hostname === d || hostname.endsWith("." + d)
+  );
+  if (!allowed) {
+    throw new Error(`Audio download host not allowed: ${hostname}`);
+  }
+
+  return parsed.href;
+}
 
 export interface AudioStatus {
   status: "not_started" | "generating" | "ready" | "failed" | "unknown";
@@ -125,7 +199,7 @@ export class AudioManager {
    * Generate an audio overview for a notebook
    */
   async generateAudioOverview(notebookUrl: string): Promise<GenerateAudioResult> {
-    log.info(`🎙️ Generating audio overview for: ${notebookUrl}`);
+    log.info(`Generating audio overview for: ${notebookUrl}`);
 
     const page = await this.navigateToNotebook(notebookUrl);
 
@@ -134,7 +208,7 @@ export class AudioManager {
       const currentStatus = await this.checkAudioStatusInternal(page);
 
       if (currentStatus.status === "generating") {
-        log.info("  ⏳ Audio generation already in progress");
+        log.info("  Audio generation already in progress");
         return {
           success: true,
           status: currentStatus,
@@ -142,7 +216,7 @@ export class AudioManager {
       }
 
       if (currentStatus.status === "ready") {
-        log.info("  ✅ Audio already generated");
+        log.info("  Audio already generated");
         return {
           success: true,
           status: currentStatus,
@@ -193,7 +267,7 @@ export class AudioManager {
       }
 
       if (!generateClicked) {
-        log.warning("  ⚠️ Could not find audio generation button");
+        log.warning("  Could not find audio generation button");
         return {
           success: false,
           status: { status: "unknown" },
@@ -207,7 +281,7 @@ export class AudioManager {
       const newStatus = await this.checkAudioStatusInternal(page);
 
       if (newStatus.status === "generating" || newStatus.status === "ready") {
-        log.success(`  ✅ Audio generation ${newStatus.status === "ready" ? "completed" : "started"}`);
+        log.success(`  Audio generation ${newStatus.status === "ready" ? "completed" : "started"}`);
         return {
           success: true,
           status: newStatus,
@@ -228,7 +302,7 @@ export class AudioManager {
    * Check the current audio status for a notebook
    */
   async getAudioStatus(notebookUrl: string): Promise<AudioStatus> {
-    log.info(`🔍 Checking audio status for: ${notebookUrl}`);
+    log.info(`Checking audio status for: ${notebookUrl}`);
 
     const page = await this.navigateToNotebook(notebookUrl);
 
@@ -305,7 +379,7 @@ export class AudioManager {
     notebookUrl: string,
     outputPath?: string
   ): Promise<DownloadAudioResult> {
-    log.info(`⬇️ Downloading audio from: ${notebookUrl}`);
+    log.info(`Downloading audio from: ${notebookUrl}`);
 
     const page = await this.navigateToNotebook(notebookUrl);
 
@@ -358,12 +432,12 @@ export class AudioManager {
         });
 
         if (clicked) {
-          // Wait for download to start
+          // The button was clicked but we cannot capture the file via this code
+          // path, so no file is written. Do not report success (M27).
           await randomDelay(2000, 3000);
-          // Note: Actual file download handling would require more complex logic
           return {
-            success: true,
-            error: "Download initiated. Check your downloads folder.",
+            success: false,
+            error: "Download could not be completed automatically; no file was saved. Try downloading the audio manually from the notebook.",
           };
         }
 
@@ -373,14 +447,16 @@ export class AudioManager {
         };
       }
 
-      // Generate output path if not provided
-      const finalPath = outputPath || path.join(
-        process.env.HOME || process.env.USERPROFILE || ".",
-        `notebooklm-audio-${Date.now()}.mp3`
-      );
+      // Confine output to an allowed base directory (C2). When no output_path
+      // is supplied, the generated default also lands inside the base dir.
+      const defaultName = `notebooklm-audio-${Date.now()}.mp3`;
+      const finalPath = resolveAudioOutputPath(outputPath, defaultName);
+
+      // Validate the DOM-sourced download URL before navigating (C3, SSRF).
+      const safeDownloadUrl = validateAudioDownloadUrl(downloadInfo.url);
 
       // Download the file using the page context
-      const response = await page.goto(downloadInfo.url);
+      const response = await page.goto(safeDownloadUrl);
       if (!response) {
         return {
           success: false,
@@ -388,21 +464,49 @@ export class AudioManager {
         };
       }
 
+      // Enforce size cap early via Content-Length if present (H14).
+      const contentLengthHeader = response.headers()["content-length"];
+      if (contentLengthHeader) {
+        const declared = parseInt(contentLengthHeader, 10);
+        if (Number.isFinite(declared) && declared > MAX_AUDIO_BYTES) {
+          return {
+            success: false,
+            error: `Audio file too large: ${declared} bytes exceeds limit of ${MAX_AUDIO_BYTES} bytes`,
+          };
+        }
+      }
+
+      // Warn (do not hard-fail) if content-type is not audio/* — NotebookLM may
+      // serve application/octet-stream.
+      const contentType = response.headers()["content-type"];
+      if (contentType && !contentType.startsWith("audio/") && !contentType.startsWith("application/octet-stream")) {
+        log.warning(`  Unexpected audio content-type: ${contentType}`);
+      }
+
+      // patchright's response.body() has no streaming cap, so buffer then
+      // enforce the cap before writing (H14). Content-Length can be absent or
+      // inaccurate, so this check is authoritative.
       const buffer = await response.body();
-      fs.writeFileSync(finalPath, buffer);
+      if (buffer.length > MAX_AUDIO_BYTES) {
+        return {
+          success: false,
+          error: `Audio file too large: ${buffer.length} bytes exceeds limit of ${MAX_AUDIO_BYTES} bytes`,
+        };
+      }
 
-      const stats = fs.statSync(finalPath);
+      // Async write to avoid blocking the event loop (H14).
+      await fs.promises.writeFile(finalPath, buffer);
 
-      log.success(`  ✅ Audio downloaded: ${finalPath} (${stats.size} bytes)`);
+      log.success(`  Audio downloaded: ${finalPath} (${buffer.length} bytes)`);
 
       return {
         success: true,
         filePath: finalPath,
-        size: stats.size,
+        size: buffer.length,
       };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      log.error(`  ❌ Failed to download audio: ${msg}`);
+      log.error(`  Failed to download audio: ${msg}`);
       return {
         success: false,
         error: msg,

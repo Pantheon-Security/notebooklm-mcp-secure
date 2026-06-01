@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.4.0] - 2026-05-29
+
+Security & reliability release. A full-repo deep review (see `issues.md`) surfaced
+119 findings; this release remediates **all 4 CRITICAL, all 20 HIGH, 31 of 34 MEDIUM,
+and the LOW backlog**. Three large structural refactors (god-object split, manager
+deduplication, fixed-sleep → condition-wait sweep) are intentionally deferred.
+
+### Security (CRITICAL)
+
+- **Leaked npm token removed from `.npmrc`** — replaced the on-disk automation token with
+  `${NODE_AUTH_TOKEN}`, set mode `0600`, and hardened `.dockerignore`. (Rotate the old
+  token at npmjs.com — it is considered compromised.)
+- **Path traversal in audio download** — `download_audio` `output_path` is now confined to
+  an allowed export base directory; absolute/`..` escapes are rejected.
+- **SSRF in audio download** — the DOM-sourced download URL is validated (https + Google/
+  NotebookLM origin allowlist) before navigation; `file:`/metadata/internal hosts blocked.
+- **Clipboard hijack / source corruption** — text sources no longer route through the OS
+  clipboard; content is set directly on the input element, eliminating both the clipboard
+  leak and the stale-paste corruption.
+
+### Security & reliability (HIGH)
+
+- Atomic quota check-and-reserve under lock (daily-limit bypass closed); `quota.json`
+  validated; scraped page limits can no longer exceed the tier table.
+- Audit hash-chain corruption fixed — `previousHash`/`hash` are assigned inside the
+  serialized lock and the shutdown batch is re-chained, so concurrent writes and crash
+  flushes no longer fork the chain or raise false tamper alarms.
+- SIEM LEEF/Syslog/CEF export injection fixed (control-character & delimiter escaping).
+- Webhook event subscription bounded with an enum + `maxItems`.
+- Unwired auth subsystem (`tool-validation.ts`, which accepted any long token and failed
+  open) deleted.
+- PDF decompression-bomb guard (size + page-count caps, reject-encrypted, fail-closed).
+- Gemini retry classifier reads structured HTTP status instead of regex-scraping messages.
+- Unbounded audio download bounded with a size cap and streamed write.
+- Extracted DOM/document text is run through the response validator before reaching the
+  model (prompt-injection conduit closed); CSS-selector argument injection blocked.
+- Browser-automation data-integrity fixes: correct paste-URL tab (not "Discover"), honest
+  source-processing status, identity-based source removal, no persistence of empty
+  notebooks, correct notebook-UUID capture during sync.
+- Serial event emission no longer blocks the producing call path on slow webhooks.
+
+### Reliability & hardening (MEDIUM/LOW)
+
+- Encryption fails closed instead of silently writing plaintext; decrypt failure is now
+  distinguishable from a missing file.
+- File-lock acquire/release use compare-and-delete (no more clobbering a valid lock);
+  `appendFileSecure` uses `O_NOFOLLOW` + fd checks.
+- `SIGINT`/`SIGHUP` flush handlers for audit and query loggers; query-log rotation instead
+  of silent truncation; free-text PII scrubbed from the audit trail and SIEM egress.
+- Prototype-pollution guard on `customSettings`; event payload version no longer hardcoded.
+- URL-validation and path-traversal patterns applied to `update_notebook`, audio/video/
+  data-table, and chat-history tool schemas.
+- Compliance hardening: dead breach-detection rules wired, successful compliance/DSAR
+  events reach the SIEM, consent-validity computed correctly, CSV formula-injection guard,
+  fabricated dashboard/uptime metrics replaced with honest "not measured" markers,
+  compliance-logger hash-chain locked.
+- Library saves are atomic, locked, and deep-copied; debounced saves flush on shutdown.
+- Numerous micro-hardening fixes (CSPRNG/AEAD verified, ReDoS-safe scanners, realistic
+  stealth timing, stable source IDs, emoji-safe title normalization, and more).
+
+### Build / packaging
+
+- Published tarball no longer ships source maps, selector-discovery/test scaffolding, or
+  internal docs — a dedicated `tsconfig.build.json` + `.npmignore` cut the package from
+  458 files / 682 kB to 209 files / 410 kB. `docs/` removed from the `files` allowlist.
+- Added a `/pre-launch` release-gate skill (build, tests, secret scan, pack audit, MCP
+  handshake smoke test, optional live e2e).
+
 ## [2026.3.3] - 2026-05-11
 
 ### Fixed

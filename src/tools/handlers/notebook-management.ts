@@ -13,6 +13,7 @@ import type {
 } from "../../library/types.js";
 import type { ToolResult } from "../../types.js";
 import { log } from "../../utils/logger.js";
+import { validateNotebookUrl } from "../../utils/security.js";
 import { getSanitizedErrorMessage } from "./error-utils.js";
 
 async function withNotebookHandler<T>(
@@ -130,7 +131,13 @@ export async function handleUpdateNotebook(
   log.info(`  ID: ${args.id}`);
 
   return withNotebookHandler("update_notebook", () => {
-    const notebook = ctx.library.updateNotebook(args);
+    // Validate/normalize the URL through the canonical NotebookLM validator
+    // before storing (matches create_notebook / add_source handlers).
+    const safeArgs =
+      args.url !== undefined
+        ? { ...args, url: validateNotebookUrl(args.url) }
+        : args;
+    const notebook = ctx.library.updateNotebook(safeArgs);
     log.success(`✅ [TOOL] update_notebook completed: ${notebook.name}`);
     return {
       success: true,

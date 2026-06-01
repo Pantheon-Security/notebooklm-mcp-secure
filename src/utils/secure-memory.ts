@@ -1,15 +1,21 @@
 /**
  * Secure Memory Utilities for NotebookLM MCP Server
  *
- * Provides secure handling of sensitive data in memory:
- * - Zero-fill buffers and strings after use
- * - Secure string class that auto-wipes
- * - Memory-safe credential handling
+ * Provides best-effort handling of sensitive data in memory:
+ * - Zero-fill backing Buffers after use
+ * - Secure string class that wipes its backing Buffer
+ * - Time-bounded credential handling
  *
- * Why this matters:
- * - Prevents memory dump attacks
- * - Reduces credential exposure window
- * - Mitigates cold boot attacks
+ * Why this matters — and its limits:
+ * - REDUCES the exposure window for credentials in memory; it does not
+ *   eliminate it.
+ * - This is mitigation, NOT prevention, of memory-dump or cold-boot attacks.
+ *   We cannot guarantee secrets are gone from RAM after wipe().
+ * - V8 caveat: JavaScript strings are immutable. The input string passed in,
+ *   and every value produced by toString() / getValue(), are independent V8
+ *   string copies on the heap that this code CANNOT wipe and that persist
+ *   until garbage collection (and possibly beyond, in freed-but-unzeroed
+ *   memory). Only the internal Buffer is zeroed by wipe().
  *
  * Added by Pantheon Security for hardened fork.
  */
@@ -54,7 +60,10 @@ export class SecureString {
   }
 
   /**
-   * Get the string value (creates new string each time)
+   * Get the string value.
+   * Note: returns a new immutable V8 string copy that cannot be wiped and
+   * persists until garbage collection. Avoid retaining the result longer
+   * than necessary.
    */
   toString(): string {
     if (this.wiped) {
@@ -81,7 +90,9 @@ export class SecureString {
   }
 
   /**
-   * Securely wipe the string from memory
+   * Wipe the backing Buffer (best effort).
+   * Only zeroes the internal Buffer; any string copies previously returned
+   * by toString() / the constructor input remain in the V8 heap until GC.
    */
   wipe(): void {
     if (!this.wiped) {
@@ -120,7 +131,9 @@ export class SecureCredential {
   }
 
   /**
-   * Get the credential value
+   * Get the credential value.
+   * Note: returns an immutable V8 string copy that cannot be wiped and
+   * persists until garbage collection.
    */
   getValue(): string {
     if (this.isExpired()) {
@@ -179,29 +192,31 @@ export async function withSecureCredential<T>(
   }
 }
 
-// Canonical comparison length: hex-encoded SHA3-256 output (64 chars = 64 bytes UTF-8)
-const HASH_COMPARE_LEN = 64;
-
 /**
  * Secure comparison to prevent timing attacks.
  *
- * Both buffers are copied into a fixed-size canonical buffer before comparison
- * so that timingSafeEqual always runs on the same number of bytes regardless
- * of input length. This prevents the previous implementation from leaking which
- * operand is shorter via the length passed to timingSafeEqual.
+ * Both operands are hashed (SHA-256) into a fixed-length digest before the
+ * constant-time comparison. This:
+ *  - makes timingSafeEqual always run on the same number of bytes regardless of
+ *    input length, leaking nothing about the actual lengths, and
+ *  - compares the FULL content of each operand (L5): the previous version
+ *    truncated both inputs to 64 bytes, so two distinct values sharing their
+ *    first 64 bytes would compare equal. Hashing covers the entire input.
+ *
+ * The trailing length check is kept as defence-in-depth; SHA-256 already
+ * distinguishes different-length inputs.
  */
 export function secureCompare(a: string | Buffer, b: string | Buffer): boolean {
   const bufA = typeof a === "string" ? Buffer.from(a) : a;
   const bufB = typeof b === "string" ? Buffer.from(b) : b;
 
-  // Always compare HASH_COMPARE_LEN bytes — leaks nothing about actual lengths
-  const padA = Buffer.alloc(HASH_COMPARE_LEN);
-  const padB = Buffer.alloc(HASH_COMPARE_LEN);
-  bufA.copy(padA, 0, 0, Math.min(bufA.length, HASH_COMPARE_LEN));
-  bufB.copy(padB, 0, 0, Math.min(bufB.length, HASH_COMPARE_LEN));
+  // Hash the full content of each operand to a fixed 32-byte digest, so
+  // timingSafeEqual always sees equal-length buffers and no input is truncated.
+  const digestA = crypto.createHash("sha256").update(bufA).digest();
+  const digestB = crypto.createHash("sha256").update(bufB).digest();
 
-  // timingSafeEqual runs first (constant time), length check evaluated after
-  const contentEqual = crypto.timingSafeEqual(padA, padB);
+  // timingSafeEqual runs first (constant time), length check evaluated after.
+  const contentEqual = crypto.timingSafeEqual(digestA, digestB);
   return contentEqual && bufA.length === bufB.length;
 }
 

@@ -72,7 +72,10 @@ interface ClassicalEncryptedData {
   version: number;
   algorithm: string;
   nonce: string;       // Base64
-  salt: string;        // Base64
+  // salt is optional and unused: the raw 256-bit key is used directly and the
+  // random 96-bit nonce provides per-ciphertext uniqueness. Older files (written
+  // before L3) may still carry a decorative `salt` field; it is ignored on read.
+  salt?: string;       // Base64 (legacy/ignored)
   ciphertext: string;  // Base64 (includes Poly1305 tag)
 }
 
@@ -91,6 +94,21 @@ interface LegacyAESEncryptedData {
 }
 
 type EncryptedData = PQEncryptedData | ClassicalEncryptedData;
+
+/**
+ * Thrown when an encrypted file exists but cannot be decrypted (e.g. wrong
+ * key after rotation, corruption, or tampering). Distinct from a genuinely
+ * absent file (load() returns null), so callers can avoid overwriting
+ * good-but-undecryptable state.
+ */
+export class DecryptionError extends Error {
+  readonly file: string;
+  constructor(message: string, file: string) {
+    super(message);
+    this.name = "DecryptionError";
+    this.file = file;
+  }
+}
 
 /**
  * Constants
@@ -137,28 +155,6 @@ export function deriveKey(
   iterations: number = DEFAULT_PBKDF2_ITERATIONS
 ): Buffer {
   return crypto.pbkdf2Sync(passphrase, salt, iterations, KEY_LENGTH, "sha256");
-}
-
-/**
- * Generate a machine-derived key based on hardware/OS identifiers
- *
- * Note: This provides obscurity, not true security. It's a fallback
- * when no user key is provided.
- */
-export function getMachineKey(): string {
-  const components = [
-    os.hostname(),
-    os.platform(),
-    os.arch(),
-    os.cpus()[0]?.model || "unknown",
-    os.homedir(),
-  ];
-
-  // Create a deterministic key from machine components
-  const combined = components.join("|");
-  const hash = crypto.createHash("sha256").update(combined).digest("hex");
-
-  return hash;
 }
 
 export function getOrCreateMachineKey(keyPath: string): Buffer {
@@ -292,8 +288,10 @@ export function decryptPQ(
  * Classical ChaCha20-Poly1305 encryption (fallback)
  */
 export function encryptClassical(data: string | Buffer, key: Buffer): ClassicalEncryptedData {
+  // No salt: the caller-supplied 256-bit key is used directly. The random
+  // 96-bit nonce provides per-ciphertext uniqueness. A salt was previously
+  // stored but never fed to any KDF (L3), so it was decorative and is dropped.
   const nonce = crypto.randomBytes(NONCE_LENGTH);
-  const salt = crypto.randomBytes(SALT_LENGTH);
 
   const cipher = crypto.createCipheriv(ALGORITHM, key, nonce, {
     authTagLength: 16,
@@ -310,7 +308,6 @@ export function encryptClassical(data: string | Buffer, key: Buffer): ClassicalE
     version: CLASSICAL_VERSION,
     algorithm: ALGORITHM,
     nonce: nonce.toString("base64"),
-    salt: salt.toString("base64"),
     ciphertext: ciphertextWithTag.toString("base64"),
   };
 }
@@ -337,8 +334,25 @@ export function decryptClassical(encryptedData: ClassicalEncryptedData, key: Buf
   return decrypted;
 }
 
+// ---------------------------------------------------------------------------
+// LEGACY AES-GCM MIGRATION SHIM (L7) — bounded, remove after migration window.
+//
+// This block (LegacyAESEncryptedData, decryptLegacyAES, isLegacyFormat) exists
+// ONLY to transparently upgrade pre-fork v1/v2 files that were encrypted with
+// AES-GCM (detected by the presence of `iv` + `tag` fields) to the current
+// ChaCha20-Poly1305 format on first read. It is intentionally isolated to these
+// three symbols and adds one branch on the load/init paths.
+//
+// TODO(remove-after-migration-window): once all deployed installs have read
+// their state at least once under a ChaCha20-Poly1305 build (so no AES-GCM
+// files remain on disk), delete this shim along with the `isLegacyFormat`
+// branches in initializePQKeys()/load(). No new data is ever written in this
+// format — decrypt-only, one direction.
+// ---------------------------------------------------------------------------
+
 /**
- * Decrypt legacy AES-GCM encrypted data (for migration)
+ * Decrypt legacy AES-GCM encrypted data (for migration). See migration shim
+ * note above — decrypt-only, scheduled for removal after the migration window.
  */
 function decryptLegacyAES(
   encryptedData: LegacyAESEncryptedData,
@@ -400,9 +414,17 @@ export class SecureStorage {
   private pqKeyPair: { publicKey: Uint8Array; secretKey: Uint8Array } | null = null;
   private initialized: boolean = false;
   private keyStorePath: string;
+  /**
+   * Captured at construction, before config.enabled can be mutated by
+   * initialize()/initializeClassicalKey(). Records whether the caller
+   * actually intended encryption. Used to fail closed: if encryption was
+   * expected but is unavailable, we refuse to write plaintext.
+   */
+  private readonly encryptionExpected: boolean;
 
   constructor(config?: Partial<EncryptionConfig>) {
     this.config = { ...getEncryptionConfig(), ...config };
+    this.encryptionExpected = this.config.enabled;
     this.keyStorePath = path.join(
       process.env.NLMCP_CONFIG_DIR || CONFIG.configDir || path.join(os.homedir(), ".notebooklm-mcp"),
       "pq-keys.enc"
@@ -434,9 +456,12 @@ export class SecureStorage {
 
       this.initialized = true;
     } catch (error) {
+      // Fail closed: encryption was requested but initialization failed.
+      // Do NOT silently disable and fall through to plaintext writes —
+      // callers believe this data is encrypted.
       log.error(`  ❌ Failed to initialize encryption: ${error}`);
-      this.config.enabled = false;
       await audit.security("encryption_init_failed", "error", { error: String(error) });
+      throw error;
     }
   }
 
@@ -581,6 +606,15 @@ export class SecureStorage {
     mkdirSecure(dir, PERMISSION_MODES.OWNER_FULL);
 
     if (!this.config.enabled) {
+      // Fail closed: only write plaintext when encryption was genuinely
+      // never expected (e.g. NLMCP_ENCRYPTION_ENABLED=false). If encryption
+      // was expected but got disabled by an init failure, refuse.
+      if (this.encryptionExpected) {
+        throw new Error(
+          `Refusing to save ${path.basename(filePath)} as plaintext: ` +
+          `encryption was expected but is unavailable (initialization failed)`
+        );
+      }
       // Save unencrypted
       writeFileSecure(filePath, dataStr, PERMISSION_MODES.OWNER_READ_WRITE);
       log.info(`📝 Saved (unencrypted): ${path.basename(filePath)}`);
@@ -600,19 +634,48 @@ export class SecureStorage {
       encryptedPath = filePath + ".enc";
       log.info(`🔐 Saved with ChaCha20-Poly1305: ${path.basename(encryptedPath)}`);
     } else {
+      // Fail closed: no encryption keys are available. If encryption was
+      // expected, refuse rather than silently writing plaintext.
+      if (this.encryptionExpected) {
+        throw new Error(
+          `Refusing to save ${path.basename(filePath)} as plaintext: ` +
+          `encryption was expected but no keys are available`
+        );
+      }
       // Save unencrypted as fallback
       writeFileSecure(filePath, dataStr, PERMISSION_MODES.OWNER_READ_WRITE);
       log.warning(`⚠️ Saved unencrypted (no keys): ${path.basename(filePath)}`);
       return;
     }
 
-    writeFileSecure(
-      encryptedPath,
-      JSON.stringify(encrypted, null, 2),
-      PERMISSION_MODES.OWNER_READ_WRITE
-    );
+    // L8: Write atomically via temp-file + rename. save() is invoked from
+    // inside load()'s migrate-on-read path (and callers may already hold the
+    // file lock on this same path, so we cannot re-acquire it here without
+    // self-deadlock). An atomic rename guarantees a crash or a concurrent
+    // reader never observes a partially written / truncated encrypted file:
+    // the destination either has the complete old contents or the complete
+    // new contents, never an intermediate state.
+    const tmpPath = `${encryptedPath}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
+    try {
+      writeFileSecure(
+        tmpPath,
+        JSON.stringify(encrypted, null, 2),
+        PERMISSION_MODES.OWNER_READ_WRITE
+      );
+      fs.renameSync(tmpPath, encryptedPath);
+    } catch (error) {
+      // Best-effort cleanup of the temp file so we don't leave litter behind.
+      try {
+        if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+      } catch {
+        /* ignore cleanup failure */
+      }
+      throw error;
+    }
 
-    // Remove unencrypted and other encrypted versions if they exist
+    // Remove unencrypted and other encrypted versions if they exist. This runs
+    // only after the new file is durably in place, so a crash here leaves a
+    // valid (if duplicated) encrypted file rather than losing data.
     const extensions = ["", ".enc", ".pqenc"];
     for (const ext of extensions) {
       const oldPath = filePath + ext;
@@ -657,7 +720,13 @@ export class SecureStorage {
           type: "post-quantum",
           error: String(error),
         });
-        return null;
+        // Fail closed: the file exists but could not be decrypted. Throw a
+        // typed error so callers don't mistake this for a missing file and
+        // overwrite good-but-undecryptable state (e.g. after key rotation).
+        throw new DecryptionError(
+          `Failed to decrypt ${pqEncryptedPath}: ${error instanceof Error ? error.message : String(error)}`,
+          pqEncryptedPath
+        );
       }
     }
 
@@ -698,7 +767,13 @@ export class SecureStorage {
           type: "classical",
           error: String(error),
         });
-        return null;
+        // Fail closed: the file exists but could not be decrypted. Throw a
+        // typed error so callers don't mistake this for a missing file and
+        // overwrite good-but-undecryptable state (e.g. after key rotation).
+        throw new DecryptionError(
+          `Failed to decrypt ${classicalEncryptedPath}: ${error instanceof Error ? error.message : String(error)}`,
+          classicalEncryptedPath
+        );
       }
     }
 

@@ -66,6 +66,13 @@ export interface SyncResult {
     libraryName: string;
     libraryUrl: string;
     reason: string;
+    /**
+     * Whether this entry is SAFE to auto-remove. Only true when we have an
+     * exact, UUID-based confirmation that the notebook no longer exists. Entries
+     * that merely failed a fuzzy title match are reported as stale (for the
+     * human to review) but are NOT eligible for destructive auto-fix.
+     */
+    autoFixSafe: boolean;
   }>;
   missingNotebooks: ActualNotebook[];
   suggestions: string[];
@@ -398,11 +405,29 @@ export class NotebookSync {
 
     // Click each row to capture the URL via navigation
     const notebooks: ActualNotebook[] = [];
-    const startUrl = this.page.url();
+
+    // Capture the library root URL ONCE, before any navigation. If the page is
+    // already sitting on a /notebook/ URL (left over from a prior step), the
+    // per-row waitForURL(/\/notebook\//) would resolve immediately against the
+    // pre-existing URL and mislabel every row with the wrong UUID. In that case
+    // navigate back to the library root first so clicks produce real
+    // navigations from a known-good base.
+    let startUrl = this.page.url();
+    if (/\/notebook\//.test(startUrl)) {
+      log.warning("  ⚠️ Not on library root before row scrape — returning to library");
+      await this.page.goto(NOTEBOOKLM_URL, { waitUntil: "domcontentloaded", timeout: CONFIG.browserTimeout });
+      await this.page.waitForLoadState("networkidle").catch(() => {});
+      await randomDelay(1500, 2000);
+      startUrl = this.page.url();
+    }
 
     for (let i = 0; i < rowData.length; i++) {
       const row = rowData[i];
       try {
+        // Record the URL immediately before the click so we can confirm that a
+        // REAL navigation occurred (and not accept a pre-existing notebook URL).
+        const urlBeforeClick = this.page.url();
+
         // Click the data row by index (skip non-data rows in evaluate)
         await this.page.evaluate((clickIdx: number) => {
           const browser = globalThis as unknown as BrowserDocumentContext;
@@ -416,16 +441,30 @@ export class NotebookSync {
           dataRows[clickIdx]?.click();
         }, i);
 
-        // Wait for navigation to complete
-        await this.page.waitForURL(/\/notebook\//, { timeout: 10000 }).catch(() => {});
+        // Wait for the URL to actually CHANGE to a new /notebook/ page. Using a
+        // predicate (rather than a bare /\/notebook\// regex) prevents resolving
+        // immediately against a pre-existing notebook URL and capturing a stale
+        // UUID for this row.
+        await this.page
+          .waitForURL(
+            (u) => /\/notebook\//.test(u.toString()) && u.toString() !== urlBeforeClick,
+            { timeout: 10000 }
+          )
+          .catch(() => {});
         await randomDelay(500, 1000);
 
-        // Capture the URL
+        // Capture the URL — only trust a UUID when a real navigation to a NEW
+        // notebook actually happened.
         const currentUrl = this.page.url();
         const notebookMatch = currentUrl.match(/\/notebook\/([a-f0-9-]+)/i);
-        const url = notebookMatch
-          ? `https://notebooklm.google.com/notebook/${notebookMatch[1]}`
+        const navigated = currentUrl !== urlBeforeClick && notebookMatch !== null;
+        const url = navigated
+          ? `https://notebooklm.google.com/notebook/${notebookMatch![1]}`
           : `pending-nav-${notebooks.length}`;
+
+        if (!navigated) {
+          log.warning(`  ⚠️ Row click did not navigate to a new notebook: ${row.title}`);
+        }
 
         notebooks.push({
           title: row.title,
@@ -434,7 +473,7 @@ export class NotebookSync {
           createdDate: row.createdDate,
         });
 
-        // Navigate back
+        // Navigate back to the library root
         await this.page.goto(startUrl, { waitUntil: "domcontentloaded", timeout: CONFIG.browserTimeout });
         await this.page.waitForLoadState("networkidle").catch(() => {});
         await randomDelay(1500, 2000);
@@ -529,54 +568,72 @@ export class NotebookSync {
     const staleEntries: SyncResult["staleEntries"] = [];
     const suggestions: string[] = [];
 
+    // Is the extraction trustworthy enough to treat "UUID absent from this list"
+    // as positive proof of deletion? Only if we actually saw notebooks AND every
+    // one of them yielded a real UUID. An empty list usually means extraction
+    // failed (page didn't load / strategy missed) — NOT that the account is
+    // empty — and a "pending-*" entry could BE the very notebook we're checking,
+    // so "absent" is not a confirmation. Without this guard a failed scrape would
+    // mark every valid library entry as "confirmed deleted" and autoFix would
+    // wipe the whole library. This is the core data-loss M33 must prevent.
+    const extractionIsAuthoritative =
+      actualNotebooks.length > 0 &&
+      actualNotebooks.every((n) => this.extractNotebookId(n.url) !== null);
+
     // Track which actual notebooks are matched
     const matchedActualIndices = new Set<number>();
+    // Actual notebooks tied to a library entry by a FUZZY (unconfirmed) title
+    // match. They are not authoritative matches, but we must not auto-ADD them
+    // as "missing" either — that would create a duplicate library entry for a
+    // notebook the human still needs to reconcile. Excluded from auto-add only.
+    const fuzzyReservedIndices = new Set<number>();
 
     // Check each library entry
     for (const entry of libraryEntries) {
-      // Extract notebook ID from URL
+      // Extract notebook ID from URL (null = pending/garbage, never a match key)
       const libraryNotebookId = this.extractNotebookId(entry.url);
 
-      // Try to find matching actual notebook
-      let matchingActualIndex: number = -1;
-
-      // First try: match by URL/ID
-      for (let i = 0; i < actualNotebooks.length; i++) {
-        const actual = actualNotebooks[i];
-        const actualNotebookId = this.extractNotebookId(actual.url);
-        if (actualNotebookId === libraryNotebookId && !actual.url.startsWith("pending-")) {
-          matchingActualIndex = i;
-          break;
-        }
-      }
-
-      // Second try: match by title similarity (fuzzy match)
-      if (matchingActualIndex < 0) {
-        const normalizedEntryName = this.normalizeTitle(entry.name);
+      // First try: EXACT UUID match. This is the only authoritative identity —
+      // and the only signal allowed to drive a destructive auto-fix.
+      let exactMatchIndex = -1;
+      if (libraryNotebookId !== null) {
         for (let i = 0; i < actualNotebooks.length; i++) {
-          if (matchedActualIndices.has(i)) continue; // Already matched
-          const actual = actualNotebooks[i];
-          const normalizedActualTitle = this.normalizeTitle(actual.title);
-
-          // Check for significant overlap
-          if (this.titlesMatch(normalizedEntryName, normalizedActualTitle)) {
-            matchingActualIndex = i;
+          const actualNotebookId = this.extractNotebookId(actualNotebooks[i].url);
+          if (actualNotebookId !== null && actualNotebookId === libraryNotebookId) {
+            exactMatchIndex = i;
             break;
           }
         }
       }
 
-      if (matchingActualIndex >= 0) {
-        const matchingActual = actualNotebooks[matchingActualIndex];
+      // Second try: fuzzy title match. This is a SUGGESTION ONLY. A 60% word
+      // overlap can match the wrong notebook ("Security Notes 2025" vs "...2026"),
+      // so a fuzzy hit must never be fed into removal/relabel — it only avoids
+      // proposing deletion of an entry we can plausibly still see.
+      let fuzzyMatchIndex = -1;
+      if (exactMatchIndex < 0) {
+        const normalizedEntryName = this.normalizeTitle(entry.name);
+        for (let i = 0; i < actualNotebooks.length; i++) {
+          if (matchedActualIndices.has(i)) continue; // Already matched
+          const normalizedActualTitle = this.normalizeTitle(actualNotebooks[i].title);
+          if (this.titlesMatch(normalizedEntryName, normalizedActualTitle)) {
+            fuzzyMatchIndex = i;
+            break;
+          }
+        }
+      }
+
+      if (exactMatchIndex >= 0) {
+        const matchingActual = actualNotebooks[exactMatchIndex];
         matched.push({
           libraryId: entry.id,
           libraryName: entry.name,
           actualTitle: matchingActual.title,
           actualUrl: matchingActual.url,
         });
-        matchedActualIndices.add(matchingActualIndex);
+        matchedActualIndices.add(exactMatchIndex);
 
-        // Check if name differs significantly
+        // Title drift on a UUID-confirmed match is safe to suggest relabelling.
         const cleanActualTitle = this.normalizeTitle(matchingActual.title);
         const cleanEntryName = this.normalizeTitle(entry.name);
         if (cleanEntryName !== cleanActualTitle) {
@@ -584,19 +641,46 @@ export class NotebookSync {
             `📝 "${entry.name}" matches "${matchingActual.title}" (consider updating library entry)`
           );
         }
-      } else {
+      } else if (fuzzyMatchIndex >= 0) {
+        // Fuzzy hit: report as a SUGGESTION only. Do not consume the actual
+        // notebook (leave it as "missing" so the human sees both sides) and do
+        // NOT mark the library entry as auto-removable.
+        const fuzzyActual = actualNotebooks[fuzzyMatchIndex];
+        fuzzyReservedIndices.add(fuzzyMatchIndex);
+        suggestions.push(
+          `❓ "${entry.name}" may correspond to "${fuzzyActual.title}" (fuzzy title match — verify manually; not auto-applied)`
+        );
         staleEntries.push({
           libraryId: entry.id,
           libraryName: entry.name,
           libraryUrl: entry.url,
-          reason: "Notebook not found in NotebookLM (may be deleted or URL changed)",
+          reason: "No exact UUID match; only a fuzzy title match was found (review manually)",
+          autoFixSafe: false,
+        });
+      } else {
+        // No exact and no fuzzy match. Only safe to auto-remove when we could
+        // actually derive a real UUID for this entry AND positively confirmed it
+        // is absent. If the entry's own URL has no parseable UUID (pending/
+        // garbage), we cannot prove the notebook is gone — never auto-delete it.
+        staleEntries.push({
+          libraryId: entry.id,
+          libraryName: entry.name,
+          libraryUrl: entry.url,
+          reason:
+            libraryNotebookId === null
+              ? "Entry has no resolvable notebook UUID (cannot confirm deletion — review manually)"
+              : !extractionIsAuthoritative
+              ? "Notebook not found, but extraction was incomplete (empty or pending results) — cannot confirm deletion; review manually"
+              : "Notebook UUID not present in NotebookLM (confirmed deleted or moved)",
+          autoFixSafe: libraryNotebookId !== null && extractionIsAuthoritative,
         });
       }
     }
 
-    // Find notebooks not in library
+    // Find notebooks not in library. Exclude fuzzy-reserved actuals so we don't
+    // auto-add a duplicate of a notebook a stale entry probably already denotes.
     const missingNotebooks = actualNotebooks.filter(
-      (_, index) => !matchedActualIndices.has(index)
+      (_, index) => !matchedActualIndices.has(index) && !fuzzyReservedIndices.has(index)
     );
 
     // Generate suggestions
@@ -626,8 +710,13 @@ export class NotebookSync {
   private normalizeTitle(title: string): string {
     return title
       .toLowerCase()
-      .replace(/[🔓🔒📁📄🔐⚛️🧠🛡️💻📋]/g, "") // Remove emojis
-      .replace(/[\u{1F300}-\u{1F9FF}]/gu, "") // Remove other emojis
+      // Remove emoji across all Unicode ranges (flags, symbols, supplemental
+      // pictographs, etc.) plus the zero-width-joiner and variation selectors
+      // used to compose emoji sequences. A hardcoded set / narrow range missed
+      // common emoji and made otherwise-equal titles normalize differently,
+      // producing false "stale" mismatches.
+      .replace(/\p{Extended_Pictographic}/gu, "")
+      .replace(/[\u{200D}\u{FE0E}\u{FE0F}\u{1F3FB}-\u{1F3FF}]/gu, "") // ZWJ, variation selectors, skin-tone modifiers
       .replace(/[^\w\s]/g, " ") // Remove punctuation
       .replace(/\s+/g, " ") // Normalize whitespace
       .trim();
@@ -657,12 +746,22 @@ export class NotebookSync {
   }
 
   /**
-   * Extract notebook ID from URL
+   * Extract a STABLE notebook UUID from a URL, or null if none can be derived.
+   *
+   * Returns null for "pending-*" placeholders and for any URL that does not
+   * carry a real /notebook/UUID segment. A null id must NEVER be treated as a
+   * match key (two unknowns are not "equal") and must NEVER feed a destructive
+   * auto-fix decision — doing so previously let placeholder/garbage ids collide
+   * or let a missing id be (mis)matched and removed.
    */
-  private extractNotebookId(url: string): string {
+  private extractNotebookId(url: string): string | null {
+    if (!url || url.startsWith("pending-")) return null;
     // URL format: https://notebooklm.google.com/notebook/UUID?authuser=X
-    const match = url.match(/\/notebook\/([a-f0-9-]+)/i);
-    return match ? match[1] : url;
+    // Require a canonical UUID so a partial/garbage id can't be matched.
+    const match = url.match(
+      /\/notebook\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i
+    );
+    return match ? match[1].toLowerCase() : null;
   }
 
   /**
@@ -674,6 +773,15 @@ export class NotebookSync {
     log.info("🔧 Auto-fixing stale entries...");
 
     for (const entry of staleEntries) {
+      // DESTRUCTIVE GUARD: only remove entries we could confirm as deleted via
+      // an exact UUID. Fuzzy/unresolvable entries are left for manual review so
+      // a valid library entry is never destroyed on a 60%-title-overlap guess.
+      if (!entry.autoFixSafe) {
+        log.warning(
+          `⏭️  Skipping auto-remove of "${entry.libraryName}" — ${entry.reason}`
+        );
+        continue;
+      }
       try {
         this.library.removeNotebook(entry.libraryId);
         log.success(`✅ Removed stale entry: ${entry.libraryName}`);

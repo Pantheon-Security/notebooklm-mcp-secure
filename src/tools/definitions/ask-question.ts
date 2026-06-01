@@ -2,10 +2,14 @@ import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { NotebookLibrary } from "../../library/notebook-library.js";
 
 /**
- * Build dynamic tool description for ask_question based on active notebook or library
+ * Build dynamic tool description for ask_question based on active notebook or library.
+ *
+ * The library is optional: when it is omitted (e.g. a static tool registrar that
+ * has no library context), the "no active notebook" variant is returned as a
+ * sensible fallback rather than a placeholder string.
  */
-export function buildAskQuestionDescription(library: NotebookLibrary): string {
-  const active = library.getActiveNotebook();
+export function buildAskQuestionDescription(library?: NotebookLibrary): string {
+  const active = library?.getActiveNotebook();
 
   if (active) {
     return `NotebookLM notebook Q&A via browser automation.
@@ -15,22 +19,23 @@ No Gemini API key is required, but browser authentication must be valid.
 Prefer this tool for questions grounded in the user's NotebookLM sources.
 Use the returned session_id for follow-up questions on the same task.
 Use notebook_id or notebook_url only when overriding the active notebook.
-If the right notebook is ambiguous, ask the user which one to use.
-If authentication fails, use notebooklm.auth-repair or notebooklm.auth-setup.`;
+If authentication fails, use the re_auth tool, or ask the user to run the notebooklm.auth-repair prompt for guided troubleshooting.`;
   } else {
     return `NotebookLM notebook Q&A via browser automation.
 
 No active notebook is selected.
 Use list_notebooks and select_notebook to choose one, or pass notebook_url.
 No Gemini API key is required, but browser authentication must be valid.
-If login is required, use notebooklm.auth-setup and verify with get_health.`;
+If login is required, use the setup_auth tool and verify with get_health (or ask the user to run the notebooklm.auth-setup prompt for a guided walkthrough).`;
   }
 }
 
 export const askQuestionTool: Tool = {
   name: "ask_question",
-  // Description will be set dynamically using buildAskQuestionDescription
-  description: "Dynamic description placeholder", 
+  // Real default description; buildToolDefinitions overrides it with the
+  // library-aware variant. Any alternate registrar still gets a usable
+  // (no-active-notebook) description instead of a placeholder.
+  description: buildAskQuestionDescription(),
   inputSchema: {
     type: "object",
     additionalProperties: false,

@@ -38,6 +38,8 @@ const generateDataTableTool: Tool = {
       },
       notebook_url: {
         type: "string",
+        pattern: "^https://notebooklm\\.google\\.com/",
+        maxLength: 512,
         description: "Or direct notebook URL (overrides notebook_id)",
       },
     },
@@ -80,6 +82,8 @@ const getDataTableTool: Tool = {
       },
       notebook_url: {
         type: "string",
+        pattern: "^https://notebooklm\\.google\\.com/",
+        maxLength: 512,
         description: "Or direct notebook URL (overrides notebook_id)",
       },
     },

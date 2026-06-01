@@ -160,6 +160,47 @@ describe("AuditLogger", () => {
   });
 
   // -------------------------------------------------------------------------
+  // 4b. Concurrency — many overlapping log() calls must NOT fork the chain (H20)
+  // -------------------------------------------------------------------------
+  it("keeps the hash chain intact under concurrent log() calls with no flush between them (H20)", async () => {
+    const audit = new AuditLogger(makeConfig(tempDir));
+
+    // Fire 20 log() calls concurrently. The pre-fix bug captured this.previousHash
+    // at log() time, so overlapping calls shared a previousHash and forked the chain.
+    // The fix stamps previousHash + hash inside flushEvent's serialized lock.
+    await Promise.all(
+      Array.from({ length: 20 }, (_, i) =>
+        audit.logToolCall(`concurrent_tool_${i}`, {}, true, i)
+      )
+    );
+    await audit.flush();
+
+    const files = fs.readdirSync(tempDir).filter((f) => f.endsWith(".jsonl"));
+    expect(files).toHaveLength(1);
+
+    const lines = readLines(path.join(tempDir, files[0]!));
+    expect(lines).toHaveLength(20);
+
+    // Every previousHash must reference the prior line's hash (no shared/forked links).
+    const events = lines.map(
+      (l) => JSON.parse(l) as { hash: string; previousHash: string }
+    );
+    expect(events[0]!.previousHash).toBe("GENESIS");
+    for (let i = 1; i < events.length; i++) {
+      expect(events[i]!.previousHash).toBe(events[i - 1]!.hash);
+    }
+
+    // No duplicate hashes (a fork would repeat a previousHash across siblings).
+    const previousHashes = events.map((e) => e.previousHash);
+    expect(new Set(previousHashes).size).toBe(previousHashes.length);
+
+    // And the logger's own integrity verifier must agree.
+    const result = await audit.verifyIntegrity();
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
   // 5. Hash not truncated — hash field is 64 hex chars (full SHA-256, I223)
   // -------------------------------------------------------------------------
   it("records a full 64-character hex SHA-256 hash on every event (I223)", async () => {

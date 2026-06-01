@@ -1,0 +1,30 @@
+# Published-tarball exclusions (applied on top of the package.json "files" allowlist).
+# Keeps source maps and dev/discovery scaffolding out of the npm package.
+
+# Source maps reconstruct full source — do not ship.
+**/*.js.map
+**/*.d.ts.map
+
+# Selector-discovery & ad-hoc test scaffolding (dev-only, never imported by runtime).
+dist/notebook-creation/discover-*.js
+dist/notebook-creation/discover-*.d.ts
+dist/notebook-creation/run-discovery.js
+dist/notebook-creation/run-discovery.d.ts
+dist/notebook-creation/selector-discovery.js
+dist/notebook-creation/selector-discovery.d.ts
+dist/notebook-creation/test-create.js
+dist/notebook-creation/test-create.d.ts
+
+# Internal notes / trackers that must never reach the public registry.
+docs/archive/
+*-issues.md
+issues.md
+0425_issues.md
+REMEDIATION-PLAN.md
+golive.md
+
+# Local secrets / state (defense in depth — already gitignored).
+.npmrc
+.env*
+.mcpregistry_*
+state.json*

@@ -290,12 +290,16 @@ export class EvidenceCollector {
     const data = {
       total_consents: consents.length,
       validation_result: validation,
-      consents: consents.map((c: { purposes: string[]; legal_basis: string; granted_at: string; expires_at?: string; is_valid?: boolean; revoked?: boolean }) => ({
+      consents: consents.map((c: { purposes: string[]; legal_basis: string; granted_at: string; expires_at?: string; revoked?: boolean }) => ({
         purpose: c.purposes.join(", "),
         legal_basis: c.legal_basis,
         granted_at: c.granted_at,
         expires_at: c.expires_at,
-        is_valid: c.is_valid,
+        // Validity is derived from existing fields: granted (record exists),
+        // not revoked, and not past its optional expiry.
+        is_valid:
+          !c.revoked &&
+          (!c.expires_at || new Date(c.expires_at) > new Date()),
         revoked: c.revoked,
       })),
     };

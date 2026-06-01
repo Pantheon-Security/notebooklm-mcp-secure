@@ -87,8 +87,6 @@ function generateQueryId(): string {
 }
 
 const MAX_LOG_FILE_BYTES = 100 * 1024 * 1024; // 100 MB per daily file (I232)
-const TRUNCATED_FIELD_LENGTH = 500;
-const TRUNCATED_SUFFIX = "...[truncated]";
 
 /**
  * Query Logger Class
@@ -108,6 +106,19 @@ export class QueryLogger {
    * severity so we don't redact legitimate base64 payloads (images, PDFs,
    * JWT payloads) that frequently appear in NotebookLM answers. Real
    * credentials live at critical/high/medium severity.
+   *
+   * ACCEPTED RISK (L11): the only `severity: "low"` rule in the scanner is the
+   * "High Entropy String" pattern (/\b[A-Za-z0-9+/]{32,}={0,2}\b/, see
+   * secrets-scanner.ts). It is DELIBERATELY NOT redacted at rest because
+   * NotebookLM answers routinely contain long, high-entropy base64 that is NOT
+   * a secret — inline image/PDF data-URIs, JWT payload segments, GCS object
+   * names, CSRF tokens, document hashes. Redacting at "low" would shred this
+   * legitimate research content (high false-positive rate) for marginal gain:
+   * genuine credentials (API keys, bearer tokens, private keys, connection
+   * strings) already match dedicated critical/high/medium rules and are
+   * redacted regardless. The base64 false-positive cost outweighs the residual
+   * risk of an unstructured low-confidence entropy hit slipping through, so the
+   * threshold stays at "medium" by design.
    */
   private scanner = new SecretsScanner({ minSeverity: "medium" });
   private stats = {
@@ -149,15 +160,25 @@ export class QueryLogger {
   private cleanOldLogs(): void {
     try {
       const files = fs.readdirSync(this.config.logDir);
+      // Filenames are UTC dates (toISOString) and new Date("YYYY-MM-DD") parses as
+      // UTC midnight, so compute the cutoff at UTC midnight too — using local
+      // setDate/getDate would skew the comparison by up to a day near TZ boundaries (L13).
       const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - this.config.retentionDays);
+      cutoffDate.setUTCHours(0, 0, 0, 0);
+      cutoffDate.setUTCDate(cutoffDate.getUTCDate() - this.config.retentionDays);
 
       let deletedCount = 0;
       for (const file of files) {
         if (!file.startsWith("query-log-") || !file.endsWith(".jsonl")) continue;
 
-        // Extract date from filename (query-log-YYYY-MM-DD.jsonl)
+        // Extract date from filename (query-log-YYYY-MM-DD.jsonl). The fixed-width
+        // slice(10,20) yields "YYYY-MM-DD" for both base and rotated
+        // (query-log-DATE.NNN.jsonl) names, so this guard does NOT exclude rotated files
+        // from retention — it only rejects genuinely malformed names before feeding
+        // new Date, which would otherwise parse to Invalid Date or a misread cutoff (L13).
+        // Matches audit-logger's guard.
         const dateStr = file.slice(10, 20);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) continue;
         const fileDate = new Date(dateStr);
 
         if (fileDate < cutoffDate) {
@@ -196,33 +217,71 @@ export class QueryLogger {
           this.currentLogFile = expectedFile;
         }
 
-        // Enforce per-file size cap (I232) — truncate fields if approaching limit
+        // Enforce per-file size cap (I232). When the cap would be exceeded we ROTATE to
+        // a sequence-suffixed file (query-log-DATE.NNN.jsonl) instead of silently
+        // truncating Q&A content (M9) — the old behaviour permanently lost research
+        // data with no record. Each rotation emits a mandatory log.warning so the event
+        // is visible. The current file size is re-read after each rotation; the next
+        // suffix is determined by scanning the directory so the cap holds across writers
+        // and process restarts (per-process counters did not).
         let currentFileSize = (() => {
           try { return fs.statSync(this.currentLogFile).size; } catch { return 0; }
         })();
 
-        const lines = batch.map((e) => {
+        const linesToWrite: string[] = [];
+        for (const e of batch) {
           const serialized = JSON.stringify(e);
           const entryBytes = Buffer.byteLength(serialized + "\n");
-          if (currentFileSize + entryBytes > MAX_LOG_FILE_BYTES) {
-            const truncated = {
-              ...e,
-              question: e.question.slice(0, TRUNCATED_FIELD_LENGTH) + TRUNCATED_SUFFIX,
-              answer: e.answer.slice(0, TRUNCATED_FIELD_LENGTH) + TRUNCATED_SUFFIX,
-            };
-            const ts = JSON.stringify(truncated);
-            currentFileSize += Buffer.byteLength(ts + "\n");
-            return ts;
-          }
-          currentFileSize += entryBytes;
-          return serialized;
-        }).join("\n") + "\n";
 
-        appendFileSecure(this.currentLogFile, lines, PERMISSION_MODES.OWNER_READ_WRITE);
+          if (currentFileSize > 0 && currentFileSize + entryBytes > MAX_LOG_FILE_BYTES) {
+            // Flush what we have to the current file before rotating.
+            if (linesToWrite.length > 0) {
+              appendFileSecure(this.currentLogFile, linesToWrite.join("\n") + "\n", PERMISSION_MODES.OWNER_READ_WRITE);
+              linesToWrite.length = 0;
+            }
+            const rotatedFile = this.nextRotatedFile(today);
+            log.warning(`⚠️ Query log ${path.basename(this.currentLogFile)} reached ${MAX_LOG_FILE_BYTES} byte cap — rotating to ${path.basename(rotatedFile)} (no content truncated)`);
+            this.currentLogFile = rotatedFile;
+            currentFileSize = (() => {
+              try { return fs.statSync(this.currentLogFile).size; } catch { return 0; }
+            })();
+          }
+
+          linesToWrite.push(serialized);
+          currentFileSize += entryBytes;
+        }
+
+        if (linesToWrite.length > 0) {
+          appendFileSecure(this.currentLogFile, linesToWrite.join("\n") + "\n", PERMISSION_MODES.OWNER_READ_WRITE);
+        }
       }
     } finally {
       this.isWriting = false;
     }
+  }
+
+  /**
+   * Determine the next sequence-suffixed log file for `date` when the base file (or a
+   * prior rotation) has hit the size cap (M9). Scans the directory for the highest
+   * existing query-log-DATE.NNN.jsonl suffix and returns the next one, so rotation is
+   * correct across writers and restarts rather than relying on a per-process counter.
+   */
+  private nextRotatedFile(date: string): string {
+    let maxSeq = 0;
+    try {
+      const re = new RegExp(`^query-log-${date}\\.(\\d{3})\\.jsonl$`);
+      for (const f of fs.readdirSync(this.config.logDir)) {
+        const m = f.match(re);
+        if (m) {
+          const seq = parseInt(m[1], 10);
+          if (seq > maxSeq) maxSeq = seq;
+        }
+      }
+    } catch (err) {
+      log.debug(`query-logger: scanning for rotated files: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const nextSeq = String(maxSeq + 1).padStart(3, "0");
+    return path.join(this.config.logDir, `query-log-${date}.${nextSeq}.jsonl`);
   }
 
   /**
@@ -288,8 +347,24 @@ export class QueryLogger {
    * Get all queries for a specific date (YYYY-MM-DD)
    */
   async getQueriesForDate(date: string): Promise<QueryLogEntry[]> {
-    const logFile = path.join(this.config.logDir, `query-log-${date}.jsonl`);
-    return this.readLogFile(logFile);
+    // Include any size-cap rotations for the day (query-log-DATE.NNN.jsonl), not just
+    // the base file, so rotated entries are not missed (M9).
+    const baseFile = path.join(this.config.logDir, `query-log-${date}.jsonl`);
+    const entries = this.readLogFile(baseFile);
+
+    const rotatedRe = new RegExp(`^query-log-${date}\\.\\d{3}\\.jsonl$`);
+    try {
+      const rotated = fs.readdirSync(this.config.logDir)
+        .filter(f => rotatedRe.test(f))
+        .sort();
+      for (const f of rotated) {
+        entries.push(...this.readLogFile(path.join(this.config.logDir, f)));
+      }
+    } catch (err) {
+      log.debug(`query-logger: reading rotated files for date ${date}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    return entries;
   }
 
   /**
@@ -359,6 +434,11 @@ export class QueryLogger {
     if (QueryLogger.processHandlersRegistered) return;
     process.on("beforeExit", () => QueryLogger.flushAllSync());
     process.on("SIGTERM", () => QueryLogger.flushAllSync());
+    // Mirror SIGTERM for SIGINT (Ctrl-C) and SIGHUP so buffered Q&A is flushed
+    // synchronously on those signals too (M5). Additive flush-only safety nets — the
+    // process entry point owns termination, so these do not suppress exit or hang.
+    process.on("SIGINT", () => QueryLogger.flushAllSync());
+    process.on("SIGHUP", () => QueryLogger.flushAllSync());
     QueryLogger.processHandlersRegistered = true;
   }
 

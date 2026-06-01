@@ -12,6 +12,7 @@
 
 import type { Page } from "patchright";
 import { log } from "./logger.js";
+import { validateResponse } from "./response-validator.js";
 import { RESPONSE_SELECTORS, getSelectors, type SelectorKey } from "../notebook-creation/selectors.js";
 
 type BrowserVisibleElement = {
@@ -40,16 +41,17 @@ type BrowserDocumentContext = {
 // ============================================================================
 
 /**
- * Simple string hash function (for efficient comparison)
+ * Sanitize untrusted assistant/document text before it is returned to the
+ * calling model. Notebook sources are arbitrary documents, so extracted text
+ * is a prompt-injection conduit; route it through the shared response
+ * validator (same mechanism used by the ask_question handler).
  */
-function hashString(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash; // Convert to 32bit integer
+async function sanitizeExtractedText(text: string): Promise<string> {
+  const validation = await validateResponse(text);
+  if (!validation.safe) {
+    log.warning("🛡️ Suspicious content detected in extracted page text — sanitized");
   }
-  return hash;
+  return validation.sanitized;
 }
 
 
@@ -62,7 +64,8 @@ function hashString(str: string): number {
  * Returns null if no response found
  */
 export async function snapshotLatestResponse(page: Page): Promise<string | null> {
-  return await extractLatestText(page, new Set(), false, 0);
+  const text = await extractLatestText(page, new Set(), false, 0);
+  return text === null ? null : await sanitizeExtractedText(text);
 }
 
 /**
@@ -82,7 +85,7 @@ export async function snapshotAllResponses(page: Page): Promise<string[]> {
           if (textElement) {
             const text = await textElement.innerText();
             if (text && text.trim()) {
-              allTexts.push(text.trim());
+              allTexts.push(await sanitizeExtractedText(text.trim()));
             }
           }
         } catch (err) {
@@ -168,17 +171,19 @@ export async function waitForLatestAnswer(
   const deadline = Date.now() + timeoutMs;
   const sanitizedQuestion = question.trim().toLowerCase();
 
-  // Track ALL known texts as HASHES (memory efficient!)
-  const knownHashes = new Set<number>();
+  // Track ALL known texts by their trimmed string value. Storing the full
+  // strings (rather than a 32-bit hash) avoids hash collisions that could
+  // cause a genuinely new answer to be treated as "seen" and hang to timeout.
+  const knownTexts = new Set<string>();
   for (const text of ignoreTexts) {
     if (typeof text === "string" && text.trim()) {
-      knownHashes.add(hashString(text.trim()));
+      knownTexts.add(text.trim());
     }
   }
 
   if (debug) {
     log.debug(
-      `🔍 [DEBUG] Waiting for NEW answer. Ignoring ${knownHashes.size} known responses`
+      `🔍 [DEBUG] Waiting for NEW answer. Ignoring ${knownTexts.size} known responses`
     );
   }
 
@@ -211,7 +216,7 @@ export async function waitForLatestAnswer(
     // Extract latest NEW text
     const candidate = await extractLatestText(
       page,
-      knownHashes,
+      knownTexts,
       debug,
       pollCount
     );
@@ -226,7 +231,7 @@ export async function waitForLatestAnswer(
           if (debug) {
             log.debug("🔍 [DEBUG] Found question echo, ignoring");
           }
-          knownHashes.add(hashString(normalized)); // Mark as seen
+          knownTexts.add(normalized); // Mark as seen
           await page.waitForTimeout(pollIntervalMs);
           continue;
         }
@@ -258,7 +263,7 @@ export async function waitForLatestAnswer(
           if (debug) {
             log.debug(`✅ [DEBUG] Returning stable answer (${normalized.length} chars)`);
           }
-          return normalized;
+          return await sanitizeExtractedText(normalized);
         }
       }
     }
@@ -274,17 +279,17 @@ export async function waitForLatestAnswer(
 
 /**
  * Extract the latest NEW response text from the page
- * Uses hash-based comparison for efficiency
+ * Compares against the set of already-seen trimmed response strings
  *
  * @param page Playwright page instance
- * @param knownHashes Set of hashes of already-seen response texts
+ * @param knownTexts Set of already-seen (trimmed) response texts
  * @param debug Enable debug logging
  * @param pollCount Current poll number (for conditional logging)
  * @returns First NEW response text found, or null
  */
 async function extractLatestText(
   page: Page,
-  knownHashes: Set<number>,
+  knownTexts: Set<string>,
   debug: boolean,
   pollCount: number
 ): Promise<string | null> {
@@ -295,10 +300,10 @@ async function extractLatestText(
     const totalContainers = containers.length;
 
     // Early exit if no new containers possible
-    if (totalContainers <= knownHashes.size) {
+    if (totalContainers <= knownTexts.size) {
       if (debug && pollCount % 5 === 0) {
         log.dim(
-          `⏭️ [EXTRACT] No new containers (${totalContainers} total, ${knownHashes.size} known)`
+          `⏭️ [EXTRACT] No new containers (${totalContainers} total, ${knownTexts.size} known)`
         );
       }
       return null;
@@ -308,7 +313,7 @@ async function extractLatestText(
       // Only log every 5th poll to reduce noise
       if (debug && pollCount % 5 === 0) {
         log.dim(
-          `🔍 [EXTRACT] Scanning ${totalContainers} containers (${knownHashes.size} known)`
+          `🔍 [EXTRACT] Scanning ${totalContainers} containers (${knownTexts.size} known)`
         );
       }
 
@@ -323,9 +328,9 @@ async function extractLatestText(
           if (textElement) {
             const text = await textElement.innerText();
             if (text && text.trim()) {
-              // Hash-based comparison (faster & less memory)
-              const textHash = hashString(text.trim());
-              if (!knownHashes.has(textHash)) {
+              // Exact-string comparison against seen responses (no hash
+              // collisions that could drop a genuinely new answer).
+              if (!knownTexts.has(text.trim())) {
                 log.success(
                   `✅ [EXTRACT] Found NEW text in container[${idx}]: ${text.trim().length} chars`
                 );
@@ -390,7 +395,7 @@ async function extractLatestText(
           }
 
           const text = await container.innerText();
-          if (text && text.trim() && !knownHashes.has(hashString(text.trim()))) {
+          if (text && text.trim() && !knownTexts.has(text.trim())) {
             return text.trim();
           }
         } catch (err) {

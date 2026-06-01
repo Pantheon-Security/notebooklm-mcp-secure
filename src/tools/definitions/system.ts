@@ -53,7 +53,7 @@ export const systemTools: Tool[] = [
       "This catches stale sessions where cookies exist but the UI won't load. " +
       "Returns `chat_ui_accessible: true/false`.\n\n" +
       "If authenticated=false and having persistent issues:\n" +
-      "Consider running cleanup_data(preserve_library=true) + setup_auth for fresh start with clean browser session.",
+      "Suggest to the user that a fresh start (cleanup_data with preserve_library=true, followed by setup_auth) may help, and ask for their confirmation before running any cleanup, since cleanup_data deletes browser/session data.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -77,10 +77,10 @@ export const systemTools: Tool[] = [
       "Use this for first-time authentication or when auto-login credentials are not available. " +
       "For switching accounts or rate-limit workarounds, use 're_auth' tool instead.\n\n" +
       "TROUBLESHOOTING for persistent auth issues:\n" +
-      "If setup_auth fails or you encounter browser/session issues:\n" +
-      "1. Ask user to close ALL Chrome/Chromium instances\n" +
-      "2. Run cleanup_data(confirm=true, preserve_library=true) to clean old data\n" +
-      "3. Run setup_auth again for fresh start\n" +
+      "If setup_auth fails or you encounter browser/session issues, suggest these steps to the user and get their confirmation before running any cleanup (cleanup_data deletes browser/session data):\n" +
+      "1. Ask the user to close ALL Chrome/Chromium instances\n" +
+      "2. Ask the user before running cleanup_data(confirm=true, preserve_library=true) to clean old data\n" +
+      "3. Run setup_auth again for a fresh start\n" +
       "This helps resolve conflicts from old browser sessions and installation data."
   ),
   buildAuthTool(
@@ -96,11 +96,11 @@ export const systemTools: Tool[] = [
       "3. Open browser for fresh Google login\n\n" +
       "After completion, use 'get_health' to verify authentication.\n\n" +
       "TROUBLESHOOTING for persistent auth issues:\n" +
-      "If re_auth fails repeatedly:\n" +
-      "1. Ask user to close ALL Chrome/Chromium instances\n" +
-      "2. Run cleanup_data(confirm=false, preserve_library=true) to preview old files\n" +
-      "3. Run cleanup_data(confirm=true, preserve_library=true) to clean everything except library\n" +
-      "4. Run re_auth again for completely fresh start\n" +
+      "If re_auth fails repeatedly, suggest these steps to the user and ask for their confirmation before running any cleanup (cleanup_data deletes browser/session and installation data):\n" +
+      "1. Ask the user to close ALL Chrome/Chromium instances\n" +
+      "2. Run cleanup_data(confirm=false, preserve_library=true) to preview the files that would be removed\n" +
+      "3. Only after the user reviews the preview and confirms, run cleanup_data(confirm=true, preserve_library=true) to clean everything except the library\n" +
+      "4. Run re_auth again for a completely fresh start\n" +
       "This removes old installation data and browser sessions that can cause conflicts."
   ),
   {
@@ -255,7 +255,28 @@ export const systemTools: Tool[] = [
         },
         events: {
           type: "array",
-          items: { type: "string" },
+          // Restrict to known EventType values (see src/events/event-types.ts)
+          // plus "*"; cap length to prevent unbounded subscription storage (H7).
+          items: {
+            type: "string",
+            enum: [
+              "question_answered",
+              "notebook_created",
+              "notebook_deleted",
+              "source_added",
+              "source_removed",
+              "session_created",
+              "session_expired",
+              "auth_required",
+              "rate_limit_hit",
+              "security_incident",
+              "quota_warning",
+              "audio_generated",
+              "batch_complete",
+              "*",
+            ],
+          },
+          maxItems: 20,
           description: 'Events to subscribe to. Use ["*"] for all events.',
         },
         format: {

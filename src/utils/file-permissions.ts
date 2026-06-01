@@ -282,12 +282,43 @@ export function appendFileSecure(
   content: string | Buffer,
   mode: number = PERMISSION_MODES.OWNER_READ_WRITE
 ): void {
-  if (!fs.existsSync(filePath)) {
-    // If file doesn't exist, create with secure permissions
-    writeFileSecure(filePath, content, mode);
-  } else {
-    // File exists, just append (permissions already set)
+  // Ensure parent directory exists (matches writeFileSecure behaviour)
+  mkdirSecure(path.dirname(filePath));
+
+  if (isWindows) {
+    // O_NOFOLLOW / uid ownership are Unix concepts. On Windows, fall back to
+    // the existing create-then-ACL path used by writeFileSecure.
+    const existed = fs.existsSync(filePath);
     fs.appendFileSync(filePath, content);
+    if (!existed) {
+      setWindowsFilePermissions(filePath, true);
+    }
+    return;
+  }
+
+  // Unix: open in append mode atomically (creates if absent) with O_NOFOLLOW
+  // so a pre-planted symlink at filePath causes the open to fail (ELOOP)
+  // rather than redirecting our write to an attacker-chosen target. Avoid
+  // existsSync entirely — it is itself a TOCTOU. The single open both creates
+  // (with `mode`) and appends, closing the create/append race.
+  const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW;
+  const fd = fs.openSync(filePath, flags, mode);
+  try {
+    // fstat the open descriptor (not the path) — symlink-safe — and confirm we
+    // are writing to a regular file owned by the current user before writing.
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile()) {
+      throw new Error(`Refusing to append: ${filePath} is not a regular file`);
+    }
+    if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+      throw new Error(`Refusing to append: ${filePath} is not owned by the current user`);
+    }
+    // Re-assert secure permissions on the fd (symlink-safe). `mode` only applies
+    // on creation, so this also tightens any weakened pre-existing permissions.
+    fs.fchmodSync(fd, mode);
+    fs.writeSync(fd, Buffer.isBuffer(content) ? content : Buffer.from(content));
+  } finally {
+    fs.closeSync(fd);
   }
 }
 

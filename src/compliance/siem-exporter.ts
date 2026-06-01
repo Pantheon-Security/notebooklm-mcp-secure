@@ -120,6 +120,10 @@ export class SIEMExporter {
   private flushTimer: NodeJS.Timeout | null = null;
   private isExporting: boolean = false;
   private failedDir: string;
+  // Count of events dropped on queue overflow (e.g. during a SIEM outage). Without
+  // this, a backed-up queue silently sheds compliance events (L50).
+  private droppedEvents: number = 0;
+  private lastDropWarning: number = 0;
 
   private constructor() {
     this.config = getSIEMConfig();
@@ -203,8 +207,20 @@ export class SIEMExporter {
 
     // Check queue size
     if (this.eventQueue.length >= this.config.queue_max_size) {
-      // Drop oldest event
-      this.eventQueue.shift();
+      // Queue full (likely a SIEM outage). Persist the oldest event to the failed
+      // dir before dropping it so it is not silently lost, then count + warn.
+      const dropped = this.eventQueue.shift();
+      this.droppedEvents++;
+      if (dropped) {
+        await this.saveFailedEvent(dropped);
+      }
+
+      // Throttle the warning to at most once per minute to avoid log flooding.
+      const now = Date.now();
+      if (now - this.lastDropWarning > 60_000) {
+        this.lastDropWarning = now;
+        log.warning(`siem-exporter: queue full (max ${this.config.queue_max_size}); dropped oldest event (total dropped: ${this.droppedEvents}). Overflow persisted to ${this.failedDir}.`);
+      }
     }
 
     this.eventQueue.push(event);
@@ -280,8 +296,8 @@ export class SIEMExporter {
       "Pantheon Security",
       "NotebookLM MCP",
       "1.5.1",
-      event.event_type,
-      event.event_name,
+      this.escapeCefHeader(event.event_type),
+      this.escapeCefHeader(event.event_name),
       cefSeverity.toString(),
     ].join("|");
 
@@ -318,20 +334,21 @@ export class SIEMExporter {
       "Pantheon Security",
       "NotebookLM MCP",
       "1.5.1",
-      event.event_type,
+      this.escapeLeef(event.event_type),
     ].join("|");
 
-    // Add attributes
+    // Add attributes — every key and value is LEEF-escaped so a crafted
+    // field cannot inject forged attributes or records via tab/newline.
     const attributes: string[] = [];
-    attributes.push(`cat=${event.event_name}`);
+    attributes.push(`cat=${this.escapeLeef(event.event_name)}`);
     attributes.push(`sev=${SYSLOG_SEVERITY[event.severity]}`);
-    attributes.push(`msg=${event.message}`);
-    attributes.push(`src=${event.source}`);
-    attributes.push(`devTime=${event.timestamp}`);
+    attributes.push(`msg=${this.escapeLeef(event.message)}`);
+    attributes.push(`src=${this.escapeLeef(event.source)}`);
+    attributes.push(`devTime=${this.escapeLeef(event.timestamp)}`);
 
     if (event.details) {
       for (const [key, value] of Object.entries(event.details)) {
-        attributes.push(`${key}=${String(value)}`);
+        attributes.push(`${this.escapeLeef(key)}=${this.escapeLeef(String(value))}`);
       }
     }
 
@@ -358,11 +375,19 @@ export class SIEMExporter {
     const msgId = event.event_type;
 
     // RFC 5424 format
-    return `<${priority}>1 ${timestamp} ${hostname} ${appName} ${procId} ${msgId} - ${event.message}`;
+    // Strip C0 control chars (CR/LF etc.) so message cannot inject a forged record.
+    const safeMessage = this.sanitizeFreeText(event.message);
+    return `<${priority}>1 ${timestamp} ${hostname} ${appName} ${procId} ${msgId} - ${safeMessage}`;
   }
 
   /**
-   * Export event as syslog
+   * Export event as syslog over UDP.
+   *
+   * NOTE: UDP syslog is best-effort. A successful send only means the datagram
+   * was handed to the OS — it does NOT confirm delivery to the collector. A
+   * `settled` guard ensures the socket is closed and the promise resolves exactly
+   * once (the send callback and the safety timeout previously raced, double-closing
+   * and double-resolving), and the timeout is cleared as soon as the callback fires.
    */
   private async exportSyslog(event: SIEMEvent): Promise<boolean> {
     if (!this.config.syslog_host) {
@@ -374,6 +399,26 @@ export class SIEMExporter {
     return new Promise((resolve) => {
       const client = dgram.createSocket("udp4");
       const buffer = Buffer.from(syslogMessage);
+      let settled = false;
+      let timer: NodeJS.Timeout | null = null;
+
+      const finish = (result: boolean): void => {
+        if (settled) return;
+        settled = true;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        try {
+          client.close();
+        } catch (err) {
+          log.debug(`siem-exporter: close UDP client: ${err instanceof Error ? err.message : String(err)}`);
+          // Ignore — socket may already be closed.
+        }
+        resolve(result);
+      };
+
+      client.on("error", () => finish(false));
 
       client.send(
         buffer,
@@ -381,22 +426,13 @@ export class SIEMExporter {
         buffer.length,
         this.config.syslog_port || 514,
         this.config.syslog_host!,
-        (err) => {
-          client.close();
-          resolve(!err);
-        }
+        // Best-effort: !err means the datagram was accepted by the OS, not that
+        // the collector received it.
+        (err) => finish(!err)
       );
 
-      // Timeout
-      setTimeout(() => {
-        try {
-          client.close();
-        } catch (err) {
-          log.debug(`siem-exporter: close TCP client on timeout: ${err instanceof Error ? err.message : String(err)}`);
-          // Ignore
-        }
-        resolve(false);
-      }, 5000);
+      // Safety timeout in case the send callback never fires.
+      timer = setTimeout(() => finish(false), 5000);
     });
   }
 
@@ -518,6 +554,38 @@ export class SIEMExporter {
   }
 
   /**
+   * Escape a LEEF key or value. LEEF is tab-delimited and newline-terminated,
+   * so tabs/newlines/carriage-returns (and the `=` separator) must be neutralized
+   * to prevent attribute- or record-injection into the SIEM.
+   */
+  private escapeLeef(value: string): string {
+    return String(value)
+      .replace(/\\/g, "\\\\")
+      .replace(/=/g, "\\=")
+      .replace(/\t/g, " ")
+      .replace(/\r?\n/g, " ")
+      .replace(/[\x00-\x1f\x7f]/g, " ");
+  }
+
+  /**
+   * Escape a CEF header component (pipe-delimited). Backslash first, then pipe.
+   */
+  private escapeCefHeader(value: string): string {
+    return String(value)
+      .replace(/\\/g, "\\\\")
+      .replace(/\|/g, "\\|")
+      .replace(/[\r\n]+/g, " ");
+  }
+
+  /**
+   * Strip C0 control characters (CR/LF/tab/etc.) from free-text fields so a
+   * crafted value cannot terminate or forge a syslog/LEEF record.
+   */
+  private sanitizeFreeText(value: string): string {
+    return String(value).replace(/[\x00-\x1f\x7f]/g, " ");
+  }
+
+  /**
    * Save failed event for later retry
    */
   private async saveFailedEvent(event: SIEMEvent): Promise<void> {
@@ -593,6 +661,8 @@ export class SIEMExporter {
     enabled: boolean;
     format: SIEMFormat;
     queue_size: number;
+    queue_max_size: number;
+    dropped_events: number;
     endpoint_configured: boolean;
     syslog_configured: boolean;
   } {
@@ -600,6 +670,8 @@ export class SIEMExporter {
       enabled: this.config.enabled,
       format: this.config.format,
       queue_size: this.eventQueue.length,
+      queue_max_size: this.config.queue_max_size,
+      dropped_events: this.droppedEvents,
       endpoint_configured: !!this.config.endpoint,
       syslog_configured: !!this.config.syslog_host,
     };

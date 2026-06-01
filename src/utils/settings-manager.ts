@@ -25,6 +25,18 @@ const DEFAULT_SETTINGS: Settings = {
   disabledTools: [],
 };
 
+/**
+ * Dangerous keys that must never be copied into customSettings, since the
+ * object is later spread/merged and could otherwise poison Object.prototype.
+ */
+const FORBIDDEN_CUSTOM_KEYS = ["__proto__", "constructor", "prototype"];
+
+/**
+ * Upper bound on the number of own keys accepted in customSettings, to prevent
+ * an oversized/abusive settings file from bloating in-memory config.
+ */
+const MAX_CUSTOM_SETTINGS_KEYS = 100;
+
 const PROFILES: Record<ProfileName, string[]> = {
   minimal: [
     "ask_question",
@@ -122,7 +134,7 @@ export class SettingsManager {
           validated.disabledTools = parsed.disabledTools.filter((t: unknown) => typeof t === "string");
         }
         if (parsed.customSettings && typeof parsed.customSettings === "object" && !Array.isArray(parsed.customSettings)) {
-          validated.customSettings = parsed.customSettings;
+          validated.customSettings = this.sanitizeCustomSettings(parsed.customSettings);
         }
 
         return { ...DEFAULT_SETTINGS, ...validated };
@@ -131,6 +143,46 @@ export class SettingsManager {
       log.warning(`⚠️  Failed to load settings: ${error}. Using defaults.`);
     }
     return { ...DEFAULT_SETTINGS };
+  }
+
+  /**
+   * Sanitize an untrusted customSettings object before it is stored and later
+   * spread/merged elsewhere. Strips prototype-pollution vectors
+   * ("__proto__"/"constructor"/"prototype"), drops nested objects/arrays
+   * (only primitive values are accepted), and bounds the number of keys.
+   * Builds the result on a null-prototype object so a poisoned key can never
+   * reach Object.prototype.
+   */
+  private sanitizeCustomSettings(raw: Record<string, any>): Record<string, any> {
+    const safe: Record<string, any> = Object.create(null);
+    let count = 0;
+
+    for (const key of Object.keys(raw)) {
+      // Reject prototype-pollution keys (own keys only via Object.keys).
+      if (FORBIDDEN_CUSTOM_KEYS.includes(key)) {
+        log.warning(`⚠️  Ignoring forbidden custom setting key: "${key}"`);
+        continue;
+      }
+
+      if (count >= MAX_CUSTOM_SETTINGS_KEYS) {
+        log.warning(
+          `⚠️  customSettings exceeds ${MAX_CUSTOM_SETTINGS_KEYS} keys; extra keys ignored.`
+        );
+        break;
+      }
+
+      const value = raw[key];
+      const valueType = typeof value;
+      // Constrain values to primitives to avoid nested injection vectors.
+      if (value === null || valueType === "string" || valueType === "number" || valueType === "boolean") {
+        safe[key] = value;
+        count++;
+      } else {
+        log.warning(`⚠️  Ignoring custom setting "${key}" with unsupported value type: ${valueType}`);
+      }
+    }
+
+    return safe;
   }
 
   /**

@@ -170,13 +170,12 @@ export class ChangeLog {
     to: Date,
     limit: number = 1000
   ): Promise<ChangeRecord[]> {
-    const changes = await this.getAllChanges(limit * 2);
-    return changes
-      .filter(c => {
-        const date = new Date(c.timestamp);
-        return date >= from && date <= to;
-      })
-      .slice(0, limit);
+    // Read only the monthly files overlapping the range (L48) rather than the
+    // whole history, then sort most-recent-first to preserve the prior contract.
+    const files = this.getLogFilesInRange(from, to);
+    const changes = this.readChangesFromFiles(files, from, to);
+    changes.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    return changes.slice(0, limit);
   }
 
   /**
@@ -216,6 +215,78 @@ export class ChangeLog {
     } catch (err) {
       log.debug(`change-log: read change log files: ${err instanceof Error ? err.message : String(err)}`);
       // Return what we have
+    }
+
+    return changes;
+  }
+
+  /**
+   * Select monthly log files whose YYYY-MM month overlaps the [from, to] range.
+   * Filenames are `changes-YYYY-MM.jsonl`; pushing the date filter into file
+   * selection avoids reading (and event-loop-blocking on) years of history when
+   * only a narrow report window is requested (L48). Returns newest-first.
+   */
+  private getLogFilesInRange(from?: Date, to?: Date): string[] {
+    if (!fs.existsSync(this.logDir)) return [];
+
+    // Use the same (local-time) month derivation as the filename convention
+    // (initializeLogFile/getLogFilePath). Widen the window by one month on each
+    // side so a record whose UTC timestamp lands in a file named for an adjacent
+    // local month is still considered; readChangesFromFiles applies the exact
+    // per-record date predicate, so widening never admits out-of-range records.
+    const monthKey = (d: Date): string =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const shiftMonth = (d: Date, delta: number): Date =>
+      new Date(d.getFullYear(), d.getMonth() + delta, 1);
+    const fromKey = from ? monthKey(shiftMonth(from, -1)) : undefined;
+    const toKey = to ? monthKey(shiftMonth(to, 1)) : undefined;
+
+    return fs.readdirSync(this.logDir)
+      .filter(f => f.startsWith("changes-") && f.endsWith(".jsonl"))
+      .filter(f => {
+        const month = f.slice("changes-".length, f.length - ".jsonl".length);
+        if (!/^\d{4}-\d{2}$/.test(month)) return false;
+        // Inclusive month-boundary comparison (lexicographic works for YYYY-MM).
+        if (fromKey && month < fromKey) return false;
+        if (toKey && month > toKey) return false;
+        return true;
+      })
+      .map(f => path.join(this.logDir, f))
+      .sort()
+      .reverse();
+  }
+
+  /**
+   * Read change records from a specific set of files, applying an optional
+   * date-range predicate. Used by range-bounded queries so only relevant
+   * monthly files are read rather than the entire history.
+   */
+  private readChangesFromFiles(files: string[], from?: Date, to?: Date): ChangeRecord[] {
+    const changes: ChangeRecord[] = [];
+
+    for (const filePath of files) {
+      try {
+        const content = fs.readFileSync(filePath, "utf-8");
+        const lines = content.trim().split("\n").filter(l => l);
+
+        for (const line of lines) {
+          try {
+            const record = JSON.parse(line) as ChangeRecord;
+            if (from || to) {
+              const date = new Date(record.timestamp);
+              if (from && date < from) continue;
+              if (to && date > to) continue;
+            }
+            changes.push(record);
+          } catch (err) {
+            log.debug(`change-log: parse change record line: ${err instanceof Error ? err.message : String(err)}`);
+            // Skip malformed lines
+          }
+        }
+      } catch (err) {
+        log.debug(`change-log: read change log file in range: ${err instanceof Error ? err.message : String(err)}`);
+        // Skip unreadable files
+      }
     }
 
     return changes;
@@ -264,15 +335,11 @@ export class ChangeLog {
     requiring_approval: number;
     compliance_affecting: number;
   }> {
-    const allChanges = await this.getAllChanges(10000);
-
-    let changes = allChanges;
-    if (from) {
-      changes = changes.filter(c => new Date(c.timestamp) >= from);
-    }
-    if (to) {
-      changes = changes.filter(c => new Date(c.timestamp) <= to);
-    }
+    // Read only the monthly files overlapping [from, to] and apply the exact
+    // date predicate per record, instead of slurping the entire 7-year history
+    // and filtering in memory (L48).
+    const files = this.getLogFilesInRange(from, to);
+    const changes = this.readChangesFromFiles(files, from, to);
 
     const byComponent: Record<string, number> = {};
     const byImpact: Record<string, number> = {};

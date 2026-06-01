@@ -137,26 +137,6 @@ export async function handleAskQuestion(
       };
     }
 
-    // === QUOTA CHECK ===
-    const quotaManager = getQuotaManager();
-    const canQuery = quotaManager.canMakeQuery();
-    if (!canQuery.allowed) {
-      log.warning(`⚠️ Quota limit: ${canQuery.reason}`);
-      const quotaError = canQuery.reason || "Query quota exceeded";
-      await audit.tool(
-        "ask_question",
-        getErrorAuditArgs("ask_question", quotaError),
-        false,
-        Date.now() - startTime,
-        quotaError
-      );
-      return {
-        success: false,
-        data: null,
-        error: quotaError || "Daily query limit reached. Try again tomorrow or upgrade your plan.",
-      };
-    }
-
     const browserOptionError = validateBrowserOptionRanges(browser_options);
     if (browserOptionError) {
       await audit.tool(
@@ -195,6 +175,39 @@ export async function handleAskQuestion(
     }
     throw error;
   }
+
+  // === QUOTA CHECK-AND-RESERVE (TOCTOU-safe) ===
+  // Atomically reserve a quota slot BEFORE running the (slow) browser query.
+  // This closes the race where concurrent sessions all pass a stale check and
+  // then increment afterwards, collectively exceeding the daily limit.
+  //
+  // This runs AFTER all up-front validation (so we never reserve a slot only to
+  // bail out on a validation error and leak it) and immediately before the
+  // query's try/catch — whose catch releases the slot if the query fails.
+  const quotaManager = getQuotaManager();
+  const canQuery = await quotaManager.checkAndReserveQuery();
+  if (!canQuery.allowed) {
+    log.warning(`⚠️ Quota limit: ${canQuery.reason}`);
+    const quotaError = canQuery.reason || "Query quota exceeded";
+    await audit.tool(
+      "ask_question",
+      getErrorAuditArgs("ask_question", quotaError),
+      false,
+      Date.now() - startTime,
+      quotaError
+    );
+    return {
+      success: false,
+      data: null,
+      error: quotaError || "Daily query limit reached. Try again tomorrow or upgrade your plan.",
+    };
+  }
+
+  // Tracks whether the reserved quota slot has been consumed by a query that
+  // actually ran. Once the query returns, the slot is legitimately spent and
+  // must NOT be released even if later post-success bookkeeping (logging/audit)
+  // throws — otherwise we'd under-count and report a successful query as failed.
+  let querySlotConsumed = false;
 
   try {
     // Resolve notebook URL (using validated values)
@@ -246,6 +259,11 @@ export async function handleAskQuestion(
 
     // Ask the question (pass progress callback) - using validated question
     const rawAnswer = await session.ask(safeQuestion, sendProgress);
+
+    // The query ran: the reserved quota slot is now legitimately consumed.
+    // Anything that throws after this point is post-success bookkeeping and
+    // must NOT release the slot.
+    querySlotConsumed = true;
 
     // === SECURITY: Validate response for prompt injection & malicious content ===
     await sendProgress?.("Validating response security...", 4, 5);
@@ -305,8 +323,10 @@ export async function handleAskQuestion(
 
       log.success(`✅ [TOOL] ask_question completed successfully`);
 
-      // Update quota tracking (atomic for concurrent session safety)
-      await getQuotaManager().incrementQueryCountAtomic();
+      // NOTE: the quota slot was already reserved (incremented) up front by
+      // checkAndReserveQuery(), so we do NOT increment again here — doing so
+      // would double-count. quotaStatus (from getDetailedStatus above) already
+      // reflects the reserved count.
 
       // Log query for research history (Phase 1)
       const queryLogger = getQueryLogger();
@@ -321,9 +341,10 @@ export async function handleAskQuestion(
         answerLength: finalAnswer.length,
         durationMs: Date.now() - startTime,
         quotaInfo: {
-          used: quotaStatus.queries.used + 1, // +1 because we just incremented
+          // Reservation already counted; no +1/-1 adjustment needed.
+          used: quotaStatus.queries.used,
           limit: quotaStatus.queries.limit,
-          remaining: quotaStatus.queries.remaining - 1,
+          remaining: quotaStatus.queries.remaining,
           tier: quotaStatus.tier,
         },
       });
@@ -341,6 +362,17 @@ export async function handleAskQuestion(
     };
   } catch (error) {
     const errorMessage = getSanitizedErrorMessage(error);
+
+    // The quota slot was reserved up front. Release it ONLY if the failure
+    // happened before/during the query (the slot was never consumed). If the
+    // query already ran, the slot is legitimately spent and is kept.
+    if (!querySlotConsumed) {
+      try {
+        await getQuotaManager().releaseReservation();
+      } catch (releaseError) {
+        log.warning(`⚠️ Failed to release reserved quota slot: ${releaseError instanceof Error ? releaseError.message : String(releaseError)}`);
+      }
+    }
 
     // Special handling for rate limit errors
     if (error instanceof RateLimitError) {

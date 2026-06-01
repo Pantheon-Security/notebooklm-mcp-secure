@@ -11,6 +11,7 @@ import crypto from "crypto";
 import path from "path";
 import fs from "fs";
 import { mkdirSecure, appendFileSecure } from "../utils/file-permissions.js";
+import { withLock } from "../utils/file-lock.js";
 import { log } from "../utils/logger.js";
 import { CONFIG } from "../config.js";
 import type {
@@ -123,25 +124,62 @@ export class ComplianceLogger {
   }
 
   /**
-   * Load the last hash from the current log file
+   * Read the last event's hash from a specific log file, or null if the file is
+   * absent/empty/unreadable.
    */
-  private loadLastHash(): void {
+  private readLastHashFromFile(logPath: string): string | null {
     try {
-      const logPath = this.getLogFilePath();
-      if (fs.existsSync(logPath)) {
-        const content = fs.readFileSync(logPath, "utf-8");
-        const lines = content.trim().split("\n").filter(line => line);
-        if (lines.length > 0) {
-          const lastLine = lines[lines.length - 1];
-          const lastEvent = JSON.parse(lastLine) as ComplianceEvent;
-          this.lastHash = lastEvent.hash;
-        }
+      if (!fs.existsSync(logPath)) return null;
+      const content = fs.readFileSync(logPath, "utf-8");
+      const lines = content.trim().split("\n").filter(line => line);
+      if (lines.length === 0) return null;
+      const lastEvent = JSON.parse(lines[lines.length - 1]) as ComplianceEvent;
+      return typeof lastEvent.hash === "string" && lastEvent.hash.length > 0
+        ? lastEvent.hash
+        : null;
+    } catch (err) {
+      log.debug(`compliance-logger: readLastHashFromFile read log file: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+  }
+
+  /**
+   * Return the last hash from the most recent monthly file before the current
+   * one, so a fresh month seeds its chain from the prior month rather than
+   * forking a new chain at month rollover (L49).
+   */
+  private findPreviousMonthLastHash(): string | null {
+    try {
+      if (!fs.existsSync(this.complianceDir)) return null;
+      const currentFile = path.basename(this.getLogFilePath());
+      const candidates = fs.readdirSync(this.complianceDir)
+        .filter(f => f.startsWith("events-") && f.endsWith(".jsonl") && f < currentFile)
+        .sort()
+        .reverse(); // most recent prior month first
+
+      for (const f of candidates) {
+        const hash = this.readLastHashFromFile(path.join(this.complianceDir, f));
+        if (hash) return hash;
       }
     } catch (err) {
-      log.debug(`compliance-logger: loadLastHash read log file: ${err instanceof Error ? err.message : String(err)}`);
-      // If we can't read the hash, start fresh
-      this.lastHash = "0".repeat(64);
+      log.debug(`compliance-logger: findPreviousMonthLastHash: ${err instanceof Error ? err.message : String(err)}`);
     }
+    return null;
+  }
+
+  /**
+   * Load the last hash to continue the chain. Prefer the current month's file;
+   * if it is empty/absent (month rollover), seed from the previous month's last
+   * hash so cross-month gaps don't fork the chain and trigger a false tamper signal.
+   */
+  private loadLastHash(): void {
+    const current = this.readLastHashFromFile(this.getLogFilePath());
+    if (current) {
+      this.lastHash = current;
+      return;
+    }
+    const prevMonth = this.findPreviousMonthLastHash();
+    this.lastHash = prevMonth || "0".repeat(64);
   }
 
   /**
@@ -180,30 +218,49 @@ export class ComplianceLogger {
       retention_days: options.retentionDays || this.retentionYears * 365,
       outcome,
       failure_reason: options.failureReason,
-      hash: "", // Will be computed
-      previous_hash: this.lastHash,
+      // previous_hash and hash are intentionally left blank here. They are stamped
+      // inside writeEvent's lock so concurrent log() calls and other processes
+      // cannot read the same this.lastHash and fork the chain (L49, mirrors H20).
+      hash: "",
+      previous_hash: "",
     };
-
-    // Compute hash (exclude hash field itself)
-    const hashInput = JSON.stringify({
-      ...event,
-      hash: undefined,
-    });
-    event.hash = computeHash(hashInput);
-    this.lastHash = event.hash;
 
     return event;
   }
 
   /**
-   * Write event to log file
+   * Write event to log file.
+   *
+   * The chain link (previous_hash), hash computation, append, and lastHash
+   * advance all happen inside a single withLock critical section so that
+   * concurrent processes / calls serialize their appends and never fork the
+   * hash chain (L49, mirrors audit-logger H20). The on-disk tail is treated as
+   * the source of truth for previous_hash, re-seeding from the file (including a
+   * prior-month seed on rollover) so a stale in-memory pointer cannot break the
+   * chain after another process appended.
    */
   private async writeEvent(event: ComplianceEvent): Promise<void> {
     if (!this.enabled) return;
 
     const logPath = this.getLogFilePath();
-    const line = JSON.stringify(event) + "\n";
-    appendFileSecure(logPath, line);
+
+    await withLock(logPath, async () => {
+      // Re-read the authoritative tail under the lock so the chain links from
+      // whatever was actually last written (by this or any other process).
+      const diskHash = this.readLastHashFromFile(logPath)
+        ?? this.findPreviousMonthLastHash()
+        ?? "0".repeat(64);
+
+      event.previous_hash = diskHash;
+      const hashInput = JSON.stringify({ ...event, hash: undefined });
+      event.hash = computeHash(hashInput);
+
+      const line = JSON.stringify(event) + "\n";
+      appendFileSecure(logPath, line);
+
+      // Advance the in-memory pointer only after the write succeeds.
+      this.lastHash = event.hash;
+    });
   }
 
   /**
@@ -556,6 +613,15 @@ export class ComplianceLogger {
       totalEvents,
       validEvents,
     };
+  }
+
+  /**
+   * Return the current in-memory chain head (hash of the last event this process
+   * wrote, or the seeded value at startup). Diagnostic only — writeEvent always
+   * re-reads the authoritative tail from disk under lock before linking (L49).
+   */
+  public getChainHead(): string {
+    return this.lastHash;
   }
 
   /**

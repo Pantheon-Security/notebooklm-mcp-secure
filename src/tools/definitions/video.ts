@@ -43,7 +43,7 @@ const generateVideoOverviewTool: Tool = {
 
 ## Example
 \`\`\`json
-{ "notebook_id": "my-research", "style": "documentary", "format": "brief" }
+{ "notebook_id": "my-research", "style": "whiteboard", "format": "brief" }
 \`\`\``,
   inputSchema: {
     type: "object",
@@ -55,11 +55,13 @@ const generateVideoOverviewTool: Tool = {
       },
       notebook_url: {
         type: "string",
+        pattern: "^https://notebooklm\\.google\\.com/",
+        maxLength: 512,
         description: "Or direct notebook URL (overrides notebook_id)",
       },
       style: {
         type: "string",
-        enum: ["auto-select", "custom", "classic", "whiteboard", "kawaii", "anime", "watercolour", "retro-print", "heritage", "paper-craft", "documentary"],
+        enum: ["auto-select", "custom", "classic", "whiteboard", "kawaii", "anime", "watercolour", "retro-print", "heritage", "paper-craft"],
         default: "auto-select",
         description: "Visual style for the video overview",
       },
@@ -99,6 +101,8 @@ const getVideoStatusTool: Tool = {
       },
       notebook_url: {
         type: "string",
+        pattern: "^https://notebooklm\\.google\\.com/",
+        maxLength: 512,
         description: "Or direct notebook URL (overrides notebook_id)",
       },
     },

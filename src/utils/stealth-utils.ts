@@ -150,8 +150,9 @@ export async function humanType(
   await page.click(selector);
   await randomDelay(20, 60);
 
-  // Type each character
-  let currentText = "";
+  // Type each character via real key events (keydown/keyup) rather than
+  // rewriting the whole field value each time (avoids O(n) full-value fills
+  // and produces genuine keyboard events for anti-detection).
   let i = 0;
 
   while (i < text.length) {
@@ -161,22 +162,19 @@ export async function humanType(
     if (withTypos && Math.random() < 0.003 && i > 0) {
       // Type wrong character
       const wrongChar = randomChar();
-      currentText += wrongChar;
-      await page.fill(selector, currentText);
+      await page.keyboard.type(wrongChar);
 
       // Shorter notice window for faster typing
       const noticeDelay = randomFloat(avgDelayMs * 0.6, avgDelayMs * 1.1);
       await sleep(noticeDelay);
 
       // Backspace
-      currentText = currentText.slice(0, -1);
-      await page.fill(selector, currentText);
+      await page.keyboard.press("Backspace");
       await randomDelay(20, 60);
     }
 
     // Type correct character
-    currentText += char;
-    await page.fill(selector, currentText);
+    await page.keyboard.type(char);
 
     // Variable delay between characters – tuned for faster but still human-like typing
     let delay: number;
@@ -223,10 +221,15 @@ export async function randomMouseMovement(
     return;
   }
 
+  // Read the actual headless window size once; coords from callers (e.g.
+  // boundingBox) may exceed CONFIG.viewport if the real window is smaller.
   const viewport = page.viewportSize() || CONFIG.viewport;
 
   targetX = targetX ?? randomInt(100, viewport.width - 100);
   targetY = targetY ?? randomInt(100, viewport.height - 100);
+  // Clamp resolved target to the actual viewport bounds.
+  targetX = Math.max(0, Math.min(viewport.width, targetX));
+  targetY = Math.max(0, Math.min(viewport.height, targetY));
   steps = steps ?? randomInt(10, 25);
 
   // Start from a random position (we don't know current position)

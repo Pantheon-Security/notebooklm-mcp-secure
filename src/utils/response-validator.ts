@@ -146,23 +146,26 @@ const PROMPT_INJECTION_PATTERNS: Array<{ pattern: RegExp; description: string; s
 /**
  * Suspicious URL patterns
  */
+// Precompiled with the global flag so detectSuspiciousUrls can call matchAll
+// directly without re-allocating a RegExp per pattern per call (I-L55).
+// matchAll clones the regex internally, so module-level reuse is state-safe.
 const SUSPICIOUS_URL_PATTERNS: Array<{ pattern: RegExp; description: string }> = [
   // URL shorteners (could hide malicious destinations)
-  { pattern: /https?:\/\/(bit\.ly|tinyurl\.com|t\.co|goo\.gl|ow\.ly|is\.gd|buff\.ly|adf\.ly|j\.mp)\//i, description: "URL shortener" },
+  { pattern: /https?:\/\/(bit\.ly|tinyurl\.com|t\.co|goo\.gl|ow\.ly|is\.gd|buff\.ly|adf\.ly|j\.mp)\//gi, description: "URL shortener" },
   // Paste/sharing services (data exfiltration)
-  { pattern: /https?:\/\/(pastebin\.com|hastebin\.com|paste\.ee|ghostbin\.com|dpaste\.org)\//i, description: "Paste service" },
+  { pattern: /https?:\/\/(pastebin\.com|hastebin\.com|paste\.ee|ghostbin\.com|dpaste\.org)\//gi, description: "Paste service" },
   // File sharing (potential malware)
-  { pattern: /https?:\/\/(anonfiles\.com|mediafire\.com|zippyshare\.com|sendspace\.com)\//i, description: "File sharing service" },
+  { pattern: /https?:\/\/(anonfiles\.com|mediafire\.com|zippyshare\.com|sendspace\.com)\//gi, description: "File sharing service" },
   // Dangerous protocols
-  { pattern: /javascript:/i, description: "JavaScript protocol" },
-  { pattern: /\bdata:[a-z]+\/[a-z][\w+-]+/i, description: "Data protocol" },
-  { pattern: /file:\/\//i, description: "File protocol" },
-  { pattern: /vbscript:/i, description: "VBScript protocol" },
+  { pattern: /javascript:/gi, description: "JavaScript protocol" },
+  { pattern: /\bdata:[a-z]+\/[a-z][\w+-]+/gi, description: "Data protocol" },
+  { pattern: /file:\/\//gi, description: "File protocol" },
+  { pattern: /vbscript:/gi, description: "VBScript protocol" },
   // IP addresses (potential C2)
-  { pattern: /https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/i, description: "Raw IP address URL" },
+  { pattern: /https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/gi, description: "Raw IP address URL" },
   // Webhook URLs (data exfiltration)
-  { pattern: /https?:\/\/[^\/]*webhook/i, description: "Webhook URL" },
-  { pattern: /https?:\/\/[^\/]*discord(app)?\.com\/api\/webhooks/i, description: "Discord webhook" },
+  { pattern: /https?:\/\/[^\/]*webhook/gi, description: "Webhook URL" },
+  { pattern: /https?:\/\/[^\/]*discord(app)?\.com\/api\/webhooks/gi, description: "Discord webhook" },
 ];
 
 /**
@@ -327,9 +330,8 @@ export class ResponseValidator {
     const results: Array<{ pattern: RegExp; description: string; url: string }> = [];
 
     for (const { pattern, description } of SUSPICIOUS_URL_PATTERNS) {
-      // Use source to create a new RegExp with global flag for matchAll
-      const globalPattern = new RegExp(pattern.source, "gi");
-      const matches = text.matchAll(globalPattern);
+      // Reuse the precompiled global pattern; matchAll clones it so no lastIndex leak.
+      const matches = text.matchAll(pattern);
       for (const match of matches) {
         results.push({
           pattern,
@@ -354,10 +356,12 @@ export class ResponseValidator {
         const matchStr = match[0];
         if (matchStr.length < minLength) continue;
         if (minEntropy !== undefined && shannonEntropy(matchStr) < minEntropy) continue;
+        // Carry the FULL match so validate()'s replaceAll can actually redact it
+        // when blockEncodedPayloads is enabled (truncating broke redaction) (I-L57).
         results.push({
           pattern,
           description,
-          match: matchStr.substring(0, 50) + (matchStr.length > 50 ? "..." : ""),
+          match: matchStr,
         });
       }
     }

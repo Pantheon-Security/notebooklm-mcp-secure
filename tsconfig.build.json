@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "sourceMap": false,
+    "declarationMap": false
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "Old_Python_Vesion",
+    "src/notebook-creation/discover-sources.ts",
+    "src/notebook-creation/discover-creation-flow.ts",
+    "src/notebook-creation/discover-quota.ts",
+    "src/notebook-creation/discover-source-dialog.ts",
+    "src/notebook-creation/discover-text-input.ts",
+    "src/notebook-creation/run-discovery.ts",
+    "src/notebook-creation/selector-discovery.ts",
+    "src/notebook-creation/test-create.ts"
+  ]
+}

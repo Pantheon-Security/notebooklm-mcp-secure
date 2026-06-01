@@ -238,11 +238,45 @@ export class ReportGenerator {
     const dataInventory = getDataInventory();
     const dsarHandler = getDSARHandler();
     const retentionEngine = getRetentionEngine();
+    const dashboard = getComplianceDashboard();
 
     const consents = await consentManager.getActiveConsents();
     const inventory = await dataInventory.getAll();
     const dsarSummary = await dsarHandler.getStatistics();
     const retentionStatus = await retentionEngine.getStatus();
+    const dashboardData = await dashboard.generateDashboard();
+
+    // Derive per-consent validity from real fields (mirrors evidence-collector):
+    // a consent is valid only if it is not revoked and not past its optional expiry.
+    const now = new Date();
+    const consentRows = consents.map((c: { purposes: string[]; legal_basis: string; granted_at: string; expires_at?: string; revoked?: boolean }) => {
+      const valid = !c.revoked && (!c.expires_at || new Date(c.expires_at) > now);
+      return {
+        purpose: c.purposes.join(", "),
+        legal_basis: c.legal_basis,
+        granted: c.granted_at,
+        valid,
+      };
+    });
+    const validConsents = consentRows.filter(c => c.valid).length;
+
+    // Build compliance verdict from real signals rather than hardcoding "compliant".
+    const gaps: string[] = [];
+    const recommendations: string[] = [];
+    const invalidConsents = consents.length - validConsents;
+    if (invalidConsents > 0) {
+      gaps.push(`${invalidConsents} consent record(s) are revoked or expired (Article 6 legal basis).`);
+      recommendations.push("Re-obtain or retire invalid consent records.");
+    }
+    if (dsarSummary.pending_requests > 0) {
+      gaps.push(`${dsarSummary.pending_requests} data subject request(s) pending (Articles 15/17).`);
+      recommendations.push("Process pending DSARs within the 30-day deadline.");
+    }
+    if (dashboardData.gdpr.status === "non_compliant") {
+      gaps.push("GDPR dashboard status is non-compliant.");
+    }
+    // Compliant only when the dashboard agrees and no concrete gaps were found.
+    const gdprCompliant = dashboardData.gdpr.status === "compliant" && gaps.length === 0;
 
     const report = {
       title: "GDPR Compliance Audit Report",
@@ -256,13 +290,8 @@ export class ReportGenerator {
       article_6_legal_basis: {
         description: "Lawfulness of Processing",
         consent_records: consents.length,
-        valid_consents: consents.length, // All active consents are valid
-        consents: consents.map((c: { purposes: string[]; legal_basis: string; granted_at: string }) => ({
-          purpose: c.purposes.join(", "),
-          legal_basis: c.legal_basis,
-          granted: c.granted_at,
-          valid: true,
-        })),
+        valid_consents: validConsents, // Derived: not revoked and not expired
+        consents: consentRows,
       },
       article_15_17_access_erasure: {
         description: "Data Subject Access and Erasure Rights",
@@ -281,9 +310,10 @@ export class ReportGenerator {
         status: retentionStatus,
       },
       compliance_status: {
-        compliant: true,
-        gaps: [],
-        recommendations: [],
+        compliant: gdprCompliant,
+        status: dashboardData.gdpr.status,
+        gaps,
+        recommendations,
       },
     };
 
@@ -327,7 +357,10 @@ export class ReportGenerator {
           principle: "CC7 - System Operations",
           controls: {
             health_monitoring: true,
+            // Availability % is not measured (no downtime accounting); expose the
+            // raw value (null) and the measurement flag rather than a fake figure.
             uptime_percentage: dashboardData.soc2.availability.uptime_percentage,
+            uptime_percentage_measured: dashboardData.soc2.availability.uptime_percentage_measured,
             status: dashboardData.health.status,
           },
           status: dashboardData.health.status === "healthy" ? "Met" : "Partially Met",
@@ -391,12 +424,27 @@ export class ReportGenerator {
     const complianceLogger = getComplianceLogger();
     const policyManager = getPolicyDocManager();
     const incidentManager = getIncidentManager();
+    const dashboard = getComplianceDashboard();
 
     const loggerStats = await complianceLogger.getStats();
     const integrity = await complianceLogger.verifyIntegrity();
     const policies = await policyManager.getAllPolicies();
     const policySummary = await policyManager.getPolicySummary();
     const incidentStats = await incidentManager.getStatistics();
+    const dashboardData = await dashboard.generateDashboard();
+
+    // Derive the overall CSSF verdict from real signals rather than hardcoding.
+    const cssfGaps: string[] = [];
+    if (!loggerStats.enabled) cssfGaps.push("Compliance audit logging is disabled (Section 4.3 audit trail).");
+    if (!integrity.valid) cssfGaps.push("Audit log hash-chain integrity verification failed (tamper evidence).");
+    if (policySummary.due_for_review > 0) cssfGaps.push(`${policySummary.due_for_review} policy/policies are overdue for review (Section 3 IT governance).`);
+    if (incidentStats.open_incidents > 0) cssfGaps.push(`${incidentStats.open_incidents} security incident(s) open (Section 5 incident management).`);
+    // Map dashboard status to the report's verbal verdict.
+    const cssfOverall = dashboardData.cssf.status === "compliant"
+      ? "Compliant"
+      : dashboardData.cssf.status === "at_risk"
+        ? "At Risk"
+        : "Non-Compliant";
 
     const report = {
       title: "CSSF Compliance Audit Report",
@@ -421,7 +469,8 @@ export class ReportGenerator {
           total_incidents: incidentStats.total_incidents,
         },
         statistics: incidentStats,
-        status: "Compliant",
+        // Open incidents indicate active remediation rather than a clean control.
+        status: incidentStats.open_incidents > 0 ? "At Risk" : "Compliant",
       },
       policy_management: {
         circular_reference: "Section 3 - IT Governance",
@@ -442,8 +491,8 @@ export class ReportGenerator {
         status: policySummary.due_for_review === 0 ? "Compliant" : "At Risk",
       },
       compliance_status: {
-        overall: "Compliant",
-        gaps: [],
+        overall: cssfOverall,
+        gaps: cssfGaps,
         recommendations: [],
       },
     };
@@ -506,6 +555,7 @@ export class ReportGenerator {
         total_24h: dashboardData.security.alerts.total_24h,
         critical_24h: dashboardData.security.alerts.critical_24h,
         unacknowledged: dashboardData.security.alerts.unacknowledged,
+        unacknowledged_tracked: dashboardData.security.alerts.unacknowledged_tracked,
       },
       recommendations: [],
     };
@@ -687,28 +737,49 @@ export class ReportGenerator {
     to: Date,
     format: ReportFormat
   ): Promise<string> {
-    const [gdpr, soc2, cssf, security, incidents, dsar, retention, changes] = await Promise.all([
-      this.generateGDPRAudit(from, to, "json"),
-      this.generateSOC2Audit(from, to, "json"),
-      this.generateCSSFAudit(from, to, "json"),
-      this.generateSecurityAudit(from, to, "json"),
-      this.generateIncidentReport(from, to, "json"),
-      this.generateDSARReport(from, to, "json"),
-      this.generateRetentionReport(from, to, "json"),
-      this.generateChangeManagementReport(from, to, "json"),
-    ]);
+    // Generate each sub-report independently so a single failure degrades that
+    // one section instead of opaquely sinking the whole audit (L47). Sub-reports
+    // are produced as JSON strings then parsed back into objects; a rejected
+    // section is replaced with an explicit error placeholder.
+    const sections: Array<{ key: string; gen: () => Promise<string> }> = [
+      { key: "gdpr_audit", gen: () => this.generateGDPRAudit(from, to, "json") },
+      { key: "soc2_audit", gen: () => this.generateSOC2Audit(from, to, "json") },
+      { key: "cssf_audit", gen: () => this.generateCSSFAudit(from, to, "json") },
+      { key: "security_audit", gen: () => this.generateSecurityAudit(from, to, "json") },
+      { key: "incident_report", gen: () => this.generateIncidentReport(from, to, "json") },
+      { key: "dsar_report", gen: () => this.generateDSARReport(from, to, "json") },
+      { key: "retention_report", gen: () => this.generateRetentionReport(from, to, "json") },
+      { key: "change_management", gen: () => this.generateChangeManagementReport(from, to, "json") },
+    ];
 
-    const report = {
+    const results = await Promise.allSettled(sections.map(s => s.gen()));
+
+    const report: Record<string, unknown> = {
       title: "Comprehensive Compliance Audit Report",
       period: { from: from.toISOString(), to: to.toISOString() },
-      gdpr_audit: JSON.parse(gdpr),
-      soc2_audit: JSON.parse(soc2),
-      cssf_audit: JSON.parse(cssf),
-      security_audit: JSON.parse(security),
-      incident_report: JSON.parse(incidents),
-      dsar_report: JSON.parse(dsar),
-      retention_report: JSON.parse(retention),
-      change_management: JSON.parse(changes),
+    };
+
+    const failedSections: string[] = [];
+    results.forEach((result, i) => {
+      const key = sections[i].key;
+      if (result.status === "fulfilled") {
+        try {
+          report[key] = JSON.parse(result.value);
+        } catch (err) {
+          failedSections.push(key);
+          report[key] = { error: `Failed to parse section: ${err instanceof Error ? err.message : String(err)}` };
+        }
+      } else {
+        failedSections.push(key);
+        const reason = result.reason;
+        report[key] = { error: `Failed to generate section: ${reason instanceof Error ? reason.message : String(reason)}` };
+      }
+    });
+
+    // Surface partial-failure so an incomplete audit is never mistaken for a clean one.
+    report.generation_status = {
+      complete: failedSections.length === 0,
+      failed_sections: failedSections,
     };
 
     return this.formatOutput(report, format);
@@ -776,11 +847,24 @@ export class ReportGenerator {
 
     lines.push("Key,Value");
     for (const [key, value] of Object.entries(flattened)) {
-      const escapedValue = String(value).replace(/"/g, '""');
-      lines.push(`"${key}","${escapedValue}"`);
+      lines.push(`${this.csvSafeCell(key)},${this.csvSafeCell(value)}`);
     }
 
     return lines.join("\n");
+  }
+
+  /**
+   * Quote a CSV cell and neutralize formula injection.
+   * If the value begins with =, +, -, @, tab, or CR it is prefixed with a
+   * single quote so spreadsheet apps (Excel/Sheets) treat it as text rather
+   * than a formula. Embedded double-quotes are doubled per RFC 4180.
+   */
+  private csvSafeCell(value: string | number | boolean): string {
+    let str = String(value);
+    if (/^[=+\-@\t\r]/.test(str)) {
+      str = `'${str}`;
+    }
+    return `"${str.replace(/"/g, '""')}"`;
   }
 
   /**

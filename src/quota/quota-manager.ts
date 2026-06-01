@@ -66,9 +66,18 @@ const TIER_LIMITS: Record<LicenseTier, QuotaLimits> = {
 };
 
 const MAX_REASONABLE_QUERIES = 10_000;
+const MAX_REASONABLE_NOTEBOOKS = 100_000;
 const PAGE_EVALUATE_TIMEOUT_MS = 30_000;
 
-let notebookIncrementQueue: Promise<void> = Promise.resolve();
+/** Type guard: is the given string a known license tier? */
+function isKnownTier(tier: unknown): tier is LicenseTier {
+  return typeof tier === "string" && Object.prototype.hasOwnProperty.call(TIER_LIMITS, tier);
+}
+
+/** Always derive limits from the authoritative tier table (never trust on-disk limits). */
+function deriveLimitsForTier(tier: LicenseTier): QuotaLimits {
+  return { ...TIER_LIMITS[tier] };
+}
 
 type BrowserDomElement = unknown;
 
@@ -104,9 +113,10 @@ export class QuotaManager {
     try {
       if (fs.existsSync(this.settingsPath)) {
         const data = fs.readFileSync(this.settingsPath, "utf-8");
-        const loaded = JSON.parse(data) as QuotaSettings;
-        log.info(`📊 Loaded quota settings (tier: ${loaded.tier})`);
-        return loaded;
+        const parsed = JSON.parse(data) as unknown;
+        const validated = this.validateSettings(parsed);
+        log.info(`📊 Loaded quota settings (tier: ${validated.tier})`);
+        return validated;
       }
     } catch (error) {
       log.warning(`⚠️ Could not load quota settings: ${error}`);
@@ -114,6 +124,66 @@ export class QuotaManager {
 
     // Return defaults
     return this.getDefaultSettings();
+  }
+
+  /**
+   * Validate and sanitise an untrusted (user-writable) settings object.
+   *
+   * The quota.json file is user-writable, so a tampered or stale file must not
+   * be able to disable enforcement (e.g. by setting limits to 1e12/0/strings or
+   * omitting usage fields, which would otherwise yield NaN comparisons). Tier is
+   * constrained to a known key (falls back to "unknown"); limits are ALWAYS
+   * derived from TIER_LIMITS[tier] and never trusted from disk; usage fields are
+   * coerced to finite numbers and defaulted when missing.
+   */
+  private validateSettings(parsed: unknown): QuotaSettings {
+    if (!parsed || typeof parsed !== "object") {
+      log.warning("⚠️ Quota settings file is not an object; using defaults");
+      return this.getDefaultSettings();
+    }
+
+    const obj = parsed as Record<string, unknown>;
+    const defaults = this.getDefaultSettings();
+
+    // Tier must be a known key, otherwise fall back to a safe default.
+    let tier: LicenseTier = "unknown";
+    if (isKnownTier(obj.tier)) {
+      tier = obj.tier;
+    } else if (obj.tier !== undefined) {
+      log.warning(`⚠️ Unknown tier "${String(obj.tier)}" in quota settings; falling back to "unknown"`);
+    }
+
+    // CRUCIAL: derive limits from the tier table, never trust on-disk values.
+    const limits = deriveLimitsForTier(tier);
+
+    const rawUsage =
+      obj.usage && typeof obj.usage === "object"
+        ? (obj.usage as Record<string, unknown>)
+        : {};
+
+    const coerceCount = (value: unknown, max: number): number => {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n < 0) return 0;
+      return Math.min(Math.floor(n), max);
+    };
+
+    const queriesUsedToday = coerceCount(rawUsage.queriesUsedToday, MAX_REASONABLE_QUERIES);
+    const notebooks = coerceCount(rawUsage.notebooks, MAX_REASONABLE_NOTEBOOKS);
+    const lastQueryDate =
+      typeof rawUsage.lastQueryDate === "string" && rawUsage.lastQueryDate.length > 0
+        ? rawUsage.lastQueryDate
+        : defaults.usage.lastQueryDate;
+    const lastUpdated =
+      typeof rawUsage.lastUpdated === "string" && rawUsage.lastUpdated.length > 0
+        ? rawUsage.lastUpdated
+        : defaults.usage.lastUpdated;
+
+    return {
+      tier,
+      limits,
+      usage: { notebooks, queriesUsedToday, lastQueryDate, lastUpdated },
+      autoDetected: typeof obj.autoDetected === "boolean" ? obj.autoDetected : false,
+    };
   }
 
   /**
@@ -155,20 +225,25 @@ export class QuotaManager {
   }
 
   /**
-   * Reset daily query counters when the date changes and persist the rollover.
+   * Effective (rolled-over) query count for TODAY, computed WITHOUT mutating or
+   * persisting settings. If the stored lastQueryDate is not today, the count is
+   * treated as 0 (the day has rolled over) but no write occurs — persisting the
+   * rollover is the exclusive responsibility of incrementQueryCountAtomic /
+   * checkAndReserveQuery (see I285). Shared by all readers (getStatus,
+   * getDetailedStatus, updateQuotaMetrics, canMakeQuery) so they never report a
+   * stale pre-rollover count.
    */
-  private rolloverIfNeeded(): boolean {
+  private effectiveQueriesUsedToday(): number {
     const today = new Date().toISOString().split("T")[0];
+    return this.settings.usage.lastQueryDate === today
+      ? this.settings.usage.queriesUsedToday
+      : 0;
+  }
 
-    if (this.settings.usage.lastQueryDate === today) {
-      return false;
-    }
-
-    this.settings.usage.queriesUsedToday = 0;
-    this.settings.usage.lastQueryDate = today;
-    this.settings.usage.lastUpdated = new Date().toISOString();
-    this.saveSettings();
-    return true;
+  /** Percentage guard: avoid NaN/Infinity when the limit is zero or invalid. */
+  private static safePercent(used: number, limit: number): number {
+    if (!Number.isFinite(limit) || limit <= 0) return 0;
+    return Math.round((used / limit) * 100);
   }
 
   private async evaluateWithTimeout<T>(
@@ -278,11 +353,15 @@ export class QuotaManager {
   async extractSourceLimitFromDialog(page: Page): Promise<number | null> {
     const limitInfo = await this.evaluateWithTimeout(page, () => {
       const browser = globalThis as unknown as BrowserDocumentContext;
-      // Look for X/Y pattern
+      // Look for the "X / Y" source-count pattern, but ONLY accept a KNOWN
+      // source limit (50/300/600). A broad /\d+\/\d+/ matches any unrelated
+      // fraction on the page (timestamps, "3/5 steps", etc.), which previously
+      // let an arbitrary number through as the source limit and misdetected the
+      // tier upward. Mirror the whitelist used by detectTierFromPage.
       const allText = browser.document.body.innerText;
-      const match = allText.match(/(\d+)\s*\/\s*(\d+)/);
+      const match = allText.match(/\b(\d+)\s*\/\s*(50|300|600)\b/);
       if (match) {
-        return parseInt(match[2], 10); // Return the limit (Y in X/Y)
+        return parseInt(match[2], 10); // Return the whitelisted limit (Y in X/Y)
       }
       return null;
     });
@@ -478,11 +557,16 @@ export class QuotaManager {
     // Try to extract query usage from UI
     const queryUsage = await this.extractQueryUsageFromUI(page);
     if (queryUsage) {
-      // Update local tracking with Google's numbers
+      // Update local tracking with Google's numbers.
       this.settings.usage.queriesUsedToday = Math.min(queryUsage.used, MAX_REASONABLE_QUERIES);
-      this.settings.limits.queriesPerDay = queryUsage.limit;
+      // Scraped page numbers are untrusted: a spoofed/injected page (e.g.
+      // "0/999999") must never raise the enforced daily limit above the
+      // documented value for the detected tier. Treat the scraped limit only as
+      // a hint and clamp it to the tier's authoritative ceiling.
+      const tierCeiling = deriveLimitsForTier(this.settings.tier).queriesPerDay;
+      this.settings.limits.queriesPerDay = Math.min(Math.max(1, queryUsage.limit), tierCeiling);
       this.settings.usage.lastQueryDate = new Date().toISOString().split("T")[0];
-      log.info(`  Synced query usage from Google: ${this.settings.usage.queriesUsedToday}/${queryUsage.limit}`);
+      log.info(`  Synced query usage from Google: ${this.settings.usage.queriesUsedToday}/${this.settings.limits.queriesPerDay}`);
     }
 
     // Check for rate limit
@@ -557,24 +641,28 @@ export class QuotaManager {
 
   /**
    * Increment notebook count
+   *
+   * Uses the same withLock(settingsPath) transaction as
+   * incrementQueryCountAtomic (reload-under-lock → increment → persist) so the
+   * notebook counter shares ONE concurrency mechanism with the query counters
+   * (no separate ad-hoc promise queue). The lock provides mutual exclusion and
+   * the reload-under-lock prevents lost updates across concurrent callers;
+   * strict FIFO ordering is not required for a counter.
+   *
+   * Fail-soft contract preserved: this method logs and resolves on error rather
+   * than rejecting, since external callers may not catch.
    */
-  incrementNotebookCount(): Promise<void> {
-    notebookIncrementQueue = notebookIncrementQueue
-      .catch((error) => {
-        log.error(`❌ Notebook increment queue recovered from prior failure: ${error}`);
-      })
-      .then(async () => {
-        await withLock(this.settingsPath, async () => {
-          this.settings = this.loadSettings();
-          this.settings.usage.notebooks++;
-          this.settings.usage.lastUpdated = new Date().toISOString();
-          this.saveSettings();
-        });
-      })
-      .catch((error) => {
-        log.error(`❌ Could not increment notebook count: ${error}`);
+  async incrementNotebookCount(): Promise<void> {
+    try {
+      await withLock(this.settingsPath, async () => {
+        this.settings = this.loadSettings();
+        this.settings.usage.notebooks++;
+        this.settings.usage.lastUpdated = new Date().toISOString();
+        this.saveSettings();
       });
-    return notebookIncrementQueue;
+    } catch (error) {
+      log.error(`❌ Could not increment notebook count: ${error}`);
+    }
   }
 
   /**
@@ -639,6 +727,84 @@ export class QuotaManager {
   }
 
   /**
+   * Atomically check the daily quota and reserve (increment) a slot in a single
+   * locked, disk-reloaded transaction.
+   *
+   * This closes the TOCTOU window where concurrent sessions/processes all pass a
+   * stale in-memory check (canMakeQuery) and then increment only after the slow
+   * browser query completes, collectively exceeding the daily limit. The slot is
+   * reserved up front, BEFORE the query runs.
+   *
+   * Returns { allowed, reason? }. Callers MUST run the query only when allowed,
+   * and call releaseReservation() if the query subsequently fails.
+   */
+  async checkAndReserveQuery(): Promise<{ allowed: boolean; reason?: string }> {
+    return await withLock(this.settingsPath, async () => {
+      // Reload latest settings from disk (another process may have updated).
+      this.settings = this.loadSettings();
+
+      const today = new Date().toISOString().split("T")[0];
+
+      // Reset if new day (mirror incrementQueryCountAtomic rollover idiom).
+      if (this.settings.usage.lastQueryDate !== today) {
+        this.settings.usage.queriesUsedToday = 0;
+        this.settings.usage.lastQueryDate = today;
+      }
+
+      // CRUCIAL: derive the limit from the tier table, never trust on-disk limit.
+      const limit = deriveLimitsForTier(this.settings.tier).queriesPerDay;
+
+      if (this.settings.usage.queriesUsedToday >= limit) {
+        getMetricsRegistry().increment("quota_query_denials_total", { tier: this.settings.tier });
+        this.updateQuotaMetrics();
+        return {
+          allowed: false,
+          reason: `Daily query limit reached (${this.settings.usage.queriesUsedToday}/${limit}). Try again tomorrow or upgrade your plan.`,
+        };
+      }
+
+      // Reserve the slot now, before the query runs.
+      this.settings.usage.queriesUsedToday += 1;
+      this.settings.usage.lastUpdated = new Date().toISOString();
+      this.updateQuotaMetrics();
+      this.persistWithLockHeld();
+
+      return { allowed: true };
+    });
+  }
+
+  /**
+   * Release a previously reserved query slot (e.g. when the query failed after
+   * reservation in checkAndReserveQuery). Atomic and floored at zero so it can
+   * never underflow.
+   */
+  async releaseReservation(): Promise<void> {
+    await withLock(this.settingsPath, async () => {
+      this.settings = this.loadSettings();
+      this.settings.usage.queriesUsedToday = Math.max(0, this.settings.usage.queriesUsedToday - 1);
+      this.settings.usage.lastUpdated = new Date().toISOString();
+      this.updateQuotaMetrics();
+      this.persistWithLockHeld();
+    });
+  }
+
+  /**
+   * Persist current settings to disk while a file lock is already held.
+   * Mirrors the write performed inside incrementQueryCountAtomic.
+   */
+  private persistWithLockHeld(): void {
+    const dir = path.dirname(this.settingsPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    }
+    fs.writeFileSync(
+      this.settingsPath,
+      JSON.stringify(this.settings, null, 2),
+      { mode: 0o600 }
+    );
+  }
+
+  /**
    * Refresh settings from disk with file locking
    *
    * Use this to ensure you have the latest quota state from disk.
@@ -694,11 +860,7 @@ export class QuotaManager {
   canMakeQuery(): { allowed: boolean; reason?: string } {
     // Pure read: determine effective count without mutating settings.
     // Rollover mutation is handled exclusively in incrementQueryCountAtomic (I285).
-    const today = new Date().toISOString().split("T")[0];
-    const queriesUsedToday =
-      this.settings.usage.lastQueryDate === today
-        ? this.settings.usage.queriesUsedToday
-        : 0; // New day — treat count as 0 without persisting
+    const queriesUsedToday = this.effectiveQueriesUsedToday();
 
     const { queriesPerDay: limit } = this.settings.limits;
 
@@ -721,12 +883,12 @@ export class QuotaManager {
     return { allowed: true };
   }
 
-  private updateQuotaMetrics(queriesUsedToday = this.settings.usage.queriesUsedToday): void {
+  private updateQuotaMetrics(queriesUsedToday = this.effectiveQueriesUsedToday()): void {
     const { tier, limits } = this.settings;
     const registry = getMetricsRegistry();
     registry.setGauge("quota_queries_used", queriesUsedToday, { tier });
     registry.setGauge("quota_queries_limit", limits.queriesPerDay, { tier });
-    registry.setGauge("quota_queries_percent", Math.round((queriesUsedToday / limits.queriesPerDay) * 100), { tier });
+    registry.setGauge("quota_queries_percent", QuotaManager.safePercent(queriesUsedToday, limits.queriesPerDay), { tier });
   }
 
   /**
@@ -739,21 +901,24 @@ export class QuotaManager {
     queries: { used: number; limit: number; percent: number };
   } {
     const { tier, limits, usage } = this.settings;
+    // Use the effective (rolled-over) count so getStatus never reports a stale
+    // pre-rollover figure; guard all percentages against a zero/invalid limit.
+    const queriesUsedToday = this.effectiveQueriesUsedToday();
 
     return {
       tier,
       notebooks: {
         used: usage.notebooks,
         limit: limits.notebooks,
-        percent: Math.round((usage.notebooks / limits.notebooks) * 100),
+        percent: QuotaManager.safePercent(usage.notebooks, limits.notebooks),
       },
       sources: {
         limit: limits.sourcesPerNotebook,
       },
       queries: {
-        used: usage.queriesUsedToday,
+        used: queriesUsedToday,
         limit: limits.queriesPerDay,
-        percent: Math.round((usage.queriesUsedToday / limits.queriesPerDay) * 100),
+        percent: QuotaManager.safePercent(queriesUsedToday, limits.queriesPerDay),
       },
     };
   }
@@ -783,14 +948,17 @@ export class QuotaManager {
     };
     warnings: string[];
   } {
-    this.rolloverIfNeeded();
-
+    // Pure read of the effective (rolled-over) count — consistent with
+    // getStatus/canMakeQuery. Rollover is NOT persisted here; that is the
+    // exclusive responsibility of incrementQueryCountAtomic/checkAndReserveQuery
+    // (I285), so this reader no longer mutates+persists the rollover.
     const { tier, limits, usage } = this.settings;
+    const queriesUsedToday = this.effectiveQueriesUsedToday();
 
-    const queriesRemaining = limits.queriesPerDay - usage.queriesUsedToday;
-    const queriesPercentUsed = Math.round((usage.queriesUsedToday / limits.queriesPerDay) * 100);
+    const queriesRemaining = limits.queriesPerDay - queriesUsedToday;
+    const queriesPercentUsed = QuotaManager.safePercent(queriesUsedToday, limits.queriesPerDay);
     const notebooksRemaining = limits.notebooks - usage.notebooks;
-    const notebooksPercentUsed = Math.round((usage.notebooks / limits.notebooks) * 100);
+    const notebooksPercentUsed = QuotaManager.safePercent(usage.notebooks, limits.notebooks);
 
     // Calculate next reset time (midnight local time)
     const tomorrow = new Date();
@@ -801,7 +969,7 @@ export class QuotaManager {
     const warnings: string[] = [];
 
     if (queriesRemaining <= 0) {
-      warnings.push(`CRITICAL: Daily query limit reached (${usage.queriesUsedToday}/${limits.queriesPerDay}). Wait until tomorrow or upgrade your plan.`);
+      warnings.push(`CRITICAL: Daily query limit reached (${queriesUsedToday}/${limits.queriesPerDay}). Wait until tomorrow or upgrade your plan.`);
     } else if (queriesRemaining <= 5) {
       warnings.push(`CRITICAL: Only ${queriesRemaining} queries remaining today! Consider stopping soon.`);
     } else if (queriesRemaining <= 10) {
@@ -817,7 +985,7 @@ export class QuotaManager {
     return {
       tier,
       queries: {
-        used: usage.queriesUsedToday,
+        used: queriesUsedToday,
         limit: limits.queriesPerDay,
         remaining: queriesRemaining,
         percentUsed: queriesPercentUsed,

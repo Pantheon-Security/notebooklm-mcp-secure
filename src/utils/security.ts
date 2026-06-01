@@ -39,15 +39,25 @@ const ALLOWED_NOTEBOOK_DOMAINS = [
 // const ALLOWED_AUTH_DOMAINS = ['accounts.google.com'];
 
 /**
- * Validate and sanitize a NotebookLM URL
- * Prevents URL injection, javascript: URLs, and other attacks
+ * Shared validation for HTTPS URLs: trims, rejects empty/dangerous-protocol/unparseable
+ * inputs, and enforces HTTPS. Returns the parsed URL for caller-specific checks.
  *
- * @param url - The URL to validate
- * @returns Validated URL or throws error
+ * @param url - The raw URL string
+ * @param errors - Caller-specific error messages so each public function keeps its distinct wording
+ * @returns Parsed URL object (HTTPS, non-dangerous)
  */
-export function validateNotebookUrl(url: string): string {
+function parseHttpsUrl(
+  url: string,
+  errors: {
+    notString: string;
+    empty: string;
+    dangerousProtocol: (protocol: string) => string;
+    invalidFormat: string;
+    notHttps: string;
+  }
+): URL {
   if (!url || typeof url !== 'string') {
-    throw new SecurityError('URL is required and must be a string');
+    throw new SecurityError(errors.notString);
   }
 
   // Trim whitespace
@@ -55,7 +65,7 @@ export function validateNotebookUrl(url: string): string {
 
   // Block empty URLs
   if (trimmed.length === 0) {
-    throw new SecurityError('URL cannot be empty');
+    throw new SecurityError(errors.empty);
   }
 
   // Block dangerous protocols
@@ -63,7 +73,7 @@ export function validateNotebookUrl(url: string): string {
   const dangerousProtocols = ['javascript:', 'data:', 'vbscript:', 'file:', 'about:'];
   for (const protocol of dangerousProtocols) {
     if (lowerUrl.startsWith(protocol)) {
-      throw new SecurityError(`Dangerous protocol not allowed: ${protocol}`);
+      throw new SecurityError(errors.dangerousProtocol(protocol));
     }
   }
 
@@ -72,14 +82,56 @@ export function validateNotebookUrl(url: string): string {
   try {
     parsed = new URL(trimmed);
   } catch (err) {
-    log.debug(`security: parsing URL in validateNotebookUrl: ${err instanceof Error ? err.message : String(err)}`);
-    throw new SecurityError('Invalid URL format');
+    log.debug(`security: parsing URL: ${err instanceof Error ? err.message : String(err)}`);
+    throw new SecurityError(errors.invalidFormat);
   }
 
   // Enforce HTTPS
   if (parsed.protocol !== 'https:') {
-    throw new SecurityError('Only HTTPS URLs are allowed');
+    throw new SecurityError(errors.notHttps);
   }
+
+  return parsed;
+}
+
+/**
+ * Returns true if the hostname targets an obvious internal/loopback/link-local
+ * destination. Defense-in-depth against SSRF; intentionally conservative so that
+ * arbitrary public source URLs are not blocked.
+ */
+function isInternalHost(hostname: string): boolean {
+  // Strip IPv6 brackets (URL.hostname keeps them, e.g. "[::1]")
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+
+  if (host === 'localhost' || host === '::1' || host === '0.0.0.0') {
+    return true;
+  }
+
+  // RFC1918 / loopback / link-local IPv4 ranges (anchored to avoid over-restriction)
+  return (
+    /^127\./.test(host) ||                    // loopback 127.0.0.0/8
+    /^10\./.test(host) ||                     // private 10.0.0.0/8
+    /^192\.168\./.test(host) ||               // private 192.168.0.0/16
+    /^169\.254\./.test(host) ||               // link-local 169.254.0.0/16
+    /^172\.(1[6-9]|2[0-9]|3[01])\./.test(host) // private 172.16.0.0/12
+  );
+}
+
+/**
+ * Validate and sanitize a NotebookLM URL
+ * Prevents URL injection, javascript: URLs, and other attacks
+ *
+ * @param url - The URL to validate
+ * @returns Validated URL or throws error
+ */
+export function validateNotebookUrl(url: string): string {
+  const parsed = parseHttpsUrl(url, {
+    notString: 'URL is required and must be a string',
+    empty: 'URL cannot be empty',
+    dangerousProtocol: (protocol) => `Dangerous protocol not allowed: ${protocol}`,
+    invalidFormat: 'Invalid URL format',
+    notHttps: 'Only HTTPS URLs are allowed',
+  });
 
   // Validate domain
   const hostname = parsed.hostname.toLowerCase();
@@ -104,33 +156,19 @@ export function validateNotebookUrl(url: string): string {
  * Enforces HTTPS and blocks dangerous schemes without restricting domain.
  */
 export function validateSourceUrl(url: string): string {
-  if (!url || typeof url !== 'string') {
-    throw new SecurityError('Source URL is required and must be a string');
-  }
+  const parsed = parseHttpsUrl(url, {
+    notString: 'Source URL is required and must be a string',
+    empty: 'Source URL cannot be empty',
+    dangerousProtocol: (protocol) => `Dangerous protocol not allowed in source URL: ${protocol}`,
+    invalidFormat: 'Invalid source URL format',
+    notHttps: 'Only HTTPS source URLs are allowed',
+  });
 
-  const trimmed = url.trim();
-  if (trimmed.length === 0) {
-    throw new SecurityError('Source URL cannot be empty');
-  }
-
-  const lowerUrl = trimmed.toLowerCase();
-  const dangerousProtocols = ['javascript:', 'data:', 'vbscript:', 'file:', 'about:'];
-  for (const protocol of dangerousProtocols) {
-    if (lowerUrl.startsWith(protocol)) {
-      throw new SecurityError(`Dangerous protocol not allowed in source URL: ${protocol}`);
-    }
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch (err) {
-    log.debug(`security: parsing source URL in validateSourceUrl: ${err instanceof Error ? err.message : String(err)}`);
-    throw new SecurityError('Invalid source URL format');
-  }
-
-  if (parsed.protocol !== 'https:') {
-    throw new SecurityError('Only HTTPS source URLs are allowed');
+  // Defense-in-depth SSRF guard: block obvious internal/loopback targets.
+  // The URL is fetched server-side downstream, so this only blocks the clearly
+  // internal cases — public hosts of any kind remain allowed.
+  if (isInternalHost(parsed.hostname)) {
+    throw new SecurityError(`Source URL targets an internal address: ${parsed.hostname}`);
   }
 
   return parsed.href;
@@ -263,11 +301,14 @@ export function validateFilePath(basePath: string, filePath: string): string {
   // Resolve to absolute path
   const resolved = path.resolve(basePath, filePath);
 
-  // Ensure it's within the base path
-  const normalizedBase = path.normalize(basePath);
+  // Ensure it's within the base path.
+  // Use path.relative to avoid the prefix bug where /x/exports matches /x/exports-evil:
+  // an in-base path yields "" (equal) or a relative path that does not start with "..".
+  const normalizedBase = path.resolve(basePath);
   const normalizedResolved = path.normalize(resolved);
+  const relative = path.relative(normalizedBase, normalizedResolved);
 
-  if (!normalizedResolved.startsWith(normalizedBase)) {
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
     throw new SecurityError('Path traversal detected: file must be within allowed directory');
   }
 

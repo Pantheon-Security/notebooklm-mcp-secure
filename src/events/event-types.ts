@@ -4,6 +4,15 @@
  * Defines all events that can trigger webhook notifications.
  */
 
+import { createRequire } from "module";
+
+// Read version from package.json so emitted events/webhooks report the real
+// package version (avoids stale hardcoded values that corrupt SIEM/audit
+// correlation). Mirrors the version-loading pattern in src/index.ts.
+const require = createRequire(import.meta.url);
+const packageJson = require("../../package.json");
+const VERSION: string = packageJson.version;
+
 export type EventType =
   | "question_answered"    // Research query completed
   | "notebook_created"     // Notebook created
@@ -169,7 +178,7 @@ export function createEvent<T extends EventType>(
     type,
     timestamp: new Date().toISOString(),
     source: "notebooklm-mcp",
-    version: "1.7.0",
+    version: VERSION,
     payload,
   } as SystemEvent;
 }

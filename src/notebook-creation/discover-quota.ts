@@ -9,6 +9,8 @@ import { NOTEBOOKLM_URL } from "../config.js";
 import { AuthManager } from "../auth/auth-manager.js";
 import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
+import { realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import type { Page } from "patchright";
 
 type BrowserElement = {
@@ -259,4 +261,19 @@ async function main() {
   }
 }
 
-main().catch(console.error);
+// Only auto-run when this module is invoked directly (e.g. via
+// `node dist/notebook-creation/discover-quota.js`), never on import. This
+// keeps the 60s keep-open and the authenticated browser session from firing
+// when the package imports this module.
+const isDirectRun = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (isDirectRun) {
+  main().catch(console.error);
+}

@@ -11,7 +11,6 @@ import os from "os";
 import path from "path";
 import {
   deriveKey,
-  getMachineKey,
   generatePQKeyPair,
   encryptPQ,
   decryptPQ,
@@ -65,23 +64,6 @@ describe("Crypto Utilities", () => {
 
         expect(key1.equals(key2)).toBe(true);
       }
-    });
-  });
-
-  describe("getMachineKey", () => {
-    it("should return a 64-character hex string", () => {
-      const key = getMachineKey();
-
-      expect(typeof key).toBe("string");
-      expect(key.length).toBe(64);
-      expect(/^[0-9a-f]+$/.test(key)).toBe(true);
-    });
-
-    it("should be deterministic", () => {
-      const key1 = getMachineKey();
-      const key2 = getMachineKey();
-
-      expect(key1).toBe(key2);
     });
   });
 
