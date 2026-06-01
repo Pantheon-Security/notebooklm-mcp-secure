@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.4.1] - 2026-06-01
+
+Maintenance release: structural refactors (behavior-preserving) and a CI fix. No
+functional or security behavior change versus 2026.4.0.
+
+### Refactored
+
+- **Notebook-creation manager de-duplication** — extracted a shared `StudioManagerBase`
+  (page lifecycle: navigate, close, common DOM-context types) that the audio/video/
+  data-table managers now extend, and pulled the shared source-manager primitives
+  (text-input selector discovery, direct DOM-value text entry) into a single module used
+  by both source-manager classes. Per-manager timing and all shipped security fixes
+  (audio path traversal/SSRF, clipboard removal, response sanitization, identity-based
+  source removal, etc.) are unchanged.
+- One readiness sleep converted to a fail-safe `waitForSelector` (data-table extract);
+  all anti-bot pacing jitter preserved.
+
+### Fixed
+
+- **CI: MEDUSA security-scan job** — removed `cache: pip` from `actions/setup-python`
+  (the repo has no `requirements.txt`/`pyproject.toml`, so the cache step errored out
+  before MEDUSA could install — the job had failed on every release since 2026.3.1).
+  Added a `timeout-minutes` guard to the scan job.
+
 ## [2026.4.0] - 2026-05-29
 
 Security & reliability release. A full-repo deep review (see `issues.md`) surfaced

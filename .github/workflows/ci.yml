@@ -31,20 +31,20 @@ jobs:
   security-scan:
     # MEDUSA scan — runs in parallel with build. Enforces the
     # `medusaIntegration` claim in package.json. Severity threshold is
-    # `fail_on: high` per .medusa.yml.
-    # NOTE: verify the pip package name against your MEDUSA distribution;
-    # if your team uses a different install channel (homebrew, curl-install),
-    # replace the install step accordingly.
+    # `fail_on: high` per .medusa.yml. Installs the `medusa-security`
+    # package from PyPI.
     name: Security scan (MEDUSA)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
 
+      # No pip cache: this repo has no requirements.txt/pyproject.toml, and
+      # `cache: pip` errors out ("no file matched") before MEDUSA installs.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
 
       - uses: actions/setup-node@v4
         with:
