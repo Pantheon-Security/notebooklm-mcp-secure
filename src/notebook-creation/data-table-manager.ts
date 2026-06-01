@@ -16,11 +16,14 @@
  */
 
 import type { Page } from "patchright";
-import { AuthManager } from "../auth/auth-manager.js";
-import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
 import { randomDelay } from "../utils/stealth-utils.js";
 import { validateResponse } from "../utils/response-validator.js";
+import {
+  StudioManagerBase,
+  type BrowserDomElement,
+  type BrowserDocumentContext,
+} from "./studio-manager-base.js";
 
 export interface DataTable {
   headers: string[];
@@ -46,8 +49,6 @@ export interface GetDataTableResult {
   error?: string;
 }
 
-type BrowserDomElement = unknown;
-
 interface BrowserClickableElement {
   click(): void;
 }
@@ -67,39 +68,8 @@ interface BrowserTableRow {
   querySelectorAll(selector: string): Iterable<BrowserTextElement>;
 }
 
-interface BrowserDocumentContext {
-  document: {
-    querySelector(selector: string): BrowserDomElement | null;
-    querySelectorAll(selector: string): Iterable<BrowserDomElement>;
-  };
-}
-
-export class DataTableManager {
-  private page: Page | null = null;
-
-  constructor(
-    private authManager: AuthManager,
-    private contextManager: SharedContextManager
-  ) {}
-
-  /**
-   * Navigate to a notebook and ensure we're on the right page
-   */
-  private async navigateToNotebook(notebookUrl: string): Promise<Page> {
-    const context = await this.contextManager.getOrCreateContext();
-    const isAuth = await this.authManager.validateWithRetry(context);
-
-    if (!isAuth) {
-      throw new Error("Not authenticated. Run setup_auth first.");
-    }
-
-    this.page = await context.newPage();
-    await this.page.goto(notebookUrl, { waitUntil: "domcontentloaded" });
-    await this.page.waitForLoadState("networkidle").catch(() => {});
-    await randomDelay(2000, 3000);
-
-    return this.page;
-  }
+export class DataTableManager extends StudioManagerBase {
+  protected readonly logName = "data-table-manager";
 
   /**
    * Ensure the Studio panel is visible (expand if collapsed).
@@ -383,6 +353,12 @@ export class DataTableManager {
         };
       }
 
+      // Status is already confirmed "ready" above, so a table is expected to
+      // render after opening the artifact. Wait for the concrete <table> element
+      // that extractTableData() reads, instead of relying on a fixed sleep as the
+      // only readiness gate (M30). Bounded + .catch so a miss degrades to the
+      // prior behavior (fall through to extractTableData, which returns null).
+      await page.waitForSelector("table", { timeout: 10000 }).catch(() => {});
       await randomDelay(2000, 3000);
 
       // Extract table data from the page
@@ -501,20 +477,5 @@ export class DataTableManager {
       totalRows: table.totalRows,
       totalColumns: table.totalColumns,
     };
-  }
-
-  /**
-   * Close the page if open
-   */
-  private async closePage(): Promise<void> {
-    if (this.page) {
-      try {
-        await this.page.close();
-      } catch (err) {
-        log.debug(`data-table-manager: closing page: ${err instanceof Error ? err.message : String(err)}`);
-        // Ignore close errors
-      }
-      this.page = null;
-    }
   }
 }

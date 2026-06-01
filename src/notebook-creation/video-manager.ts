@@ -16,10 +16,13 @@
  */
 
 import type { Page } from "patchright";
-import { AuthManager } from "../auth/auth-manager.js";
-import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
 import { randomDelay } from "../utils/stealth-utils.js";
+import {
+  StudioManagerBase,
+  type BrowserDomElement,
+  type BrowserDocumentContext,
+} from "./studio-manager-base.js";
 
 /**
  * Visual styles for video overviews (matches actual NotebookLM UI)
@@ -78,8 +81,6 @@ export interface GenerateVideoResult {
   error?: string;
 }
 
-type BrowserDomElement = unknown;
-
 interface BrowserClickableElement {
   textContent?: string | null;
   click(): void;
@@ -90,39 +91,8 @@ interface BrowserClickableElement {
   disabled?: boolean;
 }
 
-interface BrowserDocumentContext {
-  document: {
-    querySelector(selector: string): BrowserDomElement | null;
-    querySelectorAll(selector: string): Iterable<BrowserDomElement>;
-  };
-}
-
-export class VideoManager {
-  private page: Page | null = null;
-
-  constructor(
-    private authManager: AuthManager,
-    private contextManager: SharedContextManager
-  ) {}
-
-  /**
-   * Navigate to a notebook and ensure we're on the right page
-   */
-  private async navigateToNotebook(notebookUrl: string): Promise<Page> {
-    const context = await this.contextManager.getOrCreateContext();
-    const isAuth = await this.authManager.validateWithRetry(context);
-
-    if (!isAuth) {
-      throw new Error("Not authenticated. Run setup_auth first.");
-    }
-
-    this.page = await context.newPage();
-    await this.page.goto(notebookUrl, { waitUntil: "domcontentloaded" });
-    await this.page.waitForLoadState("networkidle").catch(() => {});
-    await randomDelay(2000, 3000);
-
-    return this.page;
-  }
+export class VideoManager extends StudioManagerBase {
+  protected readonly logName = "video-manager";
 
   /**
    * Ensure the Studio panel is visible (expand if collapsed).
@@ -558,21 +528,6 @@ export class VideoManager {
       return status;
     } finally {
       await this.closePage();
-    }
-  }
-
-  /**
-   * Close the page if open
-   */
-  private async closePage(): Promise<void> {
-    if (this.page) {
-      try {
-        await this.page.close();
-      } catch (err) {
-        log.debug(`video-manager: closing page: ${err instanceof Error ? err.message : String(err)}`);
-        // Ignore close errors
-      }
-      this.page = null;
     }
   }
 }

@@ -6,10 +6,12 @@
  */
 
 import type { Page } from "patchright";
-import { AuthManager } from "../auth/auth-manager.js";
-import { SharedContextManager } from "../session/shared-context-manager.js";
 import { log } from "../utils/logger.js";
 import { randomDelay } from "../utils/stealth-utils.js";
+import {
+  StudioManagerBase,
+  type BrowserDocumentContext,
+} from "./studio-manager-base.js";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -138,8 +140,6 @@ const AUDIO_SELECTORS = {
   },
 };
 
-type BrowserDomElement = unknown;
-
 interface BrowserClickableElement {
   textContent: string | null;
   getAttribute(name: string): string | null;
@@ -161,39 +161,9 @@ interface BrowserLinkElement {
   getAttribute(name: string): string | null;
 }
 
-interface BrowserDocumentContext {
-  document: {
-    querySelector(selector: string): BrowserDomElement | null;
-    querySelectorAll(selector: string): Iterable<BrowserDomElement>;
-  };
-}
-
-export class AudioManager {
-  private page: Page | null = null;
-
-  constructor(
-    private authManager: AuthManager,
-    private contextManager: SharedContextManager
-  ) {}
-
-  /**
-   * Navigate to a notebook and ensure we're on the right page
-   */
-  private async navigateToNotebook(notebookUrl: string): Promise<Page> {
-    const context = await this.contextManager.getOrCreateContext();
-    const isAuth = await this.authManager.validateWithRetry(context);
-
-    if (!isAuth) {
-      throw new Error("Not authenticated. Run setup_auth first.");
-    }
-
-    this.page = await context.newPage();
-    await this.page.goto(notebookUrl, { waitUntil: "domcontentloaded" });
-    await this.page.waitForLoadState("networkidle").catch(() => {});
-    await randomDelay(1500, 2500);
-
-    return this.page;
-  }
+export class AudioManager extends StudioManagerBase {
+  protected readonly logName = "audio-manager";
+  protected readonly navigateDelay = { min: 1500, max: 2500 };
 
   /**
    * Generate an audio overview for a notebook
@@ -513,21 +483,6 @@ export class AudioManager {
       };
     } finally {
       await this.closePage();
-    }
-  }
-
-  /**
-   * Close the page if open
-   */
-  private async closePage(): Promise<void> {
-    if (this.page) {
-      try {
-        await this.page.close();
-      } catch (err) {
-        log.debug(`audio-manager: closing page: ${err instanceof Error ? err.message : String(err)}`);
-        // Ignore close errors
-      }
-      this.page = null;
     }
   }
 }
