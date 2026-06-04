@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/pantheon-security-notebooklm-mcp-secure-badge.png)](https://mseep.ai/app/pantheon-security-notebooklm-mcp-secure)
+
 <div align="center">
 
 # NotebookLM MCP Server (Security Hardened)
