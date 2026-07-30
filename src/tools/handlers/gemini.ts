@@ -16,6 +16,7 @@ import {
   validateNotebookUrl,
   validateNotebookId,
   sanitizeForLogging,
+  resolveWithinBase,
 } from "../../utils/security.js";
 import { getQueryLogger } from "../../logging/index.js";
 import type {
@@ -705,6 +706,19 @@ export async function handleGetNotebookChatHistory(
   log.info(`🔧 [TOOL] get_notebook_chat_history called${args.preview_only ? ' (preview mode)' : ''}`);
 
   try {
+    // Confine the export path before any work: this write had no confinement
+    // and no mode, so a caller-supplied absolute path could overwrite any file
+    // the process could write. Fail fast, like export_library does.
+    let resolvedOutputFile: string | undefined;
+    if (args.output_file !== undefined) {
+      resolvedOutputFile = resolveWithinBase(
+        args.output_file,
+        "chat-history.json",
+        "NLMCP_EXPORT_DIR",
+        "output_file"
+      );
+    }
+
     // Resolve notebook URL
     let notebookUrl: string;
     let notebookName: string | undefined;
@@ -859,8 +873,12 @@ export async function handleGetNotebookChatHistory(
           assistant_messages: assistantMessages,
           messages: reindexedMessages,
         };
-        await fs.writeFile(args.output_file, JSON.stringify(exportData, null, 2));
-        log.success(`✅ [TOOL] get_notebook_chat_history exported to ${args.output_file}`);
+        await fs.writeFile(
+          resolvedOutputFile as string,
+          JSON.stringify(exportData, null, 2),
+          { mode: 0o600 }
+        );
+        log.success(`✅ [TOOL] get_notebook_chat_history exported to ${resolvedOutputFile}`);
 
         return {
           success: true,
