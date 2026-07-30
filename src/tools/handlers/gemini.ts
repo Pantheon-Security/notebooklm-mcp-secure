@@ -19,6 +19,7 @@ import {
   resolveWithinBase,
 } from "../../utils/security.js";
 import { getQueryLogger } from "../../logging/index.js";
+import { validateResponse } from "../../utils/response-validator.js";
 import type {
   GeminiInteraction,
   DeepResearchResult,
@@ -99,8 +100,11 @@ export async function handleDeepResearch(
 
     const durationMs = Date.now() - startTime;
 
-    // Extract the answer
-    const answer = interaction.outputs.find(o => o.type === "text")?.text || "";
+    // Extract the answer. Untrusted: web-grounded and document-grounded output
+    // is third-party authored, so it must be sanitised before the calling model
+    // ever sees it (indirect prompt injection).
+    const rawAnswer = interaction.outputs.find(o => o.type === "text")?.text || "";
+    const answer = (await validateResponse(rawAnswer)).sanitized;
 
     // Audit log
     await audit.tool("deep_research", { query: sanitizeForLogging(args.query) }, true, durationMs);
@@ -210,8 +214,11 @@ export async function handleGeminiQuery(
 
     const durationMs = Date.now() - startTime;
 
-    // Extract the answer
-    const answer = interaction.outputs.find(o => o.type === "text")?.text || "";
+    // Extract the answer. Untrusted: web-grounded and document-grounded output
+    // is third-party authored, so it must be sanitised before the calling model
+    // ever sees it (indirect prompt injection).
+    const rawAnswer = interaction.outputs.find(o => o.type === "text")?.text || "";
+    const answer = (await validateResponse(rawAnswer)).sanitized;
 
     // Identify which tools were used
     const toolsUsed = interaction.outputs
@@ -411,7 +418,7 @@ export async function handleQueryDocument(
 
     return {
       success: true,
-      data: result,
+      data: { ...result, answer: (await validateResponse(result.answer)).sanitized },
     };
   } catch (error) {
     const errorMessage = getSanitizedErrorMessage(error);
@@ -572,7 +579,7 @@ export async function handleQueryChunkedDocument(
     return {
       success: true,
       data: {
-        answer: result.answer,
+        answer: (await validateResponse(result.answer)).sanitized,
         model: result.model,
         tokensUsed: result.tokensUsed,
         chunksQueried: args.file_names.length,
@@ -855,11 +862,16 @@ export async function handleGetNotebookChatHistory(
       const paginatedMessages = messages.slice(startIdx, endIdx);
       const hasMore = endIdx < totalMessages;
 
-      // Re-index the paginated messages
-      const reindexedMessages = paginatedMessages.map((m, idx) => ({
-        ...m,
-        index: startIdx + idx,
-      }));
+      // Re-index the paginated messages. The text is scraped straight from the
+      // NotebookLM DOM, so it is third-party authored and must be sanitised —
+      // this is also a replay point for injections redacted at ask time.
+      const reindexedMessages = await Promise.all(
+        paginatedMessages.map(async (m, idx) => ({
+          ...m,
+          content: (await validateResponse(m.content)).sanitized,
+          index: startIdx + idx,
+        }))
+      );
 
       // Export to file if requested
       if (args.output_file) {

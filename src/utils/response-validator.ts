@@ -59,6 +59,20 @@ function getValidatorConfig(): ResponseValidatorConfig {
   };
 }
 
+/** Zero-width, joiner and bidirectional-control characters used to split keywords. */
+const INVISIBLE_CHARS = /[​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
+
+/**
+ * Normalise text before pattern matching.
+ *
+ * Without this, `Ign​ore all previous instructions` and its full-width
+ * homoglyph form both render normally to the model but match nothing. NFKC
+ * folds homoglyphs to ASCII; invisible characters are stripped outright.
+ */
+export function normalizeForDetection(text: string): string {
+  return text.normalize("NFKC").replace(INVISIBLE_CHARS, "");
+}
+
 /**
  * Prompt injection detection patterns
  * Derived from MEDUSA AI Security Scanner (AIC001-030)
@@ -219,7 +233,10 @@ export class ResponseValidator {
 
     const warnings: string[] = [];
     const blocked: string[] = [];
-    let sanitized = response;
+    // Sanitise the normalised form: matches are found against normalised text,
+    // so redacting the raw string would silently miss homoglyph/zero-width
+    // variants that were detected but could not be found to replace.
+    let sanitized = normalizeForDetection(response);
 
     // Check for prompt injection
     if (this.config.blockPromptInjection) {
@@ -306,11 +323,21 @@ export class ResponseValidator {
    */
   detectPromptInjection(text: string): Array<{ pattern: RegExp; description: string; severity: string; match: string }> {
     const results: Array<{ pattern: RegExp; description: string; severity: string; match: string }> = [];
+    const haystack = normalizeForDetection(text);
 
     for (const { pattern, description, severity } of PROMPT_INJECTION_PATTERNS) {
-      pattern.lastIndex = 0; // reset stateful /gi regex before each call (I214)
-      const match = text.match(pattern);
-      if (match) {
+      // Clone with the global flag so EVERY occurrence is reported, not just
+      // the first: validate() redacts per returned match, so a second
+      // occurrence previously survived into the model's context.
+      const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
+      const global = new RegExp(pattern.source, flags);
+
+      const seen = new Set<string>();
+      for (const match of haystack.matchAll(global)) {
+        if (seen.has(match[0])) {
+          continue;
+        }
+        seen.add(match[0]);
         results.push({
           pattern,
           description,
