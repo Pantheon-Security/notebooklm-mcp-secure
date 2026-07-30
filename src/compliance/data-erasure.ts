@@ -312,6 +312,8 @@ export class DataErasureManager {
     if (request.scope.notebooks) {
       const result = await this.eraseNotebooks(config);
       results.push(result);
+      // Query logs hold the plaintext Q&A tied to those notebooks.
+      results.push(await this.eraseQueryLogs(config));
     }
 
     if (request.scope.settings) {
@@ -372,7 +374,10 @@ export class DataErasureManager {
    * Erase notebook library
    */
   private async eraseNotebooks(config: Config): Promise<ErasureResult> {
-    const libraryPath = path.join(config.configDir, "library.json");
+    // The library is written by NotebookLibrary to dataDir (see
+    // src/library/notebook-library.ts) — NOT configDir. Erasing configDir
+    // silently reported success against a file that was never touched.
+    const libraryPath = path.join(config.dataDir, "library.json");
     const result: ErasureResultWithError = {
       data_type: "notebook_library",
       path: libraryPath,
@@ -387,6 +392,56 @@ export class DataErasureManager {
       result.size_bytes = erased.size;
       result.items_deleted = erased.deleted ? 1 : 0;
       result.verified = erased.verified;
+
+      // Per-project libraries: dataDir/projects/<projectId>/library.json
+      const projectsDir = path.join(config.dataDir, "projects");
+      if (fs.existsSync(projectsDir)) {
+        for (const entry of fs.readdirSync(projectsDir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) {
+            continue;
+          }
+          const projectLibrary = path.join(projectsDir, entry.name, "library.json");
+          const projectErased = eraseFile(projectLibrary, "overwrite");
+          result.size_bytes += projectErased.size;
+          result.items_deleted += projectErased.deleted ? 1 : 0;
+          result.verified = result.verified && projectErased.verified;
+        }
+      }
+    } catch (err) {
+      result.verified = false;
+      result.error = err instanceof Error ? err.message : String(err);
+    }
+
+    return result;
+  }
+
+  /**
+   * Erase query logs (plaintext question/answer history)
+   */
+  private async eraseQueryLogs(config: Config): Promise<ErasureResult> {
+    const logDir =
+      process.env.NLMCP_QUERY_LOG_DIR || path.join(config.dataDir, "query_logs");
+    const result: ErasureResultWithError = {
+      data_type: "query_logs",
+      path: logDir,
+      items_deleted: 0,
+      size_bytes: 0,
+      method: "overwrite",
+      verified: false,
+    };
+
+    try {
+      if (!fs.existsSync(logDir)) {
+        result.verified = true;
+        return result;
+      }
+
+      for (const file of fs.readdirSync(logDir)) {
+        const erased = eraseFile(path.join(logDir, file), "overwrite");
+        result.size_bytes += erased.size;
+        result.items_deleted += erased.deleted ? 1 : 0;
+      }
+      result.verified = fs.readdirSync(logDir).length === 0;
     } catch (err) {
       result.verified = false;
       result.error = err instanceof Error ? err.message : String(err);

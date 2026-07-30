@@ -211,6 +211,8 @@ export interface DataExport {
     notebook_library: unknown[];
     user_settings: unknown;
     session_history?: unknown[];
+    /** Plaintext question/answer history from dataDir/query_logs (GDPR Art. 20). */
+    query_logs?: unknown[];
     activity_log: unknown[];
     compliance_events: ComplianceEvent[];
   };

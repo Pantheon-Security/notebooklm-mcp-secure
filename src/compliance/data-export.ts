@@ -76,6 +76,7 @@ export class DataExporter {
       notebook_library: opts.include_notebooks ? await this.exportNotebooks(config) : [],
       user_settings: opts.include_settings ? await this.exportSettings(config) : null,
       session_history: opts.include_sessions ? await this.exportSessions(config) : undefined,
+      query_logs: opts.include_sessions ? await this.exportQueryLogs(config) : undefined,
       activity_log: opts.include_audit_logs ? await this.exportAuditLogs(config, opts) : [],
       compliance_events: opts.include_compliance_events ? await this.exportComplianceEvents(config, opts) : [],
     };
@@ -115,14 +116,36 @@ export class DataExporter {
    * Export notebook library
    */
   private async exportNotebooks(config: Config): Promise<unknown[]> {
-    const libraryPath = path.join(config.configDir, "library.json");
+    // Written by NotebookLibrary to dataDir, not configDir — exporting
+    // configDir silently omitted the library from every DSAR response.
+    const libraryPath = path.join(config.dataDir, "library.json");
 
     try {
+      const notebooks: unknown[] = [];
+
       if (fs.existsSync(libraryPath)) {
         const content = fs.readFileSync(libraryPath, "utf-8");
         const data = JSON.parse(content);
-        return data.notebooks || [];
+        notebooks.push(...(data.notebooks || []));
       }
+
+      // Per-project libraries: dataDir/projects/<projectId>/library.json
+      const projectsDir = path.join(config.dataDir, "projects");
+      if (fs.existsSync(projectsDir)) {
+        for (const entry of fs.readdirSync(projectsDir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) {
+            continue;
+          }
+          const projectLibrary = path.join(projectsDir, entry.name, "library.json");
+          if (!fs.existsSync(projectLibrary)) {
+            continue;
+          }
+          const projectData = JSON.parse(fs.readFileSync(projectLibrary, "utf-8"));
+          notebooks.push(...(projectData.notebooks || []));
+        }
+      }
+
+      return notebooks;
     } catch (err) {
       log.debug(`data-export: exportNotebooks read library file: ${err instanceof Error ? err.message : String(err)}`);
       // Return empty if file doesn't exist or is corrupted
@@ -134,6 +157,46 @@ export class DataExporter {
   /**
    * Export user settings
    */
+  /**
+   * Export query logs (plaintext question/answer history)
+   */
+  private async exportQueryLogs(config: Config): Promise<unknown[]> {
+    const logDir =
+      process.env.NLMCP_QUERY_LOG_DIR || path.join(config.dataDir, "query_logs");
+    const entries: unknown[] = [];
+
+    try {
+      if (!fs.existsSync(logDir)) {
+        return entries;
+      }
+
+      for (const file of fs.readdirSync(logDir)) {
+        if (!file.endsWith(".jsonl")) {
+          continue;
+        }
+        const content = fs.readFileSync(path.join(logDir, file), "utf-8");
+        for (const line of content.split("\n")) {
+          if (!line.trim()) {
+            continue;
+          }
+          try {
+            entries.push(JSON.parse(line));
+          } catch (err) {
+            log.debug(
+              `data-export: exportQueryLogs parse line: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        }
+      }
+    } catch (err) {
+      log.debug(
+        `data-export: exportQueryLogs read log directory: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    return entries;
+  }
+
   private async exportSettings(config: Config): Promise<unknown> {
     const settingsPath = path.join(config.configDir, "settings.json");
 
