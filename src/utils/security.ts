@@ -25,6 +25,13 @@ const SECRET_SANITIZE_PATTERNS = [
 /**
  * Allowed URL patterns for NotebookLM
  */
+/**
+ * NotebookLM host form: notebooklm.google.<tld> or notebooklm.google.<sld>.<cc>.
+ * Anchored, with 2-3 letter labels only, so it admits every Google ccTLD
+ * without admitting notebooklm.google.attacker.com or any subdomain.
+ */
+const NOTEBOOK_HOST_PATTERN = /^notebooklm\.google\.(?:[a-z]{2,3}|[a-z]{2,3}\.[a-z]{2})$/;
+
 const ALLOWED_NOTEBOOK_DOMAINS = [
   'notebooklm.google.com',
   'notebooklm.google.co.uk',
@@ -137,7 +144,13 @@ export function validateNotebookUrl(url: string): string {
 
   // Validate domain
   const hostname = parsed.hostname.toLowerCase();
-  const isAllowedNotebook = ALLOWED_NOTEBOOK_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d));
+  // Match notebooklm.google.<ccTLD> generally rather than a fixed nine-entry
+  // list: once this validator moved onto the session-creation sink, an unlisted
+  // regional domain (.co.jp, .in, .com.br …) meant a user could not open a
+  // session at all. Anchored at both ends and limited to 2-3 letter TLD labels,
+  // so notebooklm.google.attacker.com and *.notebooklm.google.com are refused.
+  const isAllowedNotebook =
+    NOTEBOOK_HOST_PATTERN.test(hostname) || ALLOWED_NOTEBOOK_DOMAINS.includes(hostname);
 
   if (!isAllowedNotebook) {
     throw new SecurityError(`Domain not allowed: ${hostname}. Only NotebookLM domains are permitted.`);

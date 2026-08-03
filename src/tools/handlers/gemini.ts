@@ -17,6 +17,7 @@ import {
   validateNotebookId,
   sanitizeForLogging,
   resolveWithinBase,
+  resolveWithinAllowlist,
 } from "../../utils/security.js";
 import { getQueryLogger } from "../../logging/index.js";
 import { validateResponse } from "../../utils/response-validator.js";
@@ -333,13 +334,13 @@ export async function handleUploadDocument(
   }
 
   try {
-    // Validate file path
-    if (!args.file_path || args.file_path.trim().length === 0) {
-      throw new Error("File path cannot be empty");
-    }
+    // Confine the path: this uploads a local file to the Gemini Files API,
+    // where it is readable back via query_document. add_folder has always
+    // enforced this allowlist; this sibling sink did not.
+    const safeFilePath = resolveWithinAllowlist(args.file_path, "file_path");
 
     const result = await geminiClient.uploadDocument({
-      filePath: args.file_path,
+      filePath: safeFilePath,
       displayName: args.display_name,
     });
 
