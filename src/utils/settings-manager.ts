@@ -227,27 +227,36 @@ export class SettingsManager {
    * Filter tools based on effective configuration
    */
   filterTools(allTools: Tool[]): Tool[] {
+    return allTools.filter(tool => this.isToolEnabled(tool.name));
+  }
+
+  /**
+   * Whether a single tool is permitted by the effective configuration.
+   *
+   * Dispatch MUST consult this, not just the listing: hiding a tool from
+   * list_tools while still executing it on tools/call makes the operator
+   * control cosmetic (a client that knows the name bypasses it entirely).
+   */
+  isToolEnabled(toolName: string): boolean {
     const { profile, disabledTools } = this.getEffectiveSettings();
     const allowedTools = PROFILES[profile];
 
-    return allTools.filter(tool => {
-      // 0. Filter out Gemini tools if noGemini is set
-      if (CONFIG.noGemini && GEMINI_TOOLS.includes(tool.name)) {
-        return false;
-      }
+    // 0. Filter out Gemini tools if noGemini is set
+    if (CONFIG.noGemini && GEMINI_TOOLS.includes(toolName)) {
+      return false;
+    }
 
-      // 1. Check if allowed by profile (unless profile is full/wildcard)
-      if (!allowedTools.includes("*") && !allowedTools.includes(tool.name)) {
-        return false;
-      }
+    // 1. Check if allowed by profile (unless profile is full/wildcard)
+    if (!allowedTools.includes("*") && !allowedTools.includes(toolName)) {
+      return false;
+    }
 
-      // 2. Check if explicitly disabled
-      if (disabledTools.includes(tool.name)) {
-        return false;
-      }
+    // 2. Check if explicitly disabled
+    if (disabledTools.includes(toolName)) {
+      return false;
+    }
 
-      return true;
-    });
+    return true;
   }
 
   getSettingsPath(): string {

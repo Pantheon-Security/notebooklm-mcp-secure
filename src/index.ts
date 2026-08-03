@@ -442,6 +442,23 @@ export class NotebookLMMCPServer {
           return { content };
         }
 
+        // Enforce the operator's tool filter at DISPATCH, not just in the
+        // listing: a disabled tool was previously hidden from list_tools but
+        // still executed when called by name.
+        if (!this.settingsManager.isToolEnabled(name)) {
+          log.warning(`⛔ [MCP] Tool '${name}' is disabled by the active profile/settings`);
+          const errorBody = {
+            success: false,
+            error: `Tool is not enabled: ${name}`,
+            _errorType: "domain" as const,
+          };
+          return {
+            isError: true,
+            content: [{ type: "text", text: JSON.stringify(errorBody, null, 2) }],
+            structuredContent: errorBody,
+          };
+        }
+
         const handler = this.toolRegistry.get(name);
         if (!handler) {
           log.error(`❌ [MCP] Unknown tool: ${name}`);
