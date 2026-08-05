@@ -21,6 +21,7 @@ import { getComplianceLogger } from "./compliance-logger.js";
 import { getIncidentManager } from "./incident-manager.js";
 import type { IncidentType, IncidentSeverity, ConsentPurpose } from "./types.js";
 import { audit } from "../utils/audit-logger.js";
+import { sanitizeErrorMessage } from "../utils/security.js";
 
 /**
  * Tool definitions for compliance features
@@ -442,11 +443,14 @@ export async function handleComplianceToolCall(
     return result;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    // Raw message to the local audit log; sanitised message to the client.
+    // This dispatcher short-circuits ahead of the tools/call wrapper in
+    // index.ts, so it must apply the shared sanitiser itself (FX-022).
     await audit.tool(toolName, args, false, Date.now() - startTime, errorMessage);
     return [
       {
         type: "text",
-        text: `Error executing ${toolName}: ${errorMessage}`,
+        text: `Error executing ${toolName}: ${sanitizeErrorMessage(errorMessage)}`,
       },
     ];
   }

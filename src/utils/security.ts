@@ -292,6 +292,25 @@ export function sanitizeForLogging(value: string): string {
 }
 
 /**
+ * Strip absolute paths and stack-frame fragments from an error message before
+ * it crosses the MCP boundary (I328).
+ *
+ * Single implementation on purpose (FX-022): this logic used to be inline in
+ * the tools/call handler only, so the compliance dispatcher — which
+ * short-circuits ahead of that handler — returned raw fs paths and usernames
+ * to the client. Both paths call this now; neither should reimplement it.
+ *
+ * Sanitisation is for the CLIENT boundary only. Audit logs are local and keep
+ * the raw message.
+ */
+export function sanitizeErrorMessage(raw: string): string {
+  return raw
+    .replace(/(?:\/[^\s/:,'"]+)+/g, "[path]")
+    .replace(/\bat\s+\S+\s+\(\S+:\d+:\d+\)/g, "")
+    .trim();
+}
+
+/**
  * Mask an email for logging (more aggressive than general sanitization)
  */
 export function maskEmail(email: string): string {

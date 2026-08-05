@@ -57,7 +57,7 @@ import { CliHandler } from "./utils/cli-handler.js";
 import { CONFIG, ensureDirectories } from "./config.js";
 import { log } from "./utils/logger.js";
 import { audit, getAuditLogger } from "./utils/audit-logger.js";
-import { checkSecurityContext } from "./utils/security.js";
+import { checkSecurityContext, sanitizeErrorMessage } from "./utils/security.js";
 import { validateAgainstSchema } from "./utils/schema-validator.js";
 import { getMCPAuthenticator, authenticateMCPRequest } from "./auth/mcp-auth.js";
 import {
@@ -545,11 +545,9 @@ export class NotebookLMMCPServer {
         const errorType = classifyToolError(error);
         log.error(`❌ [MCP] Tool execution error for '${name}': ${rawMessage}`);
 
-        // Sanitize before returning to client: strip absolute paths and stack fragments (I328)
-        const sanitized = rawMessage
-          .replace(/(?:\/[^\s/:,'"]+)+/g, "[path]")
-          .replace(/\bat\s+\S+\s+\(\S+:\d+:\d+\)/g, "")
-          .trim();
+        // Sanitize before returning to client: strip absolute paths and stack fragments (I328).
+        // Shared with the compliance dispatch path — see utils/security.ts (FX-022).
+        const sanitized = sanitizeErrorMessage(rawMessage);
 
         const errorBody = {
           success: false,
