@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const SECRET = "s3cr3t-hmac-value-do-not-persist";
+const SECRET = "s3cr3t-hmac-value-do-not-persist"; // pragma: allowlist secret
 
 describe("FX-016 — webhook secret handling", () => {
   let homeDir: string;

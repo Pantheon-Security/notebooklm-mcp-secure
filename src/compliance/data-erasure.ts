@@ -78,27 +78,39 @@ function pathAbsent(filePath: string): boolean {
   }
 }
 
+/**
+ * Erase a single file.
+ *
+ * `absent` distinguishes "there was never a file here" from "erased it and
+ * confirmed it is gone" (FX-024). Both used to report `verified: true` with
+ * nothing to tell them apart, so an Art.17 certificate could not say which had
+ * happened.
+ *
+ * `verified` deliberately stays true for an absent file: it holds no data, so
+ * the erasure claim is sound. Flipping it to false would make a clean install
+ * report an unverified erasure — a worse falsehood than the one being fixed.
+ */
 function eraseFile(
   filePath: string,
   method: "overwrite" | "delete" | "crypto_shred"
-): { deleted: boolean; size: number; verified: boolean } {
+): { deleted: boolean; size: number; verified: boolean; absent: boolean } {
   try {
     if (method === "delete") {
       const fd = fs.openSync(filePath, "r");
       const stats = fs.fstatSync(fd);
       fs.closeSync(fd);
       fs.unlinkSync(filePath);
-      return { deleted: true, size: stats.size, verified: pathAbsent(filePath) };
+      return { deleted: true, size: stats.size, verified: pathAbsent(filePath), absent: false };
     }
 
     const fd = fs.openSync(filePath, "r");
     const stats = fs.fstatSync(fd);
     fs.closeSync(fd);
     secureOverwrite(filePath);
-    return { deleted: true, size: stats.size, verified: pathAbsent(filePath) };
+    return { deleted: true, size: stats.size, verified: pathAbsent(filePath), absent: false };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return { deleted: false, size: 0, verified: true };
+      return { deleted: false, size: 0, verified: true, absent: true };
     }
     throw err;
   }
@@ -392,6 +404,7 @@ export class DataErasureManager {
       result.size_bytes = erased.size;
       result.items_deleted = erased.deleted ? 1 : 0;
       result.verified = erased.verified;
+      if (erased.absent) (result.paths_absent ??= []).push(libraryPath);
 
       // Per-project libraries: dataDir/projects/<projectId>/library.json
       const projectsDir = path.join(config.dataDir, "projects");
@@ -405,6 +418,7 @@ export class DataErasureManager {
           result.size_bytes += projectErased.size;
           result.items_deleted += projectErased.deleted ? 1 : 0;
           result.verified = result.verified && projectErased.verified;
+          if (projectErased.absent) (result.paths_absent ??= []).push(projectLibrary);
         }
       }
     } catch (err) {
@@ -437,9 +451,11 @@ export class DataErasureManager {
       }
 
       for (const file of fs.readdirSync(logDir)) {
-        const erased = eraseFile(path.join(logDir, file), "overwrite");
+        const logPath = path.join(logDir, file);
+        const erased = eraseFile(logPath, "overwrite");
         result.size_bytes += erased.size;
         result.items_deleted += erased.deleted ? 1 : 0;
+        if (erased.absent) (result.paths_absent ??= []).push(logPath);
       }
       result.verified = fs.readdirSync(logDir).length === 0;
     } catch (err) {
@@ -469,6 +485,7 @@ export class DataErasureManager {
       result.size_bytes = erased.size;
       result.items_deleted = erased.deleted ? 1 : 0;
       result.verified = erased.verified;
+      if (erased.absent) (result.paths_absent ??= []).push(settingsPath);
     } catch (err) {
       result.verified = false;
       result.error = err instanceof Error ? err.message : String(err);
@@ -586,6 +603,7 @@ export class DataErasureManager {
       result.size_bytes = erased.size;
       result.items_deleted = erased.deleted ? 1 : 0;
       result.verified = erased.verified;
+      if (erased.absent) (result.paths_absent ??= []).push(keysPath);
     } catch (err) {
       result.verified = false;
       result.error = err instanceof Error ? err.message : String(err);

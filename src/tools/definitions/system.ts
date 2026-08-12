@@ -109,7 +109,8 @@ export const systemTools: Tool[] = [
       "Preview or delete NotebookLM MCP data across known install, browser, cache, log, backup, and trash locations. " +
       "Run first with confirm=false, then rerun with confirm=true after review. " +
       "Close all Chrome/Chromium instances before deleting browser data. " +
-      "Set preserve_library=true to keep the local notebook library.",
+      "Set preserve_library=true to keep the local notebook library. " +
+      "Optional categories (Claude project caches, editor logs, trash) are previewed but NOT deleted unless include_optional=true.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -125,6 +126,14 @@ export const systemTools: Tool[] = [
           description:
             "Preserve library.json file during cleanup. Default: false. " +
             "Set to true to keep your notebook library while deleting everything else (browser data, caches, logs).",
+          default: false,
+        },
+        include_optional: {
+          type: "boolean",
+          description:
+            "Also delete OPTIONAL categories that this server does not own — Claude project caches, " +
+            "editor MCP logs, and system trash. Default: false. Only set true if the user explicitly " +
+            "asked for those to be removed after reviewing the preview.",
           default: false,
         },
       },

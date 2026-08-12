@@ -645,7 +645,8 @@ export class CleanupManager {
    */
   async performCleanup(
     mode: CleanupMode,
-    preserveLibrary: boolean = false
+    preserveLibrary: boolean = false,
+    includeOptional: boolean = false
   ): Promise<CleanupResult> {
     log.info(`🧹 Starting cleanup in "${mode}" mode...`);
     if (preserveLibrary) {
@@ -660,6 +661,16 @@ export class CleanupManager {
     // Delete by category
     for (const category of categories) {
       log.info(`\n📦 ${category.name} (${category.paths.length} items, ${this.formatBytes(category.totalBytes)})`);
+
+      // Optional categories hold data this server does not own — Claude
+      // project transcripts, editor MCP logs, system trash. They are previewed
+      // so the user can see them, but never deleted without an explicit
+      // opt-in (FX-018). Previously this only warned, then deleted anyway.
+      if (category.optional && !includeOptional) {
+        log.warning(`  ⏭️  Skipped (optional, not requested): ${category.description}`);
+        categorySummary[category.name] = { count: 0, bytes: 0 };
+        continue;
+      }
 
       if (category.optional) {
         log.warning(`  ⚠️  Optional category - ${category.description}`);
