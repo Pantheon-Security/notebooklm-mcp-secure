@@ -324,7 +324,7 @@ export class NotebookSync {
           const uuidMatch = titleId.match(/project-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})-title/);
           let url = "";
           if (uuidMatch && uuidMatch[1]) {
-            url = `https://notebooklm.google.com/notebook/${uuidMatch[1]}`;
+            url = `https://notebook.google.com/notebook/${uuidMatch[1]}`;
           }
 
           // Fallback: search all element IDs and aria-labelledby for UUID
@@ -333,7 +333,7 @@ export class NotebookSync {
             for (const el of allIds) {
               const idMatch = el.id?.match(/project-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/);
               if (idMatch) {
-                url = `https://notebooklm.google.com/notebook/${idMatch[1]}`;
+                url = `https://notebook.google.com/notebook/${idMatch[1]}`;
                 break;
               }
             }
@@ -459,7 +459,7 @@ export class NotebookSync {
         const notebookMatch = currentUrl.match(/\/notebook\/([a-f0-9-]+)/i);
         const navigated = currentUrl !== urlBeforeClick && notebookMatch !== null;
         const url = navigated
-          ? `https://notebooklm.google.com/notebook/${notebookMatch![1]}`
+          ? `https://notebook.google.com/notebook/${notebookMatch![1]}`
           : `pending-nav-${notebooks.length}`;
 
         if (!navigated) {
@@ -546,7 +546,7 @@ export class NotebookSync {
           const childWithDataId = row.querySelector('[data-notebook-id]') as { getAttribute(name: string): string | null } | null;
           const dataId = row.getAttribute('data-notebook-id') ||
                         childWithDataId?.getAttribute('data-notebook-id');
-          if (dataId) url = `https://notebooklm.google.com/notebook/${dataId}`;
+          if (dataId) url = `https://notebook.google.com/notebook/${dataId}`;
         }
         if (!url) url = `pending-${results.length}`;
 

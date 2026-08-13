@@ -211,7 +211,7 @@ export async function handleGetQuota(
         const page = await context.newPage();
         try {
           // Navigate to NotebookLM homepage
-          await page.goto("https://notebooklm.google.com/", {
+          await page.goto("https://notebook.google.com/", {
             waitUntil: "networkidle",
             timeout: 30000,
           });

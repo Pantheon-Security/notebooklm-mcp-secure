@@ -26,13 +26,24 @@ const SECRET_SANITIZE_PATTERNS = [
  * Allowed URL patterns for NotebookLM
  */
 /**
- * NotebookLM host form: notebooklm.google.<tld> or notebooklm.google.<sld>.<cc>.
+ * NotebookLM host form: notebook[lm].google.<tld> or notebook[lm].google.<sld>.<cc>.
+ *
+ * Both labels are accepted. Google migrated the product to
+ * `notebook.google.com` — verified 2026-08-13, `notebooklm.google.com` returns
+ * a 301 to it — so the `lm` label is now the LEGACY form. It stays valid
+ * because stored library URLs still carry it and Google still redirects.
+ *
  * Anchored, with 2-3 letter labels only, so it admits every Google ccTLD
- * without admitting notebooklm.google.attacker.com or any subdomain.
+ * without admitting notebook.google.attacker.com or any subdomain. Widening
+ * this to *.google.com would undo FX-011 — don't.
  */
-const NOTEBOOK_HOST_PATTERN = /^notebooklm\.google\.(?:[a-z]{2,3}|[a-z]{2,3}\.[a-z]{2})$/;
+const NOTEBOOK_HOST_PATTERN = /^notebook(?:lm)?\.google\.(?:[a-z]{2,3}|[a-z]{2,3}\.[a-z]{2})$/;
 
 const ALLOWED_NOTEBOOK_DOMAINS = [
+  // Current canonical host (post-migration).
+  'notebook.google.com',
+  'notebook.google.co.uk',
+  // Legacy host — Google 301s these to the above; stored URLs still use them.
   'notebooklm.google.com',
   'notebooklm.google.co.uk',
   'notebooklm.google.de',
@@ -259,6 +270,31 @@ export function validateQuestion(question: string): string {
   }
 
   return trimmed;
+}
+
+/**
+ * Is this URL a NotebookLM URL, on either the current or the legacy host?
+ *
+ * The single host check (FX-026). auth-manager, notebook-nav and notebook-sync
+ * each carried their own inline
+ * `startsWith("https://notebooklm.google.com/")`, which silently stopped
+ * matching when Google migrated to notebook.google.com — a completed login
+ * went undetected because the post-redirect URL failed every one of them.
+ *
+ * Never throws: callers pass raw page URLs, which can be malformed or empty.
+ */
+export function isNotebookLMUrl(rawUrl: string): boolean {
+  if (!rawUrl || typeof rawUrl !== 'string') return false;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:') return false;
+    return (
+      NOTEBOOK_HOST_PATTERN.test(parsed.hostname) ||
+      ALLOWED_NOTEBOOK_DOMAINS.includes(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
