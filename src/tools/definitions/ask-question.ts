@@ -61,7 +61,7 @@ export const askQuestionTool: Tool = {
       },
       notebook_url: {
         type: "string",
-        pattern: "^https://notebooklm\\.google\\.com/",
+        pattern: "^https://notebook(?:lm)?\\.google\\.(?:[a-z]{2,3}|[a-z]{2,3}\\.[a-z]{2})/",
         maxLength: 512,
         description:
           "Optional notebook URL (overrides notebook_id). Use this for ad-hoc queries to notebooks not in your library.",
