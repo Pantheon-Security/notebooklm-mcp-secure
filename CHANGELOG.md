@@ -5,6 +5,77 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.5.0] - 2026-08-24
+
+Security and correctness release. Ten findings fixed (FX-015 through FX-027;
+FX-020, FX-021 and FX-023 are deferred and listed under Known limitations),
+every one regression-gated with a test proven to fail before the fix. First
+release verified end-to-end against live NotebookLM in a real browser.
+
+### BREAKING
+
+- **Tool inputs are now validated against their declared `inputSchema` at
+  dispatch.** Previously `asToolInput<T>()` was a bare type cast and nothing
+  validated anything, so every schema in `src/tools/definitions/` was
+  decorative. Calls that relied on that leniency now fail with
+  `Invalid input for <tool>: <reason>`. Most likely to bite: `add_notebook`
+  declares `required: ["url", "name", "description", "topics"]` — callers
+  omitting `topics` were previously accepted and are now refused. Validation
+  fails open on anything it does not understand (absent schema, unrecognised
+  keyword), so it cannot reject a call for a rule it does not implement.
+
+### Added
+
+- `notebook.google.com` support. Google migrated NotebookLM off
+  `notebooklm.google.com`, which now serves a 301. Both hosts are accepted;
+  the legacy form stays valid for stored library entries.
+- `cleanup_data` gains `include_optional` (default `false`).
+- `isNotebookLMUrl()` and `sanitizeErrorMessage()` in `utils/security.ts`, each
+  the single implementation of a check that had been duplicated inline.
+- `auth-capture.mjs` — captures an authenticated session from the existing
+  Chrome profile rather than watching for a URL. Refuses to write a plaintext
+  fallback; exits non-zero instead.
+
+### Fixed
+
+- **FX-015** No runtime `inputSchema` validation at MCP dispatch. See BREAKING.
+- **FX-016** `updateWebhook` persisted the HMAC secret to `webhooks.json`, and
+  `list_webhooks` — a read-scope, auth-exempt tool — disclosed it.
+- **FX-017** Webhook DNS-rebinding TOCTOU: the destination is now re-validated
+  per send attempt, not only at registration.
+- **FX-018** `cleanup_data` deleted `optional: true` categories unconditionally,
+  including `~/.claude/projects/*notebooklm-mcp*` — conversation transcripts
+  this server does not own. Now previewed but skipped unless opted in.
+- **FX-019** A literal NUL byte in `source-manager.ts` made a 1662-line module
+  read as binary to git, grep and every scanner. Source ids are unchanged.
+- **FX-022** Compliance-tool errors bypassed the path/stack sanitiser, leaking
+  absolute filesystem paths and usernames to the MCP client.
+- **FX-024** `eraseFile()` could not distinguish "erased and verified" from
+  "never existed"; absent paths are now recorded in `paths_absent`.
+- **FX-025** One test asserted a condition it never established and could not
+  fail. Suite audited for shuffle/singleton fragility.
+- **FX-026** Every real notebook URL was rejected after Google's domain
+  migration, and five auth-detection checks stopped matching after the 301,
+  so a completed login went undetected.
+- **FX-027** Fifteen tool-schema URL patterns still encoded the retired host.
+  Harmless until FX-015 made schemas load-bearing, at which point they refused
+  every real notebook one layer above the validator that accepted it.
+
+### Known limitations
+
+- Query logs remain plaintext on disk (mode 0600). Encrypting them needs a new
+  on-disk format and migration; tracked, not scheduled.
+- The audit tamper-anchor writes synchronously per event, and `FileLock` uses
+  sync I/O on the quota/audit paths. Both are performance-only; the anchor
+  cannot be debounced without weakening what it proves.
+- The response validator redacts prompt-injection patterns in model output,
+  which can over-redact notebooks whose subject matter *is* prompt injection.
+
+### Test suite
+
+655 -> 791 tests, 54 -> 70 files. Verified green on repeated full runs and
+across five fixed shuffle seeds (`sequence.shuffle` is on).
+
 ## [2026.4.1] - 2026-06-01
 
 Maintenance release: structural refactors (behavior-preserving) and a CI fix. No
