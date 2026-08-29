@@ -59,13 +59,20 @@ function getValidatorConfig(): ResponseValidatorConfig {
   };
 }
 
-/** Zero-width, joiner and bidirectional-control characters used to split keywords. */
-const INVISIBLE_CHARS = /[​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
+/**
+ * Zero-width, joiner and bidirectional-control characters used to split keywords.
+ *
+ * Written as \uXXXX ESCAPES, never as literal characters. Literal bidi controls in
+ * source are themselves a Trojan Source hazard - they reorder how the line renders
+ * in an editor or review diff, so the code you read is not the code that runs. The
+ * escaped form is byte-identical at runtime (proven by test) and safe to read.
+ */
+const INVISIBLE_CHARS = /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
 
 /**
  * Normalise text before pattern matching.
  *
- * Without this, `Ign​ore all previous instructions` and its full-width
+ * Without this, `Ign\u200Bore all previous instructions` and its full-width
  * homoglyph form both render normally to the model but match nothing. NFKC
  * folds homoglyphs to ASCII; invisible characters are stripped outright.
  */
