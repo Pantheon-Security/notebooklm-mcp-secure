@@ -211,7 +211,7 @@ export async function handleGetQuota(
         const page = await context.newPage();
         try {
           // Navigate to NotebookLM homepage
-          await page.goto("https://notebooklm.google.com/", {
+          await page.goto("https://notebook.google.com/", {
             waitUntil: "networkidle",
             timeout: 30000,
           });
@@ -319,7 +319,7 @@ export async function handleSetQuotaTier(
 
 export async function handleCleanupData(
   _ctx: HandlerContext,
-  args: { confirm: boolean; preserve_library?: boolean }
+  args: { confirm: boolean; preserve_library?: boolean; include_optional?: boolean }
 ): Promise<
   ToolResult<{
     status: string;
@@ -337,11 +337,12 @@ export async function handleCleanupData(
     };
   }>
 > {
-  const { confirm, preserve_library = false } = args;
+  const { confirm, preserve_library = false, include_optional = false } = args;
 
   log.info(`🔧 [TOOL] cleanup_data called`);
   log.info(`  Confirm: ${confirm}`);
   log.info(`  Preserve Library: ${preserve_library}`);
+  log.info(`  Include Optional: ${include_optional}`);
 
   const cleanupManager = new CleanupManager();
 
@@ -375,7 +376,7 @@ export async function handleCleanupData(
       // Cleanup mode - actually delete files
       log.info(`  🗑️  Performing cleanup (mode: ${mode})...`);
 
-      const result = await cleanupManager.performCleanup(mode, preserve_library);
+      const result = await cleanupManager.performCleanup(mode, preserve_library, include_optional);
 
       if (result.success) {
         log.success(`✅ [TOOL] cleanup_data completed - deleted ${result.deletedPaths.length} items`);

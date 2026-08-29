@@ -21,6 +21,7 @@ import type { SessionInfo } from "../types.js";
 import { randomBytes } from "crypto";
 import { getSessionTimeoutManager, SessionTimeoutManager } from "./session-timeout.js";
 import { audit } from "../utils/audit-logger.js";
+import { validateNotebookUrl } from "../utils/security.js";
 
 export class SessionManager {
   private authManager: AuthManager;
@@ -93,6 +94,11 @@ export class SessionManager {
     if (!targetUrl.startsWith("http")) {
       throw new Error("Notebook URL must be an absolute URL");
     }
+    // Defence in depth at the sink: callers that resolve a URL from the
+    // library (ask_question via notebook_id, active notebook) never re-validate
+    // it, so anything already persisted would otherwise be navigated to
+    // directly in the authenticated browser context.
+    const safeTargetUrl = validateNotebookUrl(targetUrl);
 
     // Generate ID if not provided
     if (!sessionId) {
@@ -128,7 +134,7 @@ export class SessionManager {
         await session.close();
         this.sessions.delete(sessionId);
         this.timeoutManager.removeSession(sessionId);
-      } else if (session.notebookUrl !== targetUrl) {
+      } else if (session.notebookUrl !== safeTargetUrl) {
         log.warning(`♻️  Replacing session ${sessionId} with new notebook URL`);
         await session.close();
         this.sessions.delete(sessionId);
@@ -167,7 +173,7 @@ export class SessionManager {
         sessionId,
         this.sharedContextManager,
         this.authManager,
-        targetUrl
+        safeTargetUrl
       );
       await session.init();
 
@@ -178,7 +184,7 @@ export class SessionManager {
 
       // Audit: session created
       await audit.session("session_created", sessionId, {
-        notebook_url: targetUrl,
+        notebook_url: safeTargetUrl,
         active_sessions: this.sessions.size,
       });
 

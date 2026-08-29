@@ -211,6 +211,8 @@ export interface DataExport {
     notebook_library: unknown[];
     user_settings: unknown;
     session_history?: unknown[];
+    /** Plaintext question/answer history from dataDir/query_logs (GDPR Art. 20). */
+    query_logs?: unknown[];
     activity_log: unknown[];
     compliance_events: ComplianceEvent[];
   };
@@ -262,6 +264,13 @@ export interface ErasureResult {
   size_bytes: number;
   method: "overwrite" | "delete" | "crypto_shred";
   verified: boolean;
+  /**
+   * Paths that did not exist when erasure ran. Recorded so an Art.17
+   * certificate can distinguish "erased and confirmed gone" from "there was
+   * never a file here" — both used to report verified with nothing to tell
+   * them apart (FX-024).
+   */
+  paths_absent?: string[];
 }
 
 /**

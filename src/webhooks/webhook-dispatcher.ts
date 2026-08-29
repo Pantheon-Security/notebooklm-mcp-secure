@@ -487,6 +487,22 @@ export class WebhookDispatcher {
           ? this.sign(payload, secret, timestamp)
           : undefined;
 
+        // DNS rebinding (FX-017): validateWebhookUrl ran only at
+        // add/updateWebhook, and fetch re-resolves the hostname on every
+        // attempt. A host that validated as public at registration can now
+        // answer 169.254.169.254 or an RFC1918 address. Re-check per attempt —
+        // each attempt re-resolves, so each attempt must re-validate — which
+        // narrows the window from "forever" to one request. redirect:"error"
+        // below covers the redirect variant; it does not cover this one.
+        const sendTimeValidation = await validateWebhookUrl(webhook.url);
+        if (!sendTimeValidation.ok) {
+          log.warning(
+            `  ⛔ Webhook send blocked for ${webhook.name}: ${sendTimeValidation.error}`
+          );
+          this.onDeliveryFailure(webhook);
+          return false;
+        }
+
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -914,10 +930,22 @@ export class WebhookDispatcher {
       ...(input.enabled !== undefined && { enabled: input.enabled }),
       ...(input.events && { events: input.events }),
       ...(input.format && { format: input.format }),
-      ...(input.secret !== undefined && { secret: input.secret }),
+      secret: undefined, // secret never persisted to disk — mirrors addWebhook (I321)
       ...(input.headers && { headers: input.headers }),
       updatedAt: new Date().toISOString(),
     };
+
+    // Route the secret to the SecureCredential store, exactly as addWebhook
+    // does. Spreading it into `updated` put it in the object saveStore()
+    // writes to webhooks.json, and listWebhooks() then handed it back out
+    // through a read-scope tool (FX-016).
+    if (input.secret !== undefined) {
+      if (input.secret) {
+        this.webhookSecrets.set(updated.id, new SecureCredential(input.secret, WEBHOOK_SECRET_TTL_MS));
+      } else {
+        this.webhookSecrets.delete(updated.id);
+      }
+    }
 
     this.store.webhooks[index] = updated;
     this.saveStore();
@@ -987,10 +1015,14 @@ export class WebhookDispatcher {
   }
 
   /**
-   * List all webhooks
+   * List all webhooks.
+   *
+   * Returns secret-free copies. Handing back the stored objects disclosed the
+   * HMAC secret through `list_webhooks` — a read-scope, auth-exempt tool — and
+   * let a caller mutate the store by reference (FX-016).
    */
   listWebhooks(): WebhookConfig[] {
-    return this.store.webhooks;
+    return this.store.webhooks.map(({ secret: _secret, ...rest }) => ({ ...rest }));
   }
 
   /**

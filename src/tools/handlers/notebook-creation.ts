@@ -21,7 +21,11 @@ import type {
 import { NotebookCreator } from "../../notebook-creation/notebook-creator.js";
 import { NotebookSync } from "../../notebook-creation/notebook-sync.js";
 import { SourceManager } from "../../notebook-creation/source-manager.js";
-import { validateNotebookUrl, validateSourceUrl } from "../../utils/security.js";
+import {
+  validateNotebookUrl,
+  validateSourceUrl,
+  resolveWithinAllowlist,
+} from "../../utils/security.js";
 import { getQuotaManager } from "../../quota/index.js";
 import { log } from "../../utils/logger.js";
 import { audit } from "../../utils/audit-logger.js";
@@ -60,6 +64,9 @@ export async function handleCreateNotebook(
       }
       if (source.type === "url") {
         source.value = validateSourceUrl(source.value);
+      }
+      if (source.type === "file") {
+        source.value = resolveWithinAllowlist(source.value, "source.value");
       }
     }
 
@@ -423,6 +430,13 @@ export async function handleAddSource(
 
     if (args.source.type === "url") {
       args.source.value = validateSourceUrl(args.source.value);
+    }
+
+    // File sources upload a local file to Google. Confine them to the same
+    // allowlist add_folder enforces — without this, any readable file was
+    // exfiltratable at read scope.
+    if (args.source.type === "file") {
+      args.source.value = resolveWithinAllowlist(args.source.value, "source.value");
     }
 
     const safeUrl = validateNotebookUrl(resolveNotebookUrl(ctx, args));

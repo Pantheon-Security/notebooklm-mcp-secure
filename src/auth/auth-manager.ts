@@ -25,7 +25,7 @@ import {
   randomMouseMovement,
 } from "../utils/stealth-utils.js";
 import type { ProgressCallback } from "../types.js";
-import { maskEmail } from "../utils/security.js";
+import { maskEmail, isNotebookLMUrl } from "../utils/security.js";
 import { getSecureStorage } from "../utils/crypto.js";
 import { withLock, isLocked } from "../utils/file-lock.js";
 
@@ -524,7 +524,7 @@ export class AuthManager {
           }
 
           // ✅ SIMPLE: Check if we're on NotebookLM (any path!)
-          if (currentUrl.startsWith("https://notebooklm.google.com/")) {
+          if (isNotebookLMUrl(currentUrl)) {
             await sendProgress?.("Login successful! NotebookLM detected!", 9, 10);
             log.success("✅ Login successful! NotebookLM URL detected.");
             log.success(`✅ Current URL: ${currentUrl}`);
@@ -555,7 +555,7 @@ export class AuthManager {
         throw signal.reason instanceof Error ? signal.reason : new Error("Login aborted");
       }
       const currentUrl = page.url();
-      if (currentUrl.startsWith("https://notebooklm.google.com/")) {
+      if (isNotebookLMUrl(currentUrl)) {
         await sendProgress?.("Login successful (detected on timeout check)!", 9, 10);
         log.success("✅ Login successful (detected on timeout check)");
         return true;
@@ -717,7 +717,7 @@ export class AuthManager {
       } else {
         log.error(`  ❌ Stuck on Google accounts page: ${currentUrl.slice(0, 80)}...`);
       }
-    } else if (currentUrl.includes("notebooklm.google.com")) {
+    } else if (isNotebookLMUrl(currentUrl)) {
       log.warning("  ⚠️  Reached NotebookLM but couldn't detect successful login");
       log.info("  💡 This might be a timing issue - try again");
     } else {
@@ -748,7 +748,7 @@ export class AuthManager {
         const currentUrl = page.url();
 
         // Simple check: Are we on NotebookLM?
-        if (currentUrl.startsWith("https://notebooklm.google.com/")) {
+        if (isNotebookLMUrl(currentUrl)) {
           log.success("    ✅ NotebookLM URL detected!");
           // Short wait to ensure page is loaded
           await page.waitForTimeout(2000);
@@ -780,7 +780,7 @@ export class AuthManager {
         const currentUrl = page.url();
 
         // Simple check: Are we on NotebookLM?
-        if (currentUrl.startsWith("https://notebooklm.google.com/")) {
+        if (isNotebookLMUrl(currentUrl)) {
           log.success("  ✅ NotebookLM URL detected");
           return true;
         }

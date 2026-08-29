@@ -57,7 +57,8 @@ import { CliHandler } from "./utils/cli-handler.js";
 import { CONFIG, ensureDirectories } from "./config.js";
 import { log } from "./utils/logger.js";
 import { audit, getAuditLogger } from "./utils/audit-logger.js";
-import { checkSecurityContext } from "./utils/security.js";
+import { checkSecurityContext, sanitizeErrorMessage } from "./utils/security.js";
+import { validateAgainstSchema } from "./utils/schema-validator.js";
 import { getMCPAuthenticator, authenticateMCPRequest } from "./auth/mcp-auth.js";
 import {
   getComplianceTools,
@@ -106,6 +107,14 @@ function toToolArgs(value: unknown): ToolArgs {
   return {};
 }
 
+/**
+ * Narrow validated MCP arguments to a handler's input type.
+ *
+ * This is a cast, but no longer a bare one: the dispatch handler runs
+ * `validateAgainstSchema` against the tool's declared `inputSchema` before any
+ * handler is reached (FX-015), so the shape has been checked at runtime by the
+ * time this is called.
+ */
 function asToolInput<T>(args: ToolArgs): T {
   return args as T;
 }
@@ -205,6 +214,13 @@ export class NotebookLMMCPServer {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private toolRegistry: Map<string, ToolHandler> = new Map();
   private complianceToolNames: Set<string>;
+  /**
+   * tool name → declared inputSchema, for runtime validation at dispatch
+   * (FX-015). Built from the UNFILTERED definitions so a schema is present
+   * regardless of profile/advanced-tool filtering; disabled tools are refused
+   * earlier, by the filter check.
+   */
+  private toolSchemas: Map<string, unknown>;
   private retentionTimer?: NodeJS.Timeout;
   private readonly advancedToolsEnabled: boolean;
 
@@ -245,9 +261,18 @@ export class NotebookLMMCPServer {
     this.toolDefinitions = this.filterAdvancedTools(this.settingsManager.filterTools(allTools));
 
     // Track compliance tool names for the short-circuit dispatch path.
+    const complianceTools = getComplianceTools();
     this.complianceToolNames = new Set(
-      this.filterAdvancedTools(getComplianceTools()).map((t) => t.name)
+      this.filterAdvancedTools(complianceTools).map((t) => t.name)
     );
+
+    // Index every declared inputSchema for dispatch-time validation (FX-015).
+    // Both dispatch paths — the generic tool registry and the compliance
+    // short-circuit — resolve their schema from here.
+    this.toolSchemas = new Map<string, unknown>();
+    for (const tool of [...allTools, ...complianceTools]) {
+      this.toolSchemas.set(tool.name, tool.inputSchema);
+    }
 
     // Setup handlers
     this.setupHandlers();
@@ -434,12 +459,53 @@ export class NotebookLMMCPServer {
       };
 
       try {
+        // === Runtime schema validation (FX-015) ===
+        // Enforce the tool's declared inputSchema BEFORE either dispatch path.
+        // Until this existed, `asToolInput` was a bare cast and every schema in
+        // src/tools/definitions/ was decorative. A tool with no registered
+        // schema passes through unchanged.
+        const toolArgs = toToolArgs(args);
+        const schema = this.toolSchemas.get(name);
+        if (schema !== undefined) {
+          const validation = validateAgainstSchema(schema, toolArgs);
+          if (!validation.ok) {
+            log.warning(`⛔ [MCP] Invalid input for '${name}': ${validation.error}`);
+            const errorBody = {
+              success: false,
+              error: `Invalid input for ${name}: ${validation.error}`,
+              _errorType: "domain" as const,
+            };
+            return {
+              isError: true,
+              content: [{ type: "text", text: JSON.stringify(errorBody, null, 2) }],
+              structuredContent: errorBody,
+            };
+          }
+        }
+
         // Compliance tools have their own dispatcher that returns MCP-shaped
         // TextContent[] directly. Short-circuit before the generic wrapper
         // so dashboard/report text isn't double-encoded as JSON.
         if (this.complianceToolNames.has(name)) {
-          const content = await handleComplianceToolCall(name, toToolArgs(args));
+          const content = await handleComplianceToolCall(name, toolArgs);
           return { content };
+        }
+
+        // Enforce the operator's tool filter at DISPATCH, not just in the
+        // listing: a disabled tool was previously hidden from list_tools but
+        // still executed when called by name.
+        if (!this.settingsManager.isToolEnabled(name)) {
+          log.warning(`⛔ [MCP] Tool '${name}' is disabled by the active profile/settings`);
+          const errorBody = {
+            success: false,
+            error: `Tool is not enabled: ${name}`,
+            _errorType: "domain" as const,
+          };
+          return {
+            isError: true,
+            content: [{ type: "text", text: JSON.stringify(errorBody, null, 2) }],
+            structuredContent: errorBody,
+          };
         }
 
         const handler = this.toolRegistry.get(name);
@@ -462,7 +528,7 @@ export class NotebookLMMCPServer {
           };
         }
 
-        const result = await handler(toToolArgs(args), sendProgress);
+        const result = await handler(toolArgs, sendProgress);
 
         // Return result
         return {
@@ -479,11 +545,9 @@ export class NotebookLMMCPServer {
         const errorType = classifyToolError(error);
         log.error(`❌ [MCP] Tool execution error for '${name}': ${rawMessage}`);
 
-        // Sanitize before returning to client: strip absolute paths and stack fragments (I328)
-        const sanitized = rawMessage
-          .replace(/(?:\/[^\s/:,'"]+)+/g, "[path]")
-          .replace(/\bat\s+\S+\s+\(\S+:\d+:\d+\)/g, "")
-          .trim();
+        // Sanitize before returning to client: strip absolute paths and stack fragments (I328).
+        // Shared with the compliance dispatch path — see utils/security.ts (FX-022).
+        const sanitized = sanitizeErrorMessage(rawMessage);
 
         const errorBody = {
           success: false,

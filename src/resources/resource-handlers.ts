@@ -11,6 +11,7 @@ import type { Icon, Resource } from "@modelcontextprotocol/sdk/types.js";
 import { NotebookLibrary } from "../library/notebook-library.js";
 import { log } from "../utils/logger.js";
 import { validateNotebookId } from "../utils/security.js";
+import { authenticateMCPRequest } from "../auth/mcp-auth.js";
 
 /**
  * Create an SVG icon data URI
@@ -92,10 +93,33 @@ export class ResourceHandlers {
   /**
    * Register all resource handlers to the server
    */
+  /**
+   * Authenticate a resource/prompt/completion request.
+   *
+   * These handlers previously performed no auth check at all, so with auth
+   * enabled and no token `resources/read notebooklm://library` returned the
+   * same data tools/call refused — including every notebook URL. Read scope,
+   * matching the non-sensitive tool path.
+   */
+  private async requireReadAccess(
+    request: { params?: { _meta?: Record<string, unknown> } },
+    operation: string
+  ): Promise<void> {
+    const metaToken = request.params?._meta?.authToken;
+    const authToken =
+      (typeof metaToken === "string" ? metaToken : undefined) || process.env.NLMCP_AUTH_TOKEN;
+    const authResult = await authenticateMCPRequest(authToken, operation, false, "read");
+    if (!authResult.authenticated) {
+      log.warning(`🔒 [MCP] Authentication failed for resource operation: ${operation}`);
+      throw new Error(authResult.error || "Authentication required");
+    }
+  }
+
   public registerHandlers(server: Server): void {
     // List available resources (enhanced with icons and annotations)
     server.setRequestHandler(ListResourcesRequestSchema, async (request) => {
       log.info("📚 [MCP] list_resources request received");
+      await this.requireReadAccess(request, "list_resources");
       const { limit } = (request.params ?? {}) as ListResourcesParams;
       const effectiveLimit = Math.min(
         Math.max(limit ?? DEFAULT_RESOURCE_LIMIT, 1),
@@ -186,8 +210,9 @@ export class ResourceHandlers {
     });
 
     // List resource templates
-    server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+    server.setRequestHandler(ListResourceTemplatesRequestSchema, async (request) => {
       log.info("📑 [MCP] list_resource_templates request received");
+      await this.requireReadAccess(request, "list_resource_templates");
 
       return {
         resourceTemplates: [
@@ -208,6 +233,7 @@ export class ResourceHandlers {
     server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
       const { uri } = request.params;
       log.info(`📖 [MCP] read_resource request: ${uri}`);
+      await this.requireReadAccess(request, "read_resource");
 
       // Handle library resource
       if (uri === "notebooklm://library") {
@@ -341,6 +367,7 @@ export class ResourceHandlers {
 
     // Argument completions (for prompt arguments and resource templates)
     server.setRequestHandler(CompleteRequestSchema, async (request) => {
+      await this.requireReadAccess(request, "complete");
       const { ref, argument } = request.params as CompletionRequestParams;
       try {
         if (ref?.type === "ref/resource") {
@@ -359,8 +386,9 @@ export class ResourceHandlers {
     });
 
     // List available prompts
-    server.setRequestHandler(ListPromptsRequestSchema, async () => {
+    server.setRequestHandler(ListPromptsRequestSchema, async (request) => {
       log.info("📝 [MCP] list_prompts request received");
+      await this.requireReadAccess(request, "list_prompts");
 
       return {
         prompts: [
@@ -396,6 +424,7 @@ export class ResourceHandlers {
     server.setRequestHandler(GetPromptRequestSchema, async (request) => {
       const { name } = request.params;
       log.info(`📝 [MCP] get_prompt request: ${name}`);
+      await this.requireReadAccess(request, "get_prompt");
 
       switch (name) {
         case "notebooklm.auth-setup":

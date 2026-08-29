@@ -297,7 +297,7 @@ export class NotebookNavigation {
     if (notebookLinks.length > 0) {
       const href = await notebookLinks[0].getAttribute("href");
       if (href) {
-        return href.startsWith("http") ? href : `https://notebooklm.google.com${href}`;
+        return href.startsWith("http") ? href : `https://notebook.google.com${href}`;
       }
     }
 

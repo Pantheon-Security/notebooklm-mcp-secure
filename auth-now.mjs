@@ -51,75 +51,90 @@ try {
 
 console.log('If not already logged in, please log in to your Google account.');
 console.log('Waiting for you to reach NotebookLM... (up to 10 minutes)');
+console.log('   (any tab counts — open it wherever you like)');
 
 let saved = false;
+
+/**
+ * Find whichever tab has reached NotebookLM.
+ *
+ * Scans EVERY page in the context, not just pages()[0]. Google's sign-in flow
+ * frequently lands in a new tab, and watching only the original one meant a
+ * successful login went undetected until the script timed out.
+ */
+function findNotebookLMPage() {
+  for (const p of context.pages()) {
+    let url = '';
+    try { url = p.url(); } catch { continue; }
+    if (url.startsWith('https://notebooklm.google.com')) return { page: p, url };
+  }
+  return null;
+}
 
 for (let i = 0; i < 600; i++) {
   await new Promise(r => setTimeout(r, 1000));
 
-  let url = '';
-  try { url = page.url(); } catch { continue; }
+  const hit = findNotebookLMPage();
+  if (!hit) continue;
 
-  // Match with or without trailing slash
-  if (url.startsWith('https://notebooklm.google.com')) {
-    console.log(`✅ NotebookLM detected (${url})`);
-    console.log('   Waiting 3s for page to settle...');
-    await page.waitForTimeout(3000);
+  const { page: activePage, url } = hit;
+  console.log(`✅ NotebookLM detected (${url})`);
+  console.log('   Waiting 3s for page to settle...');
+  await activePage.waitForTimeout(3000);
 
-    // --- Extract storage state ---
-    console.log('   Extracting cookies and storage...');
-    let storageState;
-    try {
-      storageState = await context.storageState();
-      console.log(`   Got ${storageState.cookies?.length ?? 0} cookies`);
-    } catch (e) {
-      console.error('❌ Failed to extract storage state:', e.message);
-      break;
-    }
-
-    // --- Try encrypted save first ---
-    let encSaved = false;
-    try {
-      const { getSecureStorage } = await import('./dist/utils/crypto.js');
-      const secureStorage = getSecureStorage();
-      await secureStorage.save(STATE_PATH, storageState);
-      encSaved = true;
-      console.log('✅ Saved encrypted state.json.pqenc');
-    } catch (e) {
-      console.warn('   Encrypted save failed:', e.message);
-      console.warn('   Falling back to plain JSON...');
-    }
-
-    // --- Plain JSON fallback (MCP server accepts this too) ---
-    if (!encSaved) {
-      try {
-        await writeFile(STATE_PATH, JSON.stringify(storageState, null, 2));
-        console.log('✅ Saved state.json (unencrypted)');
-        encSaved = true;
-      } catch (e) {
-        console.error('❌ Plain JSON save also failed:', e.message);
-        console.error('   State dir:', BROWSER_STATE_DIR);
-        break;
-      }
-    }
-
-    // --- Verify file exists ---
-    try {
-      const s = await stat(STATE_PATH + '.pqenc').catch(() => stat(STATE_PATH));
-      console.log(`✅ Verified file on disk (${Math.round(s.size / 1024)}KB)`);
-    } catch {
-      console.warn('   Could not verify file — check directory manually');
-    }
-
-    saved = true;
-    console.log('');
-    console.log('✅ Auth complete! Open your node1/node2/node3 sessions now.');
-    console.log('   (This window will stay open — close it with Ctrl+C when ready)');
-
-    // Keep alive so user can see it worked
-    await new Promise(r => setTimeout(r, 60000));
+  // --- Extract storage state ---
+  console.log('   Extracting cookies and storage...');
+  let storageState;
+  try {
+    storageState = await context.storageState();
+    console.log(`   Got ${storageState.cookies?.length ?? 0} cookies`);
+  } catch (e) {
+    console.error('❌ Failed to extract storage state:', e.message);
     break;
   }
+
+  // --- Try encrypted save first ---
+  let encSaved = false;
+  try {
+    const { getSecureStorage } = await import('./dist/utils/crypto.js');
+    const secureStorage = getSecureStorage();
+    await secureStorage.save(STATE_PATH, storageState);
+    encSaved = true;
+    console.log('✅ Saved encrypted state.json.pqenc');
+  } catch (e) {
+    console.warn('   Encrypted save failed:', e.message);
+    console.warn('   Falling back to plain JSON...');
+  }
+
+  // --- Plain JSON fallback (MCP server accepts this too) ---
+  if (!encSaved) {
+    try {
+      await writeFile(STATE_PATH, JSON.stringify(storageState, null, 2));
+      console.log('✅ Saved state.json (unencrypted)');
+      encSaved = true;
+    } catch (e) {
+      console.error('❌ Plain JSON save also failed:', e.message);
+      console.error('   State dir:', BROWSER_STATE_DIR);
+      break;
+    }
+  }
+
+  // --- Verify file exists ---
+  try {
+    const s = await stat(STATE_PATH + '.pqenc').catch(() => stat(STATE_PATH));
+    console.log(`✅ Verified file on disk (${Math.round(s.size / 1024)}KB)`);
+  } catch {
+    console.warn('   Could not verify file — check directory manually');
+  }
+
+  saved = true;
+  console.log('');
+  console.log('✅ Auth complete! Open your node1/node2/node3 sessions now.');
+  console.log('   (This window will stay open — close it with Ctrl+C when ready)');
+
+  // Keep alive so user can see it worked
+  await new Promise(r => setTimeout(r, 60000));
+  break;
 }
 
 if (!saved) {

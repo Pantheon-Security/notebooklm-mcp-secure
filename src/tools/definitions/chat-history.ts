@@ -51,7 +51,7 @@ Paginate through history:
       },
       notebook_url: {
         type: "string",
-        pattern: "^https://notebooklm\\.google\\.com/",
+        pattern: "^https://notebook(?:lm)?\\.google\\.(?:[a-z]{2,3}|[a-z]{2,3}\\.[a-z]{2})/",
         maxLength: 512,
         description: "Direct notebook URL (overrides notebook_id). Use for notebooks not in your library.",
       },

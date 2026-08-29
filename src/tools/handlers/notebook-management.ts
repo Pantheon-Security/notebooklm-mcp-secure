@@ -44,7 +44,13 @@ export async function handleAddNotebook(
   log.info(`  Name: ${args.name}`);
 
   return withNotebookHandler("add_notebook", () => {
-    const notebook = ctx.library.addNotebook(args);
+    // Validate before storing: the persisted URL is later resolved by
+    // ask_question via notebook_id and navigated to in the authenticated
+    // browser, so an unvalidated write here is a stored SSRF.
+    // (update_notebook has always validated this same field.)
+    const safeArgs =
+      args.url !== undefined ? { ...args, url: validateNotebookUrl(args.url) } : args;
+    const notebook = ctx.library.addNotebook(safeArgs);
     log.success(`✅ [TOOL] add_notebook completed: ${notebook.id}`);
     return {
       success: true,

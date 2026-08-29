@@ -55,7 +55,7 @@ const generateVideoOverviewTool: Tool = {
       },
       notebook_url: {
         type: "string",
-        pattern: "^https://notebooklm\\.google\\.com/",
+        pattern: "^https://notebook(?:lm)?\\.google\\.(?:[a-z]{2,3}|[a-z]{2,3}\\.[a-z]{2})/",
         maxLength: 512,
         description: "Or direct notebook URL (overrides notebook_id)",
       },
@@ -101,7 +101,7 @@ const getVideoStatusTool: Tool = {
       },
       notebook_url: {
         type: "string",
-        pattern: "^https://notebooklm\\.google\\.com/",
+        pattern: "^https://notebook(?:lm)?\\.google\\.(?:[a-z]{2,3}|[a-z]{2,3}\\.[a-z]{2})/",
         maxLength: 512,
         description: "Or direct notebook URL (overrides notebook_id)",
       },

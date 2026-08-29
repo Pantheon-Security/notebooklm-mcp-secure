@@ -106,7 +106,14 @@ export class DataInventory {
 
     // Known data locations
     const dataLocations: { dataType: string; location: string }[] = [
-      { dataType: "notebook_library", location: path.join(config.configDir, "library.json") },
+      // NotebookLibrary writes to dataDir, not configDir.
+      { dataType: "notebook_library", location: path.join(config.dataDir, "library.json") },
+      { dataType: "project_libraries", location: path.join(config.dataDir, "projects") },
+      {
+        dataType: "query_logs",
+        location:
+          process.env.NLMCP_QUERY_LOG_DIR || path.join(config.dataDir, "query_logs"),
+      },
       { dataType: "user_settings", location: path.join(config.configDir, "settings.json") },
       { dataType: "consent_records", location: path.join(config.configDir, "consent.json") },
       { dataType: "browser_cookies", location: path.join(config.dataDir, "browser_state") },

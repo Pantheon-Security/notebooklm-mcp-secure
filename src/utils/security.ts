@@ -6,6 +6,8 @@
  */
 
 import path from "path";
+import fs from "fs";
+import os from "os";
 import { log } from "./logger.js";
 
 // Pre-compiled regex patterns for sanitizeForLogging (avoid recompilation per call)
@@ -23,7 +25,25 @@ const SECRET_SANITIZE_PATTERNS = [
 /**
  * Allowed URL patterns for NotebookLM
  */
+/**
+ * NotebookLM host form: notebook[lm].google.<tld> or notebook[lm].google.<sld>.<cc>.
+ *
+ * Both labels are accepted. Google migrated the product to
+ * `notebook.google.com` — verified 2026-08-13, `notebooklm.google.com` returns
+ * a 301 to it — so the `lm` label is now the LEGACY form. It stays valid
+ * because stored library URLs still carry it and Google still redirects.
+ *
+ * Anchored, with 2-3 letter labels only, so it admits every Google ccTLD
+ * without admitting notebook.google.attacker.com or any subdomain. Widening
+ * this to *.google.com would undo FX-011 — don't.
+ */
+const NOTEBOOK_HOST_PATTERN = /^notebook(?:lm)?\.google\.(?:[a-z]{2,3}|[a-z]{2,3}\.[a-z]{2})$/;
+
 const ALLOWED_NOTEBOOK_DOMAINS = [
+  // Current canonical host (post-migration).
+  'notebook.google.com',
+  'notebook.google.co.uk',
+  // Legacy host — Google 301s these to the above; stored URLs still use them.
   'notebooklm.google.com',
   'notebooklm.google.co.uk',
   'notebooklm.google.de',
@@ -135,7 +155,13 @@ export function validateNotebookUrl(url: string): string {
 
   // Validate domain
   const hostname = parsed.hostname.toLowerCase();
-  const isAllowedNotebook = ALLOWED_NOTEBOOK_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d));
+  // Match notebooklm.google.<ccTLD> generally rather than a fixed nine-entry
+  // list: once this validator moved onto the session-creation sink, an unlisted
+  // regional domain (.co.jp, .in, .com.br …) meant a user could not open a
+  // session at all. Anchored at both ends and limited to 2-3 letter TLD labels,
+  // so notebooklm.google.attacker.com and *.notebooklm.google.com are refused.
+  const isAllowedNotebook =
+    NOTEBOOK_HOST_PATTERN.test(hostname) || ALLOWED_NOTEBOOK_DOMAINS.includes(hostname);
 
   if (!isAllowedNotebook) {
     throw new SecurityError(`Domain not allowed: ${hostname}. Only NotebookLM domains are permitted.`);
@@ -247,6 +273,31 @@ export function validateQuestion(question: string): string {
 }
 
 /**
+ * Is this URL a NotebookLM URL, on either the current or the legacy host?
+ *
+ * The single host check (FX-026). auth-manager, notebook-nav and notebook-sync
+ * each carried their own inline
+ * `startsWith("https://notebooklm.google.com/")`, which silently stopped
+ * matching when Google migrated to notebook.google.com — a completed login
+ * went undetected because the post-redirect URL failed every one of them.
+ *
+ * Never throws: callers pass raw page URLs, which can be malformed or empty.
+ */
+export function isNotebookLMUrl(rawUrl: string): boolean {
+  if (!rawUrl || typeof rawUrl !== 'string') return false;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:') return false;
+    return (
+      NOTEBOOK_HOST_PATTERN.test(parsed.hostname) ||
+      ALLOWED_NOTEBOOK_DOMAINS.includes(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Sanitize a string for safe logging
  * Masks sensitive information like passwords, tokens, etc.
  */
@@ -274,6 +325,25 @@ export function sanitizeForLogging(value: string): string {
   result = result.replace(URL_CREDENTIAL_PATTERN, "$1***:***@");
 
   return result;
+}
+
+/**
+ * Strip absolute paths and stack-frame fragments from an error message before
+ * it crosses the MCP boundary (I328).
+ *
+ * Single implementation on purpose (FX-022): this logic used to be inline in
+ * the tools/call handler only, so the compliance dispatcher — which
+ * short-circuits ahead of that handler — returned raw fs paths and usernames
+ * to the client. Both paths call this now; neither should reimplement it.
+ *
+ * Sanitisation is for the CLIENT boundary only. Audit logs are local and keep
+ * the raw message.
+ */
+export function sanitizeErrorMessage(raw: string): string {
+  return raw
+    .replace(/(?:\/[^\s/:,'"]+)+/g, "[path]")
+    .replace(/\bat\s+\S+\s+\(\S+:\d+:\d+\)/g, "")
+    .trim();
 }
 
 /**
@@ -313,6 +383,119 @@ export function validateFilePath(basePath: string, filePath: string): string {
   }
 
   return normalizedResolved;
+}
+
+/** Sensitive path segments never uploaded or written, regardless of allowlist. */
+const DENIED_PATH_SEGMENTS = [
+  ".ssh",
+  ".aws",
+  ".gnupg",
+  ".docker",
+  ".kube",
+  ".config/gcloud",
+  ".config/git",
+  ".netrc",
+  ".npmrc",
+  ".mcpregistry_github_token",
+  ".mcpregistry_registry_token",
+];
+
+/** Absolute system directories never uploaded or written. */
+const DENIED_ABSOLUTE_PATHS = ["/etc", "/root", "/proc", "/sys", "/var/log"];
+
+/**
+ * Resolve a user-supplied path and confine it to the configured allowlist,
+ * rejecting sensitive credential directories.
+ *
+ * Shared by every tool that reads a caller-named local file. Previously each
+ * caller reimplemented this (or, for the read-scope file-source paths, skipped
+ * it entirely), so a fix applied to one copy left the others exposed.
+ *
+ * @param userPath caller-supplied path
+ * @param label argument name used in error messages
+ */
+export function resolveWithinAllowlist(userPath: string, label = "path"): string {
+  if (!userPath || userPath.trim().length === 0) {
+    throw new SecurityError(`${label} is required`);
+  }
+
+  const resolved = path.resolve(userPath);
+
+  // Follow symlinks before testing, so a link inside the allowlist cannot
+  // point at a target outside it.
+  let real = resolved;
+  try {
+    if (fs.existsSync(resolved)) {
+      real = fs.realpathSync.native(resolved);
+    }
+  } catch {
+    real = resolved;
+  }
+
+  const envList = process.env.NLMCP_FOLDER_ALLOWLIST?.trim();
+  const allowedBases =
+    envList && envList.length > 0
+      ? envList
+          .split(":")
+          .map(p => path.resolve(p.trim()))
+          .filter(p => p.length > 0)
+      : [path.resolve(os.homedir())];
+
+  const inAllowedBase = allowedBases.some(base => {
+    const rel = path.relative(base, real);
+    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  });
+  if (!inAllowedBase) {
+    throw new SecurityError(
+      `${label} must be inside one of: ${allowedBases.join(", ")}. ` +
+        `Set NLMCP_FOLDER_ALLOWLIST to extend the list.`
+    );
+  }
+
+  const segments = real.split(path.sep);
+  for (const denied of DENIED_PATH_SEGMENTS) {
+    const parts = denied.split("/");
+    for (let i = 0; i <= segments.length - parts.length; i++) {
+      if (parts.every((p, j) => segments[i + j] === p)) {
+        throw new SecurityError(
+          `${label} traverses a sensitive directory (${denied}); refusing.`
+        );
+      }
+    }
+  }
+  for (const denied of DENIED_ABSOLUTE_PATHS) {
+    if (real === denied || real.startsWith(denied + path.sep)) {
+      throw new SecurityError(
+        `${label} is inside a protected system directory (${denied}); refusing.`
+      );
+    }
+  }
+
+  return real;
+}
+
+/**
+ * Resolve a caller-supplied output path against a writable base directory,
+ * rejecting anything that escapes it. Mirrors resolveExportPath so every
+ * file-writing tool confines its output the same way.
+ */
+export function resolveWithinBase(
+  userPath: string | undefined,
+  defaultName: string,
+  baseEnvVar = "NLMCP_EXPORT_DIR",
+  label = "output_file"
+): string {
+  const base = path.resolve(process.env[baseEnvVar]?.trim() || os.homedir());
+  const target = path.resolve(base, userPath && userPath.trim().length > 0 ? userPath : defaultName);
+
+  const rel = path.relative(base, target);
+  if (rel !== "" && (rel.startsWith("..") || path.isAbsolute(rel))) {
+    throw new SecurityError(
+      `${label} must be inside ${base}. Set ${baseEnvVar} to change the location.`
+    );
+  }
+
+  return target;
 }
 
 /**

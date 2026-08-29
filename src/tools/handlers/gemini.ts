@@ -16,8 +16,11 @@ import {
   validateNotebookUrl,
   validateNotebookId,
   sanitizeForLogging,
+  resolveWithinBase,
+  resolveWithinAllowlist,
 } from "../../utils/security.js";
 import { getQueryLogger } from "../../logging/index.js";
+import { validateResponse } from "../../utils/response-validator.js";
 import type {
   GeminiInteraction,
   DeepResearchResult,
@@ -98,8 +101,11 @@ export async function handleDeepResearch(
 
     const durationMs = Date.now() - startTime;
 
-    // Extract the answer
-    const answer = interaction.outputs.find(o => o.type === "text")?.text || "";
+    // Extract the answer. Untrusted: web-grounded and document-grounded output
+    // is third-party authored, so it must be sanitised before the calling model
+    // ever sees it (indirect prompt injection).
+    const rawAnswer = interaction.outputs.find(o => o.type === "text")?.text || "";
+    const answer = (await validateResponse(rawAnswer)).sanitized;
 
     // Audit log
     await audit.tool("deep_research", { query: sanitizeForLogging(args.query) }, true, durationMs);
@@ -209,8 +215,11 @@ export async function handleGeminiQuery(
 
     const durationMs = Date.now() - startTime;
 
-    // Extract the answer
-    const answer = interaction.outputs.find(o => o.type === "text")?.text || "";
+    // Extract the answer. Untrusted: web-grounded and document-grounded output
+    // is third-party authored, so it must be sanitised before the calling model
+    // ever sees it (indirect prompt injection).
+    const rawAnswer = interaction.outputs.find(o => o.type === "text")?.text || "";
+    const answer = (await validateResponse(rawAnswer)).sanitized;
 
     // Identify which tools were used
     const toolsUsed = interaction.outputs
@@ -325,13 +334,13 @@ export async function handleUploadDocument(
   }
 
   try {
-    // Validate file path
-    if (!args.file_path || args.file_path.trim().length === 0) {
-      throw new Error("File path cannot be empty");
-    }
+    // Confine the path: this uploads a local file to the Gemini Files API,
+    // where it is readable back via query_document. add_folder has always
+    // enforced this allowlist; this sibling sink did not.
+    const safeFilePath = resolveWithinAllowlist(args.file_path, "file_path");
 
     const result = await geminiClient.uploadDocument({
-      filePath: args.file_path,
+      filePath: safeFilePath,
       displayName: args.display_name,
     });
 
@@ -410,7 +419,7 @@ export async function handleQueryDocument(
 
     return {
       success: true,
-      data: result,
+      data: { ...result, answer: (await validateResponse(result.answer)).sanitized },
     };
   } catch (error) {
     const errorMessage = getSanitizedErrorMessage(error);
@@ -571,7 +580,7 @@ export async function handleQueryChunkedDocument(
     return {
       success: true,
       data: {
-        answer: result.answer,
+        answer: (await validateResponse(result.answer)).sanitized,
         model: result.model,
         tokensUsed: result.tokensUsed,
         chunksQueried: args.file_names.length,
@@ -705,6 +714,19 @@ export async function handleGetNotebookChatHistory(
   log.info(`🔧 [TOOL] get_notebook_chat_history called${args.preview_only ? ' (preview mode)' : ''}`);
 
   try {
+    // Confine the export path before any work: this write had no confinement
+    // and no mode, so a caller-supplied absolute path could overwrite any file
+    // the process could write. Fail fast, like export_library does.
+    let resolvedOutputFile: string | undefined;
+    if (args.output_file !== undefined) {
+      resolvedOutputFile = resolveWithinBase(
+        args.output_file,
+        "chat-history.json",
+        "NLMCP_EXPORT_DIR",
+        "output_file"
+      );
+    }
+
     // Resolve notebook URL
     let notebookUrl: string;
     let notebookName: string | undefined;
@@ -841,11 +863,16 @@ export async function handleGetNotebookChatHistory(
       const paginatedMessages = messages.slice(startIdx, endIdx);
       const hasMore = endIdx < totalMessages;
 
-      // Re-index the paginated messages
-      const reindexedMessages = paginatedMessages.map((m, idx) => ({
-        ...m,
-        index: startIdx + idx,
-      }));
+      // Re-index the paginated messages. The text is scraped straight from the
+      // NotebookLM DOM, so it is third-party authored and must be sanitised —
+      // this is also a replay point for injections redacted at ask time.
+      const reindexedMessages = await Promise.all(
+        paginatedMessages.map(async (m, idx) => ({
+          ...m,
+          content: (await validateResponse(m.content)).sanitized,
+          index: startIdx + idx,
+        }))
+      );
 
       // Export to file if requested
       if (args.output_file) {
@@ -859,8 +886,12 @@ export async function handleGetNotebookChatHistory(
           assistant_messages: assistantMessages,
           messages: reindexedMessages,
         };
-        await fs.writeFile(args.output_file, JSON.stringify(exportData, null, 2));
-        log.success(`✅ [TOOL] get_notebook_chat_history exported to ${args.output_file}`);
+        await fs.writeFile(
+          resolvedOutputFile as string,
+          JSON.stringify(exportData, null, 2),
+          { mode: 0o600 }
+        );
+        log.success(`✅ [TOOL] get_notebook_chat_history exported to ${resolvedOutputFile}`);
 
         return {
           success: true,

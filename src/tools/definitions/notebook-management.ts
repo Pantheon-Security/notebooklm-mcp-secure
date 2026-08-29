@@ -13,9 +13,9 @@ export const notebookManagementTools: Tool[] = [
       properties: {
         url: {
           type: "string",
-          pattern: "^https://notebooklm\\.google\\.com/",
+          pattern: "^https://notebook(?:lm)?\\.google\\.(?:[a-z]{2,3}|[a-z]{2,3}\\.[a-z]{2})/",
           maxLength: 512,
-          description: "The NotebookLM notebook URL (must start with https://notebooklm.google.com/)",
+          description: "The NotebookLM notebook URL (must be a NotebookLM URL, e.g. https://notebook.google.com/notebook/<id>)",
         },
         name: {
           type: "string",
@@ -178,9 +178,9 @@ Tip: You may update multiple fields at once if requested.`,
         },
         url: {
           type: "string",
-          pattern: "^https://notebooklm\\.google\\.com/",
+          pattern: "^https://notebook(?:lm)?\\.google\\.(?:[a-z]{2,3}|[a-z]{2,3}\\.[a-z]{2})/",
           maxLength: 512,
-          description: "New notebook URL (must start with https://notebooklm.google.com/)",
+          description: "New notebook URL (must be a NotebookLM URL, e.g. https://notebook.google.com/notebook/<id>)",
         },
       },
       required: ["id"],
@@ -434,7 +434,7 @@ With auto-fix to remove stale entries:
         },
         notebook_url: {
           type: "string",
-          pattern: "^https://notebooklm\\.google\\.com/",
+          pattern: "^https://notebook(?:lm)?\\.google\\.(?:[a-z]{2,3}|[a-z]{2,3}\\.[a-z]{2})/",
           maxLength: 512,
           description: "Direct notebook URL (overrides notebook_id)",
         },
@@ -473,7 +473,7 @@ If neither \`notebook_id\` nor \`notebook_url\` is provided, this tool uses the 
         },
         notebook_url: {
           type: "string",
-          pattern: "^https://notebooklm\\.google\\.com/",
+          pattern: "^https://notebook(?:lm)?\\.google\\.(?:[a-z]{2,3}|[a-z]{2,3}\\.[a-z]{2})/",
           maxLength: 512,
           description: "Direct notebook URL (overrides notebook_id)",
         },
@@ -548,7 +548,7 @@ If neither \`notebook_id\` nor \`notebook_url\` is provided, this tool uses the 
         },
         notebook_url: {
           type: "string",
-          pattern: "^https://notebooklm\\.google\\.com/",
+          pattern: "^https://notebook(?:lm)?\\.google\\.(?:[a-z]{2,3}|[a-z]{2,3}\\.[a-z]{2})/",
           maxLength: 512,
           description: "Direct notebook URL (overrides notebook_id)",
         },
@@ -603,7 +603,7 @@ If neither \`notebook_id\` nor \`notebook_url\` is provided, this tool uses the 
         },
         notebook_url: {
           type: "string",
-          pattern: "^https://notebooklm\\.google\\.com/",
+          pattern: "^https://notebook(?:lm)?\\.google\\.(?:[a-z]{2,3}|[a-z]{2,3}\\.[a-z]{2})/",
           maxLength: 512,
           description: "Direct notebook URL (overrides notebook_id)",
         },
@@ -796,7 +796,7 @@ Summary with:
         },
         notebook_url: {
           type: "string",
-          pattern: "^https://notebooklm\\.google\\.com/",
+          pattern: "^https://notebook(?:lm)?\\.google\\.(?:[a-z]{2,3}|[a-z]{2,3}\\.[a-z]{2})/",
           maxLength: 512,
           description: "Or direct notebook URL (overrides notebook_id)",
         },
@@ -826,7 +826,7 @@ Summary with:
         },
         notebook_url: {
           type: "string",
-          pattern: "^https://notebooklm\\.google\\.com/",
+          pattern: "^https://notebook(?:lm)?\\.google\\.(?:[a-z]{2,3}|[a-z]{2,3}\\.[a-z]{2})/",
           maxLength: 512,
           description: "Or direct notebook URL (overrides notebook_id)",
         },
@@ -861,7 +861,7 @@ Downloads to specified path or ~/notebooklm-audio-{timestamp}.mp3
         },
         notebook_url: {
           type: "string",
-          pattern: "^https://notebooklm\\.google\\.com/",
+          pattern: "^https://notebook(?:lm)?\\.google\\.(?:[a-z]{2,3}|[a-z]{2,3}\\.[a-z]{2})/",
           maxLength: 512,
           description: "Or direct notebook URL (overrides notebook_id)",
         },

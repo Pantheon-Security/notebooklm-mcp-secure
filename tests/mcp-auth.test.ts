@@ -449,10 +449,24 @@ describe("MCPAuthenticator", () => {
 
   describe("authenticateMCPRequest middleware", () => {
     it("requires a token when forceAuth=true and auth globally disabled", async () => {
+      // MCPAuthenticator reads NLMCP_AUTH_DISABLED in its CONSTRUCTOR, and
+      // getMCPAuthenticator() caches the instance for the module's lifetime.
+      // Setting the env here and calling straight through leaves whatever
+      // instance already existed in place, so the assertion below held
+      // whether or not auth was actually disabled — it can be refused in both
+      // states. Reset the module graph so the precondition is real, then
+      // assert it rather than assume it (FX-025).
       process.env.NLMCP_AUTH_DISABLED = "true";
-      const res = await authenticateMCPRequest(undefined, "test-tool", true);
+      vi.resetModules();
+
+      const mod = await import("../src/auth/mcp-auth.js");
+      expect(mod.getMCPAuthenticator().isEnabled()).toBe(false);
+
+      const res = await mod.authenticateMCPRequest(undefined, "test-tool", true);
       expect(res.authenticated).toBe(false);
       expect(res.error).toMatch(/authentication/i);
+
+      vi.resetModules();
     });
   });
 });
