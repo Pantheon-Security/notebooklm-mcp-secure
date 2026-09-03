@@ -1,0 +1,76 @@
+name: Publish to MCP Registry
+
+# An ORG namespace (io.github.Pantheon-Security/*) cannot be published by
+# interactive login — an organisation is not an account you can log in as. The
+# registry grants it to a GitHub Action running in that org's repo, via OIDC.
+# That is why `mcp-publisher login github` fails here with a 403 offering only
+# io.github.<your-user>/*.
+#
+# Runs after a GitHub Release is published, by which point the npm version the
+# registry points at must already exist.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish server.json
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for OIDC
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The drift this exists to prevent: server.json sat at 2026.1.10 while
+      # npm was on 2026.5.0 and the registry still advertised 2026.1.5. Fail
+      # loudly rather than publish a stale pointer.
+      - name: Check server.json matches package.json
+        run: |
+          pkg=$(node -p "require('./package.json').version")
+          top=$(node -p "require('./server.json').version")
+          inner=$(node -p "require('./server.json').packages[0].version")
+          echo "package.json=$pkg  server.json=$top  packages[0]=$inner"
+          if [ "$pkg" != "$top" ] || [ "$pkg" != "$inner" ]; then
+            echo "::error::Version mismatch. Update server.json to $pkg before releasing."
+            exit 1
+          fi
+
+      # The registry entry points at an npm package. If that version is not on
+      # the registry yet, the listing would advertise something uninstallable.
+      - name: Check the npm version is published
+        run: |
+          pkg=$(node -p "require('./package.json').version")
+          name=$(node -p "require('./package.json').name")
+          if ! npm view "$name@$pkg" version >/dev/null 2>&1; then
+            echo "::error::$name@$pkg is not on npm yet. Publish to npm first."
+            exit 1
+          fi
+          echo "$name@$pkg present on npm"
+
+      # Pinned and checksum-verified, per the project's supply-chain rule.
+      - name: Install mcp-publisher
+        env:
+          VERSION: "1.8.0"
+        run: |
+          base="https://github.com/modelcontextprotocol/registry/releases/download/v${VERSION}"
+          curl -sSL "$base/mcp-publisher_linux_amd64.tar.gz" -o mcp-publisher.tar.gz
+          curl -sSL "$base/registry_${VERSION}_checksums.txt" -o checksums.txt
+          expected=$(awk '$2=="mcp-publisher_linux_amd64.tar.gz"{print $1}' checksums.txt)
+          actual=$(sha256sum mcp-publisher.tar.gz | awk '{print $1}')
+          if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+            echo "::error::mcp-publisher checksum mismatch (expected=$expected actual=$actual)"
+            exit 1
+          fi
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+          chmod +x mcp-publisher
+          ./mcp-publisher --version
+
+      - name: Authenticate (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish
+        run: ./mcp-publisher publish
