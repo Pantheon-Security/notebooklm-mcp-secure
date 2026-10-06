@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Notebook creation and source dialog on non-English UIs.** Every control
+  the creation flow clicks was gated on English aria-labels or a class Google
+  has since removed (`.add-source-button`), so `create_notebook` and
+  `add_source` failed on a German NotebookLM UI with "Failed to click new
+  notebook". Added locale-independent fallbacks in `selectors.ts`, following
+  the mat-icon / `jslog` pattern already used by the data-table and video
+  managers: the add_2 icon for the new-notebook and add-source buttons, the
+  `jslog` numeric IDs and icons for the upload and copied-text tiles, the
+  `copied-text-input-textarea` class and `formcontrolname` for the paste
+  textarea, and `button.close-button` for the dialog close. No localized
+  strings added. Verified end-to-end on a German UI: `create_notebook` with a
+  file source succeeds and the source is present. The copied-text path drives
+  the dialog without error but the pasted source did not persist in that run,
+  so it is not claimed as verified.
+
 ## [2026.5.0] - 2026-08-24
 
 Security and correctness release. Ten findings fixed (FX-015 through FX-027;
