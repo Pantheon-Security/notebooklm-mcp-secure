@@ -19,7 +19,7 @@ describe("waitForElement", () => {
       }),
     };
 
-    const element = await waitForElement(page, "newNotebookButton", { timeout: 900 });
+    const element = await waitForElement(page, "newNotebookButton", { timeout: 1150 }); // 4 selectors x 250ms, then the primary retry lands past the 700ms mark
 
     expect(element).toEqual({ selector: 'button[aria-label="Create new notebook"]' });
     expect(page.waitForSelector).toHaveBeenCalled();
@@ -47,5 +47,23 @@ describe("NOTEBOOKLM_SELECTORS", () => {
     expect(NOTEBOOKLM_SELECTORS.textInput.primary).toContain(":not(.query-box-input)");
     expect(NOTEBOOKLM_SELECTORS.textInput.primary).toContain('[placeholder*="search the web" i]');
     expect(NOTEBOOKLM_SELECTORS.textInput.fallbacks.some((selector) => selector.includes("mat-dialog-container textarea"))).toBe(true);
+  });
+
+  it("carries locale-independent fallbacks for every control the English aria-labels gate", () => {
+    const all = (key: keyof typeof NOTEBOOKLM_SELECTORS) =>
+      [NOTEBOOKLM_SELECTORS[key].primary, ...NOTEBOOKLM_SELECTORS[key].fallbacks].join("\n");
+    expect(all("newNotebookButton")).toContain('mat-icon:text-is("add_2")');
+    expect(all("addSourceButton")).toContain('mat-icon:text-is("add_2")');
+    expect(all("textSourceOption")).toContain('jslog^="279295"');
+    expect(all("fileSourceOption")).toContain('jslog^="279304"');
+    expect(all("textInput")).toContain("textarea.copied-text-input-textarea");
+    expect(all("closeDialogButton")).toContain("button.close-button");
+  });
+
+  it("does not hardcode any German UI string", () => {
+    const everything = JSON.stringify(NOTEBOOKLM_SELECTORS);
+    for (const word of ["Neues Notebook", "Quelle hinzufügen", "Dateien hochladen", "Kopierter Text", "Schließen", "Feld für Anfragen"]) {
+      expect(everything).not.toContain(word);
+    }
   });
 });

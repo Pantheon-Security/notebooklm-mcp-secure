@@ -41,6 +41,7 @@ export const NOTEBOOKLM_SELECTORS = {
     fallbacks: [
       'button[aria-label*="Create new"]',
       'button[aria-label*="Create"]',
+      'button.mat-mdc-unelevated-button:has(mat-icon:text-is("add_2"))', // Locale-independent: the only filled button with the add_2 icon on the home page (DE UI, Oct 2026)
     ],
     confirmed: true, // December 2025
   },
@@ -72,6 +73,7 @@ export const NOTEBOOKLM_SELECTORS = {
       'button[aria-label="Add source"]',                          // English aria-label
       'button[aria-label*="Add source"]',                         // English partial match
       'button[aria-label="Opens the upload source dialogue"]',    // English full match
+      'button.mat-tonal-button:has(mat-icon:text-is("add_2"))', // Locale-independent: .add-source-button no longer present; tonal button with the add_2 icon (DE UI, Oct 2026)
     ],
     confirmed: true, // December 2025 - Updated
   },
@@ -99,6 +101,8 @@ export const NOTEBOOKLM_SELECTORS = {
       'button[aria-label*="Copied text"]',  // English aria-label
       'button[aria-label*="Paste"]',        // English
       'button[class*="text-source"]',       // Class: locale-independent
+      'button.source-action-button[jslog^="279295"]', // Locale-independent: jslog numeric ID of the copied-text tile (Oct 2026)
+      'button.source-action-button:has(mat-icon:text-is("content_paste"))', // Locale-independent: tile icon
     ],
     confirmed: false,
   },
@@ -112,6 +116,8 @@ export const NOTEBOOKLM_SELECTORS = {
       'button[aria-label="Upload sources from your computer"]',   // English full match
       'button[aria-label*="Upload"]',       // English partial match
       'span[role="button"]',
+      'button.source-action-button[jslog^="279304"]', // Locale-independent: jslog numeric ID of the upload tile (Oct 2026)
+      'button.source-action-button:has(mat-icon:text-is("upload"))', // Locale-independent: tile icon
     ],
     confirmed: true, // December 2025
   },
@@ -136,6 +142,8 @@ export const NOTEBOOKLM_SELECTORS = {
       'textarea[class*="text-area"]:not(.query-box-input):not([aria-label*="discover sources" i]):not([placeholder*="search the web" i])',
       'textarea.mat-mdc-form-field-textarea-control:not(.query-box-input):not([aria-label*="discover sources" i]):not([placeholder*="search the web" i])',
       'mat-dialog-container textarea:not([readonly]):not(.query-box-input):not([aria-label*="discover sources" i]):not([placeholder*="search the web" i])',
+      'textarea.copied-text-input-textarea', // Locale-independent: class on the copied-text textarea (Oct 2026)
+      'textarea[formcontrolname="copiedText"]', // Locale-independent: Angular form control name
     ],
     confirmed: true, // December 2025
   },
@@ -189,6 +197,8 @@ export const NOTEBOOKLM_SELECTORS = {
       'button[aria-label="Close dialog"]',  // US spelling variant
       'button[aria-label="Close"]',
       'button[aria-label*="close" i]',
+      'mat-dialog-container button.close-button', // Locale-independent: class on the dialog close button (Oct 2026)
+      'button.close-button[jslog^="279294"]', // Locale-independent: jslog numeric ID
     ],
     confirmed: true, // December 2025
   },
